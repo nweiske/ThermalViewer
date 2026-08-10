@@ -1,0 +1,111 @@
+name: Release
+
+# Baut automatisch zwei Windows-exe-Varianten und veröffentlicht sie als
+# GitHub Release, sobald ein Tag im Format v*.*.* gepusht wird (z.B. v1.2.0):
+#   - "windows"          : moderner Stack (PySide6, aktuelles Python) für
+#                          Windows 10/11.
+#   - "windows7-legacy"  : Kompatibilitäts-Build (PyQt5 / Qt 5.15, Python 3.8)
+#                          für ältere Laborrechner unter Windows 7. Beachte
+#                          die Hinweise in requirements-win7.txt -- dieser
+#                          Stack ist bewusst alt/unsupportet.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch: # manuelles Neu-Auslösen zum Debuggen, ohne neu zu taggen
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v7
+
+      - name: uv installieren
+        uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+
+      - name: Abhängigkeiten installieren (inkl. PyInstaller)
+        run: uv sync
+
+      - name: Import-Sanity-Check
+        run: uv run python -c "import thermal_viewer.main_window"
+
+      - name: Windows-exe bauen
+        run: >
+          uv run pyinstaller --noconfirm --clean --windowed --onefile
+          --name ThermalViewer --icon thermal_viewer/resources/icon.ico
+          --add-data "thermal_viewer/resources/icon.ico;resources" run.py
+
+      - name: Release-Archiv schnüren
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          Compress-Archive -Path dist/ThermalViewer.exe, README.md, documentation/Bedienungsanleitung.txt `
+            -DestinationPath "ThermalViewer-$version-windows.zip"
+
+      - name: Archiv hochladen
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-build
+          path: ThermalViewer-*-windows.zip
+          retention-days: 7
+
+  build-windows7-legacy:
+    runs-on: windows-latest
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v7
+
+      - name: Python 3.8 installieren (letzte Win7-kompatible Version)
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.8"
+
+      - name: Legacy-Abhängigkeiten installieren (PyQt5 / Qt 5.15)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-win7.txt
+
+      - name: Import-Sanity-Check
+        run: python -c "import thermal_viewer.main_window"
+
+      - name: Windows-7-exe bauen
+        run: >
+          pyinstaller --noconfirm --clean --windowed --onefile
+          --name ThermalViewer --icon thermal_viewer/resources/icon.ico
+          --add-data "thermal_viewer/resources/icon.ico;resources" run.py
+
+      - name: Release-Archiv schnüren
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          Compress-Archive -Path dist/ThermalViewer.exe, README.md, documentation/Bedienungsanleitung.txt, requirements-win7.txt `
+            -DestinationPath "ThermalViewer-$version-windows7-legacy.zip"
+
+      - name: Archiv hochladen
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows7-legacy-build
+          path: ThermalViewer-*-windows7-legacy.zip
+          retention-days: 7
+
+  release:
+    needs: [build-windows, build-windows7-legacy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Archive einsammeln
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: GitHub Release veröffentlichen
+        uses: softprops/action-gh-release@v3
+        with:
+          files: artifacts/*.zip
+          generate_release_notes: true

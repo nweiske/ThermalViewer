@@ -1,0 +1,19 @@
+# Gepinnter Legacy-Stack NUR für den Windows-7-kompatiblen Release-Build.
+#
+# Windows 7 wird von PySide6/Qt6 grundsätzlich nicht unterstützt (nie
+# unterstützt, keine Frage der Version) und von CPython selbst nur noch bis
+# Python 3.8 (ab 3.9 offiziell "cannot be used on Windows 7 or earlier").
+# Dieser Stack ist daher bewusst alt und unsupportet (Python 3.8 ist seit
+# 10/2024 EOL, Qt 5.15 Open-Source-Branch erhält keine Fixes mehr). Nur für
+# die Ziel-Laborrechner verwenden, die wirklich auf Windows 7 laufen -- für
+# alles andere (Entwicklung, moderne Windows-10/11-Rechner) gilt weiterhin
+# pyproject.toml mit PySide6.
+#
+# Versionen wurden gezielt gegen Python 3.8 aufgelöst und lokal getestet
+# (Laden, ROI-Handling, Export, Docking, Wiedergabe) -- ein Testlauf auf
+# echter Windows-7-Hardware vor dem Rollout wird trotzdem empfohlen.
+PyQt5==5.15.11
+numpy==1.24.4
+pyqtgraph==0.13.3
+pyinstaller==5.13.2
+qtpy==2.4.3

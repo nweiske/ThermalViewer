@@ -1,0 +1,55 @@
+================================================================
+  THERMO-SEQUENZ-VIEWER - TASTATUR-SHORTCUTS (KURZREFERENZ)
+================================================================
+
+Stand: 2026-08-19
+Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
+(Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
+zusaetzliche Software.
+
+Ausfuehrliche Erklaerungen zu allen Funktionen: siehe
+Bedienungsanleitung.txt, Abschnitt 5 (Frame-Navigation und
+Wiedergabe).
+
+
+FRAME-NAVIGATION
+----------------
+  Pfeil rechts         -> einen Frame vor
+  Pfeil links           -> einen Frame zurueck
+  Bild-Auf (Page Up)    -> 10 Frames vor
+  Bild-Ab (Page Down)   -> 10 Frames zurueck
+  Pos1 (Home)            -> zum ersten Frame springen
+  Ende (End)             -> zum letzten Frame springen
+  Leertaste              -> Wiedergabe starten/pausieren
+                            (wie der Play-Knopf in der Symbolleiste)
+
+
+HINWEIS ZUR LEERTASTE
+----------------------
+Ist gerade ein anwaehlbarer Knopf oder eine Checkbox fokussiert
+(z.B. "Im Bild platzieren" oder "sichtbar" nach Anklicken oder
+Durchtabben), schaltet die Leertaste stattdessen GENAU DIESES
+Element um (Standard-Qt-Verhalten) und laesst die Wiedergabe
+unangetastet.
+
+
+ALLGEMEIN
+---------
+Alle oben genannten Tasten wirken NICHT, solange gerade in ein
+Text- oder Zahlenfeld getippt wird (z.B. ROI-Name, X/Y/Groesse,
+Min/Max) - dort haben Pfeiltasten/Pos1/Ende weiterhin ihre normale
+Bedeutung (Cursor im Feld bewegen). Erst nach Verlassen des Feldes
+(z.B. per Klick woanders hin oder Tab) sind die Shortcuts wieder
+aktiv.
+
+
+MAUS-INTERAKTION IM BILD (zusaetzlich, keine Tastatur)
+--------------------------------------------------------
+Nicht direkt ein Tastatur-Shortcut, aber eng mit der Live-Ansicht
+verwandt und daher hier mit aufgefuehrt:
+
+  Linksklick ins Bild   -> fixiert den Live-Cursor auf dieser Stelle
+                           (Kreuz-Marker), der Live-Graph bleibt
+                           stehen und folgt der Maus nicht mehr.
+  Rechtsklick ins Bild  -> hebt die Fixierung wieder auf, der
+                           Live-Graph folgt danach wieder der Maus.

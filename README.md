@@ -46,6 +46,9 @@ konkreten Qt-Anbindung entkoppelt: lokal läuft er unter PySide6 (siehe
 
 Ausführliche Bedienungsanleitung (reine Textdatei, ohne Zusatzsoftware
 lesbar): [documentation/Bedienungsanleitung.txt](documentation/Bedienungsanleitung.txt).
+Separate Kurzreferenz aller Tastatur-Shortcuts:
+[documentation/Tastatur-Shortcuts.txt](documentation/Tastatur-Shortcuts.txt).
+Beide Dateien werden im Release-Zip mitausgeliefert (siehe unten).
 
 ## App-Icon
 

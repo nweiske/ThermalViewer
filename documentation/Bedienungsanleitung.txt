@@ -132,6 +132,9 @@ editiert wird):
   - Pos1 / Ende            -> zum ersten / letzten Frame springen
   - Leertaste              -> Wiedergabe starten/pausieren (wie Play-Knopf)
 
+Eine separate Kurzreferenz aller Tastatur-Shortcuts liegt in
+Tastatur-Shortcuts.txt (gleicher Ordner wie diese Datei).
+
 
 ================================================================
 6. MESSBEREICHE (ROI) ANLEGEN UND BEARBEITEN

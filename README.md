@@ -19,10 +19,25 @@ rechts andockbare Panels für bis zu 5 quadratische Messbereiche (ROIs) und
 deren Temperaturverlauf über die Zeit sowie einen Live-Verlauf am
 Mauszeiger. Alle Panels sind in der Breite verstellbar (Docking-System).
 Jedes ROI hat eine frei wählbare Farbe (Klick auf das Farbfeld). Beide
-Graphen (Zeitverlauf & Live) lassen sich über „Graph speichern…“ als
-PNG/JPEG/BMP/TIFF/WebP mit wählbarer DPI exportieren – dabei entsteht
-zusätzlich eine gleichnamige `.json`-Datei mit Metadaten (ROI-Koordinaten,
-Farben, Zeitstempel aller Frames, Quellordner, DPI, Bildgröße).
+Graphen (Zeitverlauf & Live) lassen sich über „Grafik speichern…“ als
+PNG/JPEG/BMP/TIFF/WebP mit wählbarer DPI exportieren – die exportierte Datei
+zeigt Thermobild (mit Position der Messbereiche bzw. des Cursor-Pixels) und
+Temperaturverlauf gemeinsam in einer Grafik. Dabei entsteht zusätzlich eine
+gleichnamige `.json`-Datei mit Metadaten (ROI-Koordinaten, Farben,
+Zeitstempel aller Frames, Quellordner, DPI, Bildgröße).
+
+Über „Ansicht > Design“ lässt sich zwischen hellem und dunklem Farbschema
+wechseln; die Wahl wird gespeichert und beim nächsten Start wiederhergestellt.
+
+Zusätzlich zur Grafik lassen sich die reinen Messwerte über „Werte als
+CSV…“ exportieren (';'-getrennt, Dezimalkomma). Über „Datei > Projekt
+speichern…/laden…“ lassen sich Messbereiche, Farbverlauf und Legenden-
+Limits in einer `.tvproj`-Datei sichern und auf eine andere Sitzung
+derselben (oder einer kompatiblen) Messreihe anwenden. Frame-Navigation
+per Tastatur: Pfeiltasten (±1 Frame), Bild-Auf/-Ab (±10 Frames), Pos1/Ende
+(erster/letzter Frame), Leertaste (Play/Pause). Beim Laden werden
+kaputte/unlesbare Dateien oder Frames mit abweichender Auflösung einzeln
+übersprungen (mit Warnung) statt den gesamten Ladevorgang abzubrechen.
 
 Der Code ist über [qtpy](https://github.com/spyder-ide/qtpy) von der
 konkreten Qt-Anbindung entkoppelt: lokal läuft er unter PySide6 (siehe
@@ -46,7 +61,7 @@ Ein Push eines Tags im Format `vX.Y.Z` (z.B. `v1.0.0`) löst automatisch
 [.github/workflows/release.yml](.github/workflows/release.yml) aus und
 veröffentlicht zwei exe-Varianten als Anhang eines neuen GitHub Release:
 
-- **`ThermalViewer-vX.Y.Z-windows.zip`** – moderner Stack (PySide6, aktuelles
+- **`ThermalViewer-vX.Y.Z-windows10-11.zip`** – moderner Stack (PySide6, aktuelles
   Python via uv) für Windows 10/11.
 - **`ThermalViewer-vX.Y.Z-windows7-legacy.zip`** – Kompatibilitäts-Build
   (PyQt5 / Qt 5.15 LTS, Python 3.8) für ältere Laborrechner unter Windows 7.

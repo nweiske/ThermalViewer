@@ -49,6 +49,9 @@ class Recording:
     timestamps: list[datetime] = field(default_factory=list)
     frames: np.ndarray | None = None  # (n_frames, rows, cols)
     had_duplicate_timestamps: bool = False
+    # Dateien, die beim Laden uebersprungen wurden (kaputte/unlesbare CSV
+    # oder abweichende Bildaufloesung), zusammen mit dem jeweiligen Grund.
+    skipped_files: list[tuple[Path, str]] = field(default_factory=list)
 
     @property
     def n_frames(self) -> int:
@@ -89,26 +92,68 @@ def _deduplicate_timestamps(timestamps: list[datetime]) -> tuple[list[datetime],
 
 
 def load_paths(paths: list[Path], progress_cb=None) -> Recording:
+    """Laedt alle angegebenen Dateien zu einer Recording zusammen.
+
+    Einzelne kaputte/unlesbare Dateien oder Frames mit abweichender
+    Aufloesung brechen den Ladevorgang NICHT ab -- sie werden uebersprungen
+    und landen in `Recording.skipped_files`, damit der Aufrufer den Nutzer
+    warnen kann, ohne die restliche (gueltige) Messreihe wegzuwerfen. Nur
+    wenn am Ende gar keine verwertbaren Frames uebrig bleiben, wird ein
+    RecordingError geworfen.
+    """
     paths = sorted(paths, key=parse_timestamp)
-    timestamps = [parse_timestamp(p) for p in paths]
-    timestamps, had_duplicates = _deduplicate_timestamps(timestamps)
-    frames = []
+
+    loaded: list[tuple[Path, datetime, np.ndarray]] = []
+    skipped: list[tuple[Path, str]] = []
+
     for i, p in enumerate(paths):
-        frames.append(load_frame(p))
+        try:
+            frame = load_frame(p)
+        except (OSError, UnicodeDecodeError, ValueError, RecordingError) as exc:
+            skipped.append((p, str(exc)))
+        else:
+            loaded.append((p, parse_timestamp(p), frame))
         if progress_cb is not None:
             progress_cb(i + 1, len(paths))
 
-    shapes = {f.shape for f in frames}
-    if len(shapes) > 1:
-        raise RecordingError(
-            "Frames haben unterschiedliche Abmessungen, kann sie nicht "
-            f"stapeln: {sorted(shapes)}"
-        )
+    if not loaded:
+        details = "\n".join(f"- {p.name}: {err}" for p, err in skipped)
+        raise RecordingError(f"Keine der ausgewählten Dateien konnte geladen werden:\n{details}")
+
+    shape_counts: dict[tuple[int, int], int] = {}
+    for _, _, frame in loaded:
+        shape_counts[frame.shape] = shape_counts.get(frame.shape, 0) + 1
+    reference_shape = max(shape_counts, key=shape_counts.get)
+
+    kept: list[tuple[Path, datetime, np.ndarray]] = []
+    for p, ts, frame in loaded:
+        if frame.shape == reference_shape:
+            kept.append((p, ts, frame))
+        else:
+            skipped.append(
+                (
+                    p,
+                    f"Abweichende Bildaufloesung {frame.shape} "
+                    f"({shape_counts[frame.shape]} von {len(loaded)} Datei(en)) -- "
+                    f"erwartet wurde {reference_shape} "
+                    f"({shape_counts[reference_shape]} von {len(loaded)} Datei(en))",
+                )
+            )
+
+    if not kept:
+        raise RecordingError("Keine Dateien mit einheitlicher Bildauflösung gefunden.")
+
+    kept_paths = [p for p, _, _ in kept]
+    kept_timestamps = [ts for _, ts, _ in kept]
+    kept_frames = [frame for _, _, frame in kept]
+    kept_timestamps, had_duplicates = _deduplicate_timestamps(kept_timestamps)
+
     return Recording(
-        paths=paths,
-        timestamps=timestamps,
-        frames=np.stack(frames),
+        paths=kept_paths,
+        timestamps=kept_timestamps,
+        frames=np.stack(kept_frames),
         had_duplicate_timestamps=had_duplicates,
+        skipped_files=skipped,
     )
 
 

@@ -50,13 +50,13 @@ jobs:
         run: |
           $version = "${{ github.ref_name }}"
           Compress-Archive -Path dist/ThermalViewer.exe, README.md, documentation/Bedienungsanleitung.txt `
-            -DestinationPath "ThermalViewer-$version-windows.zip"
+            -DestinationPath "ThermalViewer-$version-windows10-11.zip"
 
       - name: Archiv hochladen
         uses: actions/upload-artifact@v7
         with:
-          name: windows-build
-          path: ThermalViewer-*-windows.zip
+          name: windows10-11-build
+          path: ThermalViewer-*-windows10-11.zip
           retention-days: 7
 
   build-windows7-legacy:

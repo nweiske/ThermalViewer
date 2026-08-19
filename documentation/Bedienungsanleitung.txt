@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-08-10
+Stand: 2026-08-19
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
@@ -18,10 +18,11 @@ INHALT
  6. Messbereiche (ROI) anlegen und bearbeiten
  7. Legende / Farbskala
  8. Zeitverlauf-Graph und Live-Graph
- 9. Graph exportieren (Bild + Metadaten)
-10. Fenster/Panels anordnen
-11. Hinweise und Problembehebung
-12. Technische Details zum Dateiformat
+ 9. Grafik exportieren (Bild + Metadaten + CSV)
+10. Projekt speichern und laden
+11. Fenster/Panels anordnen
+12. Hinweise und Problembehebung
+13. Technische Details zum Dateiformat
 
 
 ================================================================
@@ -46,10 +47,10 @@ Es gibt zwei Varianten:
 
   a) Fertige exe (empfohlen fuer normale Nutzung)
      Doppelklick auf ThermalViewer.exe. Es gibt zwei Ausgaben:
-       - ThermalViewer-<version>-windows.zip        (Windows 10/11)
+       - ThermalViewer-<version>-windows10-11.zip    (Windows 10/11)
        - ThermalViewer-<version>-windows7-legacy.zip (Windows 7)
      Falls unsicher, welche exe zum eigenen Rechner passt: die
-     "windows"-Variante zuerst probieren. Startet sie nicht, die
+     "windows10-11"-Variante zuerst probieren. Startet sie nicht, die
      "windows7-legacy"-Variante verwenden.
 
   b) Aus dem Quellcode (fuer Entwicklung)
@@ -74,7 +75,7 @@ Es gibt zwei Varianten:
                             (auch nur eine einzelne Datei moeglich).
 
 Die Reihenfolge der Frames ergibt sich automatisch aus dem Zeitstempel
-im Dateinamen (siehe Abschnitt 12). Nach dem Laden erscheint der erste
+im Dateinamen (siehe Abschnitt 13). Nach dem Laden erscheint der erste
 Frame im Bildbereich, und die Statuszeile unten zeigt an, wie viele
 Frames geladen wurden.
 
@@ -83,6 +84,12 @@ HINWEIS: Tragen mehrere Dateien exakt denselben Zeitstempel im Namen
 umbenannt wurde), erscheint eine Warnung. Das Programm funktioniert
 trotzdem, die Zeitachse wird dann intern minimal (Millisekunden)
 auseinandergezogen, damit die Graphen sinnvoll aussehen.
+
+HINWEIS: Ist eine einzelne CSV-Datei kaputt/unlesbar (z.B. abgebrochener
+Schreibvorgang) oder hat eine abweichende Bildaufloesung als der Rest der
+Messreihe, bricht das Laden NICHT komplett ab. Die betroffene(n) Datei(en)
+werden automatisch uebersprungen, eine Warnung listet sie mit Grund auf,
+und die restliche (gueltige) Messreihe wird ganz normal geladen.
 
 
 ================================================================
@@ -96,6 +103,11 @@ Das Bild selbst laesst sich absichtlich NICHT mit der Maus verschieben
 oder zoomen - alle relevanten Messdaten befinden sich immer vollstaendig
 im sichtbaren Bereich. Lediglich die Messbereiche (ROIs, siehe unten)
 lassen sich per Maus verschieben und in der Groesse aendern.
+
+Ueber "Ansicht > Design" laesst sich zwischen hellem und dunklem
+Farbschema wechseln (fuer Bild, Graphen und restliche Oberflaeche). Die
+Wahl wird gespeichert und beim naechsten Start automatisch wieder
+eingestellt.
 
 
 ================================================================
@@ -111,6 +123,14 @@ In der Symbolleiste oben:
 
 Der aktuelle Zeitstempel des angezeigten Frames steht rechts daneben.
 Die Wiedergabe stoppt automatisch am letzten Frame.
+
+Zusaetzlich per Tastatur bedienbar (solange kein Text-/Zahlenfeld gerade
+editiert wird):
+
+  - Pfeil rechts / links   -> einen Frame vor / zurueck
+  - Bild-Auf / Bild-Ab     -> 10 Frames vor / zurueck
+  - Pos1 / Ende            -> zum ersten / letzten Frame springen
+  - Leertaste              -> Wiedergabe starten/pausieren (wie Play-Knopf)
 
 
 ================================================================
@@ -180,7 +200,7 @@ Rechts neben dem Bild liegt die Farbskala (Histogramm/Legende):
 ================================================================
 
 Rechts befinden sich zwei Reiter/Tabs (per Klick auf den Titel oben
-umschaltbar, oder als eigenes Fenster abtrennbar - siehe Abschnitt 10):
+umschaltbar, oder als eigenes Fenster abtrennbar - siehe Abschnitt 11):
 
   - "Zeitverlauf"   -> zeigt fuer jeden platzierten und sichtbaren
                        Messbereich den gemittelten Temperaturwert ueber
@@ -195,35 +215,93 @@ umschaltbar, oder als eigenes Fenster abtrennbar - siehe Abschnitt 10):
                        einzelnen Bildpunkt zu inspizieren, ohne extra
                        einen Messbereich anzulegen.
 
+                       Linksklick ins Bild fixiert diese Stelle (ein
+                       Kreuz markiert das Pixel dauerhaft) - der Graph
+                       bleibt dann stehen und folgt der Maus nicht mehr,
+                       z.B. um den Wert in Ruhe abzulesen oder die
+                       Grafik zu exportieren (siehe Abschnitt 9).
+                       Rechtsklick ins Bild hebt die Fixierung wieder
+                       auf, der Graph folgt danach wieder der Maus.
+
 Bei nur sehr wenigen Frames (z.B. nur 1-2) werden zusaetzlich kleine
 Punktmarker auf den Kurven angezeigt, da eine Linie erst ab zwei
 Punkten sichtbar waere.
 
 
 ================================================================
-9. GRAPH EXPORTIEREN (BILD + METADATEN)
+9. GRAFIK EXPORTIEREN (BILD + METADATEN + CSV)
 ================================================================
 
 Unter jedem der beiden Graphen befindet sich ein Knopf
-"Graph speichern...":
+"Grafik speichern...". Die exportierte Datei zeigt IMMER BEIDES
+uebereinander: oben das Thermobild mit der Position der Messbereiche
+(bzw. beim Live-Graph die Position des fixierten/zuletzt angefahrenen
+Cursor-Pixels als Kreuz), darunter den zugehoerigen Temperaturverlauf.
+So ist auf einen Blick nachvollziehbar, WO im Bild gemessen wurde und
+WIE sich die Temperatur dort entwickelt hat.
 
   1. Dateiname und -format waehlen (PNG, JPEG, BMP, TIFF oder WebP).
   2. Gewuenschte Aufloesung in DPI eingeben (z.B. 150 fuer Bildschirm,
      hoehere Werte wie 300-600 fuer Druck/Berichte).
   3. Es entstehen ZWEI Dateien:
-       - das Bild selbst (z.B. Zeitverlauf.png)
+       - die kombinierte Grafik selbst (z.B. Zeitverlauf_mit_Position.png)
        - eine gleichnamige Datei mit Endung .json (z.B.
-         Zeitverlauf.json) mit Metadaten: Koordinaten, Groesse, Name
-         und Farbe jedes Messbereichs, Quellordner, Anzahl der Frames,
-         alle Zeitstempel, verwendete DPI und Bildgroesse in Pixeln.
+         Zeitverlauf_mit_Position.json) mit Metadaten: Koordinaten,
+         Groesse, Name und Farbe jedes Messbereichs, Quellordner,
+         Anzahl der Frames, alle Zeitstempel, verwendete DPI und
+         Bildgroesse in Pixeln.
 
 Diese .json-Datei dient der Nachvollziehbarkeit: damit laesst sich
 spaeter genau rekonstruieren, wo die Messbereiche im Bild lagen, als
-der Graph erzeugt wurde.
+die Grafik erzeugt wurde.
+
+Tipp: Beim Live-Graph vorher per Linksklick die gewuenschte Bildstelle
+fixieren (siehe Abschnitt 8) - sonst zeigt das exportierte Kreuz nur
+die zuletzt zufaellig ueberfahrene Mausposition.
+
+Daneben befindet sich der Knopf "Werte als CSV...", falls nicht das
+Bild, sondern die reinen Zahlen weiterverarbeitet werden sollen (z.B.
+in Excel oder Python):
+
+  - Beim Zeitverlauf-Graph: eine Spalte pro platziertem Messbereich,
+    je eine Zeile pro Frame (Zeitstempel, Unix-Sekunden, Temperatur je
+    ROI in Grad Celsius).
+  - Beim Live-Graph: eine Zeile pro Frame fuer das aktuelle bzw.
+    fixierte Cursor-Pixel (Zeitstempel, Unix-Sekunden, Zeile, Spalte,
+    Temperatur).
+
+Die CSV-Datei ist wie die Rohdaten ';'-getrennt mit Dezimalkomma, damit
+sie sich in einem deutsch lokalisierten Excel ohne Nacharbeit oeffnen
+laesst.
 
 
 ================================================================
-10. FENSTER/PANELS ANORDNEN
+10. PROJEKT SPEICHERN UND LADEN
+================================================================
+
+Ueber das Menue "Datei" lassen sich die Einstellungen einer Sitzung
+(NICHT die Messdaten selbst) in einer kleinen Projektdatei sichern:
+
+  - "Projekt speichern..." -> schreibt Position, Groesse, Name, Farbe
+                              und Sichtbarkeit aller Messbereiche sowie
+                              Farbverlauf, Legenden-Limits und die
+                              Standardgroesse fuer neue Messbereiche in
+                              eine Datei mit Endung ".tvproj".
+  - "Projekt laden..."     -> wendet eine zuvor gespeicherte
+                              ".tvproj"-Datei auf die AKTUELL geladene
+                              Messreihe an. Es muss also zuerst eine
+                              Messreihe geladen sein.
+
+Nuetzlich, um bei wiederkehrenden Messungen (z.B. derselbe Pruefstand)
+nicht jedes Mal alle Messbereiche neu platzieren zu muessen. Wird ein
+Projekt auf eine Messreihe aus einem anderen Quellordner als beim
+Speichern angewendet, erscheint ein Hinweis - die Messbereiche sollten
+dann kurz auf Plausibilitaet geprueft werden (z.B. falls sich die
+Bildaufloesung unterscheidet).
+
+
+================================================================
+11. FENSTER/PANELS ANORDNEN
 ================================================================
 
 Die drei rechten Panels ("ROI & Legende", "Zeitverlauf",
@@ -238,7 +316,7 @@ Die drei rechten Panels ("ROI & Legende", "Zeitverlauf",
 
 
 ================================================================
-11. HINWEISE UND PROBLEMBEHEBUNG
+12. HINWEISE UND PROBLEMBEHEBUNG
 ================================================================
 
 - "Ich sehe im Graph nur einzelne Punkte, keine Linie."
@@ -255,14 +333,25 @@ Die drei rechten Panels ("ROI & Legende", "Zeitverlauf",
 - "Das Bild laesst sich nicht verschieben/zoomen."
   -> Das ist Absicht, siehe Abschnitt 4.
 
-- "Welche exe (windows / windows7-legacy) brauche ich?"
-  -> Windows 10 oder 11: die normale "windows"-Variante.
+- "Welche exe (windows10-11 / windows7-legacy) brauche ich?"
+  -> Windows 10 oder 11: die normale "windows10-11"-Variante.
      Windows 7: die "windows7-legacy"-Variante. Diese basiert bewusst
      auf einem aelteren, aber Windows-7-faehigen Software-Stand.
 
+- "Beim Laden werden einzelne Dateien uebersprungen."
+  -> Siehe Abschnitt 3: einzelne kaputte/unlesbare Dateien oder Frames
+     mit abweichender Bildaufloesung werden automatisch uebersprungen,
+     damit der Rest der Messreihe trotzdem nutzbar bleibt. Die Warnung
+     listet Dateiname und Grund je uebersprungener Datei auf.
+
+- "Projekt laden veraendert meine Messbereiche nicht wie erwartet."
+  -> Pruefen, ob wirklich zuerst die passende Messreihe geladen wurde
+     (siehe Abschnitt 10) - eine ".tvproj"-Datei enthaelt nur
+     Einstellungen, keine Messdaten.
+
 
 ================================================================
-12. TECHNISCHE DETAILS ZUM DATEIFORMAT
+13. TECHNISCHE DETAILS ZUM DATEIFORMAT
 ================================================================
 
 Erwartetes CSV-Format je Messdatei:

@@ -24,8 +24,12 @@ jobs:
       - name: Code auschecken
         uses: actions/checkout@v7
 
+      # Achtung: setup-uv pflegt seit v8 KEINE gleitenden Major-Tags mehr
+      # (@v8/@v9/@v10 existieren nicht, nur @v7 und aelter). Daher muss hier
+      # immer eine volle Version stehen -- beim Hochziehen die tatsaechlichen
+      # Tags unter github.com/astral-sh/setup-uv/tags pruefen.
       - name: uv installieren
-        uses: astral-sh/setup-uv@v9
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 

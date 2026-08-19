@@ -53,3 +53,9 @@ verwandt und daher hier mit aufgefuehrt:
                            stehen und folgt der Maus nicht mehr.
   Rechtsklick ins Bild  -> hebt die Fixierung wieder auf, der
                            Live-Graph folgt danach wieder der Maus.
+
+Nach Aktivieren von "Werkzeuge > Maßstab festlegen..." (siehe
+Bedienungsanleitung.txt, Abschnitt 11) gilt stattdessen kurzzeitig:
+
+  Linksklick ins Bild   -> setzt Start- bzw. Endpunkt der Referenzlinie.
+  Rechtsklick ins Bild  -> bricht das Maßstab-Werkzeug ab.

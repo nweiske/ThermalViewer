@@ -17,3 +17,8 @@ numpy==1.24.4
 pyqtgraph==0.13.3
 pyinstaller==5.13.2
 qtpy==2.4.3
+
+# imageio/imageio-ffmpeg (Video-Export) sind hier bewusst NICHT gelistet:
+# main_window.py importiert sie nur lazy innerhalb der Export-Funktion, d.h.
+# ohne diese Pakete startet die App auf Windows 7 ganz normal, nur der
+# Video-Export zeigt dann einen Fehlerdialog statt eines Absturzes.

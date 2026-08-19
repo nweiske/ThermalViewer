@@ -18,11 +18,13 @@ INHALT
  6. Messbereiche (ROI) anlegen und bearbeiten
  7. Legende / Farbskala
  8. Zeitverlauf-Graph und Live-Graph
- 9. Grafik exportieren (Bild + Metadaten + CSV)
-10. Projekt speichern und laden
-11. Fenster/Panels anordnen
-12. Hinweise und Problembehebung
-13. Technische Details zum Dateiformat
+ 9. Grafik und CSV exportieren
+10. Video exportieren
+11. Maßstab (Lineal) und reale Größen in mm
+12. Projekt speichern und laden
+13. Fenster/Panels anordnen
+14. Hinweise und Problembehebung
+15. Technische Details zum Dateiformat
 
 
 ================================================================
@@ -31,8 +33,9 @@ INHALT
 
 Der Thermo-Sequenz-Viewer zeigt eine Serie von Thermokamera-Messungen
 (einzelne CSV-Dateien, je eine pro Zeitpunkt) als "Video" an und lässt
-zusätzlich bis zu 5 frei platzierbare Messbereiche (ROIs, quadratisch)
-definieren. Für jeden Messbereich wird der gemittelte Temperaturwert
+zusätzlich bis zu 5 frei platzierbare, in Breite und Höhe unabhängig
+skalierbare Messbereiche (ROIs) definieren. Für jeden Messbereich wird
+der gemittelte Temperaturwert
 über alle geladenen Zeitpunkte hinweg als Graph dargestellt.
 
 Zusätzlich kann man mit der Maus über das Bild fahren und sieht live
@@ -75,7 +78,7 @@ Es gibt zwei Varianten:
                             (auch nur eine einzelne Datei moeglich).
 
 Die Reihenfolge der Frames ergibt sich automatisch aus dem Zeitstempel
-im Dateinamen (siehe Abschnitt 13). Nach dem Laden erscheint der erste
+im Dateinamen (siehe Abschnitt 15). Nach dem Laden erscheint der erste
 Frame im Bildbereich, und die Statuszeile unten zeigt an, wie viele
 Frames geladen wurden.
 
@@ -105,20 +108,26 @@ im sichtbaren Bereich. Lediglich die Messbereiche (ROIs, siehe unten)
 lassen sich per Maus verschieben und in der Groesse aendern.
 
 Ueber "Ansicht > Design" laesst sich zwischen hellem und dunklem
-Farbschema wechseln (fuer Bild, Graphen und restliche Oberflaeche). Die
-Wahl wird gespeichert und beim naechsten Start automatisch wieder
-eingestellt.
+Farbschema wechseln (fuer die Oberflaeche). Die Wahl wird gespeichert
+und beim naechsten Start automatisch wieder eingestellt.
+
+Die Darstellung von Bild und Graphen (Hintergrund hell/dunkel, Schrift
+schwarz/weiss) laesst sich im rechten Panel unter "Grafik-Darstellung"
+UNABHAENGIG vom App-Design waehlen ("Wie App-Design" / "Hell" /
+"Dunkel") - nuetzlich z.B. um Grafiken fuer einen Ausdruck hell zu
+halten, waehrend die restliche Oberflaeche dunkel bleibt.
 
 
 ================================================================
 5. FRAME-NAVIGATION UND WIEDERGABE
 ================================================================
 
-In der Symbolleiste oben:
+Die Zeitleiste befindet sich UNTERHALB des Thermobilds (nicht mehr in
+einer Symbolleiste oben) und ist genauso breit wie das Bild selbst:
 
+  - Play-Knopf (Dreieck)    -> spielt die Sequenz automatisch ab
   - Schieberegler "Frame"   -> springt direkt zu einem bestimmten Frame
   - Zahlenfeld daneben      -> zeigt/setzt die Frame-Nummer
-  - Play-Knopf (Dreieck)    -> spielt die Sequenz automatisch ab
   - FPS-Feld                -> Abspielgeschwindigkeit (Frames pro Sekunde)
 
 Der aktuelle Zeitstempel des angezeigten Frames steht rechts daneben.
@@ -158,20 +167,58 @@ Jeder Block enthaelt:
   - "Im Bild platzieren"     -> Knopf aktivieren, dann einmal in den
                                  Bildbereich klicken: der Messbereich
                                  wird dort zentriert neu gesetzt.
-  - Felder X / Y / Groesse   -> exakte Pixel-Koordinaten (Mittelpunkt)
-                                 und Kantenlaenge des Quadrats.
+  - Felder X / Y             -> exakte Pixel-Koordinaten des Mittelpunkts.
+  - Felder Breite / Hoehe    -> Kantenlaengen in Pixeln, unabhaengig
+                                 voneinander einstellbar (siehe unten).
+                                 Ist ein Massstab definiert (Abschnitt
+                                 11), erscheint darunter zusaetzlich die
+                                 reale Groesse in mm.
   - "Uebernehmen"            -> setzt den Messbereich exakt auf die
-                                 eingegebenen X/Y/Groesse-Werte.
+                                 eingegebenen X/Y/Breite/Hoehe-Werte.
   - "Zuruecksetzen"          -> stellt Position und Groesse wieder auf
                                  den zuletzt bewusst gesetzten Stand her
                                  (z.B. nach versehentlichem Verschieben).
+  - "Reset"                  -> setzt Breite und Hoehe wieder gleich
+                                 (Quadrat), Mittelpunkt bleibt erhalten.
 
 Ein bereits platzierter Messbereich laesst sich auch direkt im Bild mit
-der Maus verschieben (Ziehen) und in der Groesse aendern (kleiner Griff
-an der unteren rechten Ecke) - er bleibt dabei immer quadratisch.
+der Maus verschieben und in der Groesse aendern. Dabei gibt es ZWEI
+Arten von Ziehpunkten (Handles):
+
+  - An den vier ECKEN: proportionale Skalierung - das Seitenverhaeltnis
+    (Breite zu Hoehe) bleibt beim Ziehen erhalten.
+  - An den vier KANTEN (Mitte jeder Seite): es aendert sich nur die
+    jeweils betroffene Dimension (Breite ODER Hoehe), die andere bleibt
+    unveraendert.
+
+So laesst sich ein Messbereich frei rechteckig formen, nicht nur
+quadratisch. Der "Reset"-Knopf macht ein verzerrtes Rechteck bei Bedarf
+wieder zum Quadrat.
 
 Die Standardgroesse fuer NEU zu platzierende Messbereiche stellt man im
-Feld "Neue Messbereiche -> Standardgroesse" ein.
+Feld "Neue Messbereiche -> Standardgroesse" ein (neue Messbereiche
+starten quadratisch mit dieser Kantenlaenge).
+
+VERLAUFS-INTERPOLATION (bewegte Messbereiche):
+Manche Messobjekte bewegen sich waehrend der Aufnahme im Bild (z.B.
+durch Kamera- oder Objektdrift). Dafuer gibt es je Messbereich die
+Checkbox "Position/Groesse ueber Zeit interpolieren (Start -> Ende)".
+Standardmaessig AUS - ohne Aktivierung bleibt ein Messbereich wie
+bisher fest an einer Stelle stehen.
+
+Bei Aktivierung:
+  1. Zum ERSTEN Bild der Serie navigieren, Messbereich dort per Maus
+     oder Eingabefeldern korrekt positionieren, dann auf
+     "Start (erstes Bild) uebernehmen" klicken.
+  2. Zum LETZTEN Bild der Serie navigieren, Messbereich dort
+     positionieren (Position und/oder Groesse duerfen sich
+     unterscheiden), dann auf "Ende (letztes Bild) uebernehmen" klicken.
+  3. Sobald beide Punkte gesetzt sind, berechnet das Programm fuer alle
+     Frames dazwischen die passende Zwischenposition/-groesse linear
+     entlang der ZEITACHSE (nicht einfach nach Frame-Nummer) - der
+     Messbereich "wandert" beim Abspielen/Scrubben entsprechend mit,
+     und auch der Temperaturverlauf-Graph wird aus den jeweils
+     korrekten, zeitlich interpolierten Bildausschnitten berechnet.
 
 
 ================================================================
@@ -182,20 +229,35 @@ Rechts neben dem Bild liegt die Farbskala (Histogramm/Legende):
 
   - Die beiden Grenzen der farbigen Markierung lassen sich direkt mit
     der Maus verschieben, um den dargestellten Temperaturbereich
-    (Kontrast) anzupassen.
+    (Kontrast) anzupassen (nur im Modus "Manuell", siehe unten).
   - Rechtsklick auf die Farbskala oeffnet ein Menue mit alternativen
     Farbverlaeufen.
   - Im Panel "ROI & Legende" oben gibt es zusaetzlich:
-      * Dropdown "Farbverlauf"          -> alternative Auswahl der
-                                            Farbpalette (u.a. "Ironbow",
-                                            aehnlich klassischen
-                                            Waermebild-Kameras)
-      * Checkbox "Automatisch"          -> Min/Max werden je Frame neu
-                                            berechnet (Standard)
-      * Felder "Min" / "Max"            -> bei ausgeschalteter
-                                            Automatik: feste, selbst
-                                            gewaehlte Grenzwerte in Grad
-                                            Celsius
+      * Dropdown "Farbverlauf"    -> Auswahl der Farbpalette: u.a.
+                                      "Ironbow" (klassische Waermebild-
+                                      Optik), "Inferno", "Plasma",
+                                      "Viridis", "Magma", "Turbo",
+                                      "Graustufen", "Hot", "Cividis",
+                                      "Coolwarm" und "Rainbow".
+      * Checkbox "Invertiert"     -> kehrt den gewaehlten Farbverlauf um
+                                      (kalt/warm vertauscht).
+      * Drei Optionen zur Skalierung:
+          - "Manuell"                        -> feste, selbst
+                                                 gewaehlte Grenzwerte
+                                                 (Felder "Min"/"Max").
+          - "Automatisch (pro Bild)"          -> Min/Max werden je
+                                                 Frame neu berechnet
+                                                 (Standard).
+          - "Automatisch (gesamte Serie)"     -> Min/Max werden EINMAL
+                                                 ueber ALLE geladenen
+                                                 Frames ermittelt und
+                                                 durchgehend verwendet -
+                                                 nuetzlich, um die
+                                                 Farbskala ueber die
+                                                 gesamte Aufnahme
+                                                 vergleichbar zu halten,
+                                                 statt sie pro Bild neu
+                                                 zu strecken.
 
 
 ================================================================
@@ -203,7 +265,7 @@ Rechts neben dem Bild liegt die Farbskala (Histogramm/Legende):
 ================================================================
 
 Rechts befinden sich zwei Reiter/Tabs (per Klick auf den Titel oben
-umschaltbar, oder als eigenes Fenster abtrennbar - siehe Abschnitt 11):
+umschaltbar, oder als eigenes Fenster abtrennbar - siehe Abschnitt 13):
 
   - "Zeitverlauf"   -> zeigt fuer jeden platzierten und sichtbaren
                        Messbereich den gemittelten Temperaturwert ueber
@@ -232,46 +294,62 @@ Punkten sichtbar waere.
 
 
 ================================================================
-9. GRAFIK EXPORTIEREN (BILD + METADATEN + CSV)
+9. GRAFIK UND CSV EXPORTIEREN
 ================================================================
 
-Unter jedem der beiden Graphen befindet sich ein Knopf
-"Grafik speichern...". Die exportierte Datei zeigt IMMER BEIDES
-uebereinander: oben das Thermobild mit der Position der Messbereiche
-(bzw. beim Live-Graph die Position des fixierten/zuletzt angefahrenen
-Cursor-Pixels als Kreuz), darunter den zugehoerigen Temperaturverlauf.
-So ist auf einen Blick nachvollziehbar, WO im Bild gemessen wurde und
-WIE sich die Temperatur dort entwickelt hat.
+Alle Export-Funktionen sind an zwei Stellen erreichbar: unter jedem der
+beiden Graphen (Knoepfe "Grafik speichern..." / "Werte als CSV...")
+UND zentral im Menue "Export" oben in der Menueleiste (ruft dieselben
+Funktionen auf). Zusaetzlich bietet ein Rechtsklick direkt auf einen
+Graphen das native Kontextmenue von pyqtgraph mit einer weiteren,
+schnellen Export-Option (Bild oder SVG) fuer genau diesen Graphen
+alleine, ohne Thermobild.
 
-  1. Dateiname und -format waehlen (PNG, JPEG, BMP, TIFF oder WebP).
-  2. Gewuenschte Aufloesung in DPI eingeben (z.B. 150 fuer Bildschirm,
-     hoehere Werte wie 300-600 fuer Druck/Berichte).
-  3. Es entstehen ZWEI Dateien:
-       - die kombinierte Grafik selbst (z.B. Zeitverlauf_mit_Position.png)
-       - eine gleichnamige Datei mit Endung .json (z.B.
-         Zeitverlauf_mit_Position.json) mit Metadaten: Koordinaten,
-         Groesse, Name und Farbe jedes Messbereichs, Quellordner,
-         Anzahl der Frames, alle Zeitstempel, verwendete DPI und
-         Bildgroesse in Pixeln.
+GRAFIK SPEICHERN (Thermobild + Kurve):
+Die exportierte Grafik zeigt das Thermobild mit der Position der
+Messbereiche (bzw. beim Live-Graph die Position des fixierten/zuletzt
+angefahrenen Cursor-Pixels als Kreuz) zusammen mit dem zugehoerigen
+Temperaturverlauf, damit auf einen Blick nachvollziehbar ist, WO im
+Bild gemessen wurde und WIE sich die Temperatur dort entwickelt hat.
 
-Diese .json-Datei dient der Nachvollziehbarkeit: damit laesst sich
-spaeter genau rekonstruieren, wo die Messbereiche im Bild lagen, als
-die Grafik erzeugt wurde.
+  1. Aufloesung in DPI eingeben (z.B. 150 fuer Bildschirm, 300-600 fuer
+     Druck/Berichte).
+  2. Waehlen, ob Bild und Kurve KOMBINIERT (eine Grafik, Bild oben/Kurve
+     unten) oder GETRENNT (zwei einzelne Dateien "..._Bild" und
+     "..._Kurve") gespeichert werden sollen. Die Wahl wird gemerkt.
+  3. Dateiname und -format waehlen: PNG, JPEG, BMP, TIFF, WebP oder SVG
+     (Vektorgrafik - die Kurve bleibt darin als editierbarer Vektorpfad
+     erhalten, das Thermobild selbst ist naturgemaess ein Rasterbild).
+  4. Zusaetzlich entsteht eine gleichnamige ".json"-Datei mit
+     Metadaten: Koordinaten, Groesse (px und, falls ein Massstab
+     definiert ist, auch mm), Name und Farbe jedes Messbereichs,
+     Quellordner, Anzahl der Frames, alle Zeitstempel und verwendete
+     DPI - damit sich spaeter rekonstruieren laesst, wo die
+     Messbereiche im Bild lagen, als die Grafik erzeugt wurde.
 
 Tipp: Beim Live-Graph vorher per Linksklick die gewuenschte Bildstelle
 fixieren (siehe Abschnitt 8) - sonst zeigt das exportierte Kreuz nur
 die zuletzt zufaellig ueberfahrene Mausposition.
 
-Daneben befindet sich der Knopf "Werte als CSV...", falls nicht das
-Bild, sondern die reinen Zahlen weiterverarbeitet werden sollen (z.B.
-in Excel oder Python):
+WERTE ALS CSV:
+Fuer die reinen Zahlen zur Weiterverarbeitung (z.B. Excel, Python).
 
-  - Beim Zeitverlauf-Graph: eine Spalte pro platziertem Messbereich,
-    je eine Zeile pro Frame (Zeitstempel, Unix-Sekunden, Temperatur je
-    ROI in Grad Celsius).
-  - Beim Live-Graph: eine Zeile pro Frame fuer das aktuelle bzw.
-    fixierte Cursor-Pixel (Zeitstempel, Unix-Sekunden, Zeile, Spalte,
-    Temperatur).
+  - Beim Zeitverlauf-Graph erscheint zuerst ein Dialog, in dem sich die
+    Spaltenueberschrift jedes Messbereichs frei anpassen laesst
+    (voreingestellt ist der ROI-Name). Je Messbereich gibt es zwei
+    Autofill-Knoepfe: "Autofill: px" traegt Name + Pixelgroesse ein
+    (z.B. "ROI 1 (30x30 px)"), "Autofill: mm" traegt Name + reale
+    Groesse ein (z.B. "ROI 1 (10,0x10,0 mm)", nur verfuegbar wenn ein
+    Massstab definiert ist, siehe Abschnitt 11). Der Text laesst sich
+    danach auch komplett von Hand ueberschreiben.
+  - Die CSV-Datei enthaelt genau ZWEI Zeitspalten - "Laufzeit" (relative
+    Aufnahmedauer, beginnend bei 00:00:00) und "Zeitstempel" (echtes
+    Datum/Uhrzeit aus dem Dateinamen) - gefolgt von einer Spalte je
+    platziertem Messbereich (bei allen 5 Messbereichen also 7 Spalten
+    insgesamt).
+  - Beim Live-Graph: "Laufzeit", "Zeitstempel", Zeile, Spalte und
+    Temperatur des aktuellen bzw. fixierten Cursor-Pixels, eine Zeile
+    pro Frame.
 
 Die CSV-Datei ist wie die Rohdaten ';'-getrennt mit Dezimalkomma, damit
 sie sich in einem deutsch lokalisierten Excel ohne Nacharbeit oeffnen
@@ -279,7 +357,57 @@ laesst.
 
 
 ================================================================
-10. PROJEKT SPEICHERN UND LADEN
+10. VIDEO EXPORTIEREN
+================================================================
+
+Ueber "Export > Video exportieren..." laesst sich die geladene Serie
+als MP4-Video speichern:
+
+  - Von-Frame / Bis-Frame  -> nur ein Ausschnitt der Serie exportieren
+                               (z.B. nur Frame 40 bis 100), Standard ist
+                               die komplette Serie.
+  - Wiedergabe-FPS          -> Abspielgeschwindigkeit im fertigen Video.
+  - "Farbskala (Legende) im Video einblenden" -> ein-/ausschaltbar.
+    Falls eingeblendet, zusaetzlich waehlbar:
+      * "Aktuelle Anzeige-Einstellungen uebernehmen" -> verwendet
+        Farbverlauf und Skalierungsmodus (Abschnitt 7) genau so, wie
+        sie gerade im Hauptfenster eingestellt sind.
+      * "Eigene Einstellungen fuer dieses Video" -> Farbverlauf,
+        Invertierung, Skalierungsmodus und Min/Max werden nur fuer
+        diesen einen Video-Export separat festgelegt, die Anzeige im
+        Hauptfenster bleibt danach unveraendert.
+
+Der Export laeuft mit Fortschrittsanzeige (abbrechbar) und stellt
+danach automatisch wieder den Anzeigezustand von vor dem Export her.
+
+
+================================================================
+11. MASSSTAB (LINEAL) UND REALE GRÖSSEN IN MM
+================================================================
+
+Ueber "Werkzeuge > Massstab festlegen..." (oder den Knopf
+"Festlegen..." im Panel "Massstab") laesst sich eine Referenzlaenge im
+Bild definieren:
+
+  1. Startpunkt der Referenzlinie im Bild anklicken.
+  2. Endpunkt anklicken.
+  3. Im erscheinenden Dialog die reale Laenge dieser Linie in mm
+     eingeben (z.B. "30" fuer eine 30 mm lange Referenzstrecke).
+
+Danach zeigt das Panel "Massstab" den ermittelten Umrechnungsfaktor
+(z.B. "1 px ≈ 0,42 mm") und bei jedem Messbereich erscheint zusaetzlich
+zur Pixel-Groesse die reale Groesse in mm (in Klammern). Die Handhabung
+der Messbereiche selbst bleibt weiterhin in Pixeln - der mm-Wert ist
+nur eine zusaetzliche Anzeige. Ueber den Knopf "Entfernen" im
+Massstab-Panel laesst sich die Umrechnung wieder loeschen.
+
+Der Massstab wird beim Speichern eines Projekts (Abschnitt 12) mit
+gesichert und laesst sich beim CSV-Export als "mm"-Autofill fuer
+Spaltennamen nutzen (Abschnitt 9).
+
+
+================================================================
+12. PROJEKT SPEICHERN UND LADEN
 ================================================================
 
 Ueber das Menue "Datei" lassen sich die Einstellungen einer Sitzung
@@ -304,7 +432,7 @@ Bildaufloesung unterscheidet).
 
 
 ================================================================
-11. FENSTER/PANELS ANORDNEN
+13. FENSTER/PANELS ANORDNEN
 ================================================================
 
 Die drei rechten Panels ("ROI & Legende", "Zeitverlauf",
@@ -319,7 +447,7 @@ Die drei rechten Panels ("ROI & Legende", "Zeitverlauf",
 
 
 ================================================================
-12. HINWEISE UND PROBLEMBEHEBUNG
+14. HINWEISE UND PROBLEMBEHEBUNG
 ================================================================
 
 - "Ich sehe im Graph nur einzelne Punkte, keine Linie."
@@ -349,12 +477,12 @@ Die drei rechten Panels ("ROI & Legende", "Zeitverlauf",
 
 - "Projekt laden veraendert meine Messbereiche nicht wie erwartet."
   -> Pruefen, ob wirklich zuerst die passende Messreihe geladen wurde
-     (siehe Abschnitt 10) - eine ".tvproj"-Datei enthaelt nur
+     (siehe Abschnitt 12) - eine ".tvproj"-Datei enthaelt nur
      Einstellungen, keine Messdaten.
 
 
 ================================================================
-13. TECHNISCHE DETAILS ZUM DATEIFORMAT
+15. TECHNISCHE DETAILS ZUM DATEIFORMAT
 ================================================================
 
 Erwartetes CSV-Format je Messdatei:

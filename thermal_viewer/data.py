@@ -2,7 +2,9 @@
 
 Dateiformat: eine Zeile pro Bildzeile, Werte per ';' getrennt, Dezimalkomma
 (deutsches Format), z.B. "28,6;28,7;...;". Jede Datei ist ein einzelner
-Frame; der Zeitstempel steckt im Dateinamen (Record_YYYY-MM-DD_HH-MM-SS.csv).
+Frame; der Zeitstempel steckt standardmaessig im Dateinamen
+(Record_YYYY-MM-DD_HH-MM-SS.csv) -- ueber ein Namens-Template (siehe
+compile_filename_template) auch fuer andere Namensschemata anpassbar.
 """
 from __future__ import annotations
 
@@ -13,21 +15,179 @@ from pathlib import Path
 
 import numpy as np
 
-FILENAME_RE = re.compile(r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})")
+# Platzhalter bewusst nach international gebraeuchlicher Konvention (wie z.B.
+# Excel/JavaScript/Moment.js: YYYY=Jahr, MM=Monat GROSS vs. mm=Minute klein,
+# um die sonst mehrdeutige Abkuerzung "MM" fuer Monat UND Minute eindeutig zu
+# machen) statt deutscher Buchstaben (JJJJ/...) -- siehe
+# FilenameTemplateDialog (dialogs.py) fuer die Nutzer-Erklaerung dazu.
+FILENAME_TEMPLATE_TOKENS: dict[str, tuple[str, str]] = {
+    "YYYY": (r"\d{4}", "%Y"),
+    "MM": (r"\d{2}", "%m"),
+    "DD": (r"\d{2}", "%d"),
+    "HH": (r"\d{2}", "%H"),
+    "mm": (r"\d{2}", "%M"),
+    "ss": (r"\d{2}", "%S"),
+}
+DEFAULT_FILENAME_TEMPLATE = "Record_YYYY-MM-DD_HH-mm-ss"
+
+
+_FILENAME_TOKEN_CHARS = frozenset("YMDHms")
+
+
+def _decompose_token_run(run: str) -> list[str] | None:
+    """Zerlegt einen Lauf aus reinen Platzhalter-Buchstaben (Y/M/D/H/m/s)
+    per Backtracking (laengste Tokens zuerst probiert) VOLLSTAENDIG in eine
+    Folge gueltiger Platzhalter, z.B. "YYYYMMDD" -> ["YYYY","MM","DD"] oder
+    "HHmmss" -> ["HH","mm","ss"]. Gibt None zurueck, wenn der Lauf sich
+    nicht restlos zerlegen laesst (z.B. "MMM" oder "MD")."""
+    tokens_longest_first = sorted(FILENAME_TEMPLATE_TOKENS, key=len, reverse=True)
+    memo: dict[int, list[str] | None] = {}
+
+    def solve(pos: int) -> list[str] | None:
+        if pos == len(run):
+            return []
+        if pos in memo:
+            return memo[pos]
+        for tok in tokens_longest_first:
+            if run.startswith(tok, pos):
+                rest = solve(pos + len(tok))
+                if rest is not None:
+                    memo[pos] = [tok] + rest
+                    return memo[pos]
+        memo[pos] = None
+        return None
+
+    return solve(0)
+
+
+def _tokenize_filename_template(template: str) -> list[tuple[str, str]]:
+    """Zerlegt template in eine Folge von ("literal", text)/("token", NAME)-
+    Stuecken -- gemeinsame Grundlage von compile_filename_template() und
+    validate_filename_template(), damit beide garantiert dieselben Stellen
+    als Platzhalter erkennen.
+
+    Ein zusammenhaengender Lauf aus Platzhalter-Buchstaben wird NUR als
+    Platzhalter(-Folge) gewertet, wenn er sich (a) restlos in gueltige
+    Tokens zerlegen laesst UND (b) unmittelbar davor/danach KEIN
+    gewoehnlicher Buchstabe steht (Bugreport: ein literaler Praefix wie
+    "Messung_" enthaelt zufaellig "ss" und wurde bisher faelschlich als
+    Sekunden-Platzhalter gelesen). Bedingung (b) wird auf Ebene des
+    GESAMTEN zusammenhaengenden Laufs geprueft, nicht pro Einzel-Token --
+    direkt aneinandergereihte Platzhalter wie "YYYYMMDD" oder "HHmmss"
+    (deren Tokens sich gegenseitig beruehren) bleiben dadurch weiterhin
+    korrekt erkennbar."""
+    pieces: list[tuple[str, str]] = []
+    literal_buf: list[str] = []
+    n = len(template)
+    i = 0
+
+    def flush_literal() -> None:
+        if literal_buf:
+            pieces.append(("literal", "".join(literal_buf)))
+            literal_buf.clear()
+
+    while i < n:
+        ch = template[i]
+        if ch in _FILENAME_TOKEN_CHARS:
+            j = i
+            while j < n and template[j] in _FILENAME_TOKEN_CHARS:
+                j += 1
+            run = template[i:j]
+            decomposition = _decompose_token_run(run)
+            before_ok = i == 0 or not template[i - 1].isalpha()
+            after_ok = j == n or not template[j].isalpha()
+            if decomposition is not None and before_ok and after_ok:
+                flush_literal()
+                pieces.extend(("token", tok) for tok in decomposition)
+            else:
+                literal_buf.append(run)
+            i = j
+        else:
+            literal_buf.append(ch)
+            i += 1
+    flush_literal()
+    return pieces
+
+
+def compile_filename_template(template: str) -> tuple[re.Pattern, str]:
+    """Uebersetzt ein Namensschema-Template (z.B. "Record_YYYY-MM-DD_HH-mm-ss")
+    in (a) ein Regex-Muster mit GENAU EINER Erfassungsgruppe, die den
+    zeitstempel-relevanten Teilstring liefert, und (b) den passenden
+    strptime()-Formatstring dafuer -- gemeinsam genutzt von parse_timestamp()
+    (tatsaechliches Laden) und FilenameTemplateDialog (Live-Vorschau/
+    Validierung beim Anpassen des Namensschemas), damit beide GARANTIERT
+    dasselbe Verhalten zeigen.
+
+    Literale Zeichen im Template (alles ausser den erkannten Platzhaltern,
+    siehe _tokenize_filename_template) werden 1:1 escaped uebernommen -- ein
+    Praefix wie "Record_" muss also nicht separat behandelt werden, sondern
+    ist einfach Teil des Templates."""
+    regex_body: list[str] = []
+    fmt: list[str] = []
+    for kind, value in _tokenize_filename_template(template):
+        if kind == "literal":
+            regex_body.append(re.escape(value))
+            fmt.append(value)
+        else:
+            digit_pattern, directive = FILENAME_TEMPLATE_TOKENS[value]
+            regex_body.append(digit_pattern)
+            fmt.append(directive)
+    pattern = re.compile("(" + "".join(regex_body) + ")")
+    return pattern, "".join(fmt)
+
+
+def validate_filename_template(template: str) -> str | None:
+    """Prueft, ob template alle sechs Zeitbestandteile GENAU EINMAL enthaelt
+    (eine vollstaendige Zeitstempel-Aufloesung ist Voraussetzung fuer eine
+    sinnvolle Zeitachse/Sortierung -- ein nur teilweiser Zeitstempel, z.B.
+    ohne Uhrzeit, waere fuer die App nicht ausreichend). Gibt bei einem
+    Problem eine deutschsprachige Fehlermeldung zurueck, sonst None."""
+    counts: dict[str, int] = {}
+    for kind, value in _tokenize_filename_template(template):
+        if kind == "token":
+            counts[value] = counts.get(value, 0) + 1
+    missing = [t for t in FILENAME_TEMPLATE_TOKENS if counts.get(t, 0) == 0]
+    duplicated = [t for t, c in counts.items() if c > 1]
+    if missing:
+        return "Es fehlen noch folgende Platzhalter: " + ", ".join(missing)
+    if duplicated:
+        return "Folgende Platzhalter dürfen nur je einmal vorkommen: " + ", ".join(duplicated)
+    return None
+
+
+DEFAULT_FILENAME_PATTERN, DEFAULT_FILENAME_STRPTIME_FMT = compile_filename_template(DEFAULT_FILENAME_TEMPLATE)
+# Rueckwaertskompatibler Name (falls andere Module/Skripte -- z.B.
+# DatasetGenerator.py -- die alte Konstante direkt referenzieren).
+FILENAME_RE = DEFAULT_FILENAME_PATTERN
 
 
 class RecordingError(Exception):
     pass
 
 
-def parse_timestamp(path: Path) -> datetime:
-    match = FILENAME_RE.search(path.stem)
+def parse_timestamp(
+    path: Path,
+    pattern: re.Pattern = DEFAULT_FILENAME_PATTERN,
+    strptime_fmt: str = DEFAULT_FILENAME_STRPTIME_FMT,
+) -> datetime:
+    match = pattern.search(path.stem)
     if not match:
         # Kein Zeitstempel im Namen -> Dateisystem-Änderungszeit als Fallback,
         # damit auch beliebig benannte Dateien geladen werden können.
         return datetime.fromtimestamp(path.stat().st_mtime)
-    date_part, time_part = match.groups()
-    return datetime.strptime(f"{date_part}_{time_part}", "%Y-%m-%d_%H-%M-%S")
+    return datetime.strptime(match.group(1), strptime_fmt)
+
+
+def files_matching_template(folder: Path, pattern: re.Pattern) -> list[Path]:
+    """Liefert alle ".csv"-DATEIEN (keine Ordner) in folder, deren Dateiname
+    (ohne Endung) auf pattern passt -- fuer die Live-Vorschau im
+    FilenameTemplateDialog UND fuer die Vorab-Pruefung beim Ordner-Oeffnen
+    (MainWindow._open_folder), ob das aktuelle Namensschema ueberhaupt zu den
+    vorhandenen Dateien passt."""
+    return sorted(
+        p for p in Path(folder).glob("*.csv")
+        if p.is_file() and pattern.search(p.stem)
+    )
 
 
 def load_frame(path: Path) -> np.ndarray:
@@ -72,26 +232,35 @@ class Recording:
 
 
 def _deduplicate_timestamps(timestamps: list[datetime]) -> tuple[list[datetime], bool]:
-    """Zieht Zeitstempel, die exakt gleich sind (z.B. weil eine Datei per
-    Windows-Kopie vervielfältigt wurde und den ursprünglichen Zeitstempel im
-    Namen behalten hat), um jeweils 1 ms auseinander. So bleibt die
-    Reihenfolge erhalten und die Zeitachse degeneriert nicht zu einem
-    einzelnen Punkt."""
-    had_duplicates = len(set(timestamps)) != len(timestamps)
-    if not had_duplicates:
-        return timestamps, False
+    """Zieht Zeitstempel, die exakt gleich sind oder (nach vorheriger
+    Anpassung, siehe append_paths) nicht mehr streng steigen, um jeweils
+    1 ms auseinander. So bleibt die Reihenfolge erhalten und die Zeitachse
+    degeneriert nicht zu einem einzelnen Punkt.
 
+    Erzwingt eine streng monoton steigende Folge statt nur exakte Duplikate
+    des jeweils UNVERAENDERTEN Vorgaengers zu erkennen -- append_paths ruft
+    dies auf einer Mischung aus bereits angepassten (alten) und neuen,
+    unangepassten Zeitstempeln auf; ein Vergleich gegen den unangepassten
+    Vorgaenger wuerde dabei erneute Kollisionen uebersehen (z.B. bereits
+    angepasstes T+1ms plus neuer echter Duplikat-Zeitstempel T)."""
     adjusted: list[datetime] = []
     previous: datetime | None = None
-    offset = timedelta()
+    changed = False
     for ts in timestamps:
-        offset = offset + timedelta(milliseconds=1) if ts == previous else timedelta()
-        adjusted.append(ts + offset)
+        if previous is not None and ts <= previous:
+            ts = previous + timedelta(milliseconds=1)
+            changed = True
+        adjusted.append(ts)
         previous = ts
-    return adjusted, True
+    return adjusted, changed
 
 
-def load_paths(paths: list[Path], progress_cb=None) -> Recording:
+def load_paths(
+    paths: list[Path],
+    progress_cb=None,
+    pattern: re.Pattern = DEFAULT_FILENAME_PATTERN,
+    strptime_fmt: str = DEFAULT_FILENAME_STRPTIME_FMT,
+) -> Recording:
     """Laedt alle angegebenen Dateien zu einer Recording zusammen.
 
     Einzelne kaputte/unlesbare Dateien oder Frames mit abweichender
@@ -100,8 +269,16 @@ def load_paths(paths: list[Path], progress_cb=None) -> Recording:
     warnen kann, ohne die restliche (gueltige) Messreihe wegzuwerfen. Nur
     wenn am Ende gar keine verwertbaren Frames uebrig bleiben, wird ein
     RecordingError geworfen.
+
+    pattern/strptime_fmt: siehe compile_filename_template() -- erlaubt ein
+    vom Standard ("Record_YYYY-MM-DD_HH-mm-ss") abweichendes Namensschema
+    (MainWindow._filename_pattern/_filename_strptime_fmt, siehe
+    FilenameTemplateDialog).
     """
-    paths = sorted(paths, key=parse_timestamp)
+    def _ts(p: Path) -> datetime:
+        return parse_timestamp(p, pattern, strptime_fmt)
+
+    paths = sorted(paths, key=_ts)
 
     loaded: list[tuple[Path, datetime, np.ndarray]] = []
     skipped: list[tuple[Path, str]] = []
@@ -112,7 +289,7 @@ def load_paths(paths: list[Path], progress_cb=None) -> Recording:
         except (OSError, UnicodeDecodeError, ValueError, RecordingError) as exc:
             skipped.append((p, str(exc)))
         else:
-            loaded.append((p, parse_timestamp(p), frame))
+            loaded.append((p, _ts(p), frame))
         if progress_cb is not None:
             progress_cb(i + 1, len(paths))
 
@@ -157,8 +334,89 @@ def load_paths(paths: list[Path], progress_cb=None) -> Recording:
     )
 
 
-def load_folder(folder: Path, progress_cb=None) -> Recording:
+def append_paths(
+    recording: Recording,
+    new_paths: list[Path],
+    progress_cb=None,
+    pattern: re.Pattern = DEFAULT_FILENAME_PATTERN,
+    strptime_fmt: str = DEFAULT_FILENAME_STRPTIME_FMT,
+) -> Recording:
+    """Erweitert eine bestehende Recording um zusaetzliche, neu hinzugekommene
+    Frames (Live-Ordner-Ueberwachung waehrend einer laufenden Messung, siehe
+    MainWindow._check_for_new_files) und gibt eine NEUE Recording zurueck.
+
+    Dateien, die (per Pfad) bereits Teil von `recording.paths` sind, werden
+    ignoriert. Frames mit von der bisherigen Aufnahme abweichender
+    Bildaufloesung werden -- wie bei load_paths -- einzeln uebersprungen statt
+    die gesamte Erweiterung abzubrechen. Alle Frames (alt + neu) werden
+    anschliessend nach Zeitstempel neu sortiert, fuer den Fall, dass neue
+    Dateien nicht streng chronologisch nachgeliefert werden.
+
+    pattern/strptime_fmt: siehe load_paths() -- muss mit dem beim
+    urspruenglichen Laden dieser Recording verwendeten Namensschema
+    uebereinstimmen (MainWindow uebergibt dafuer konsistent
+    self._filename_pattern/_filename_strptime_fmt)."""
+    def _ts(p: Path) -> datetime:
+        return parse_timestamp(p, pattern, strptime_fmt)
+
+    existing = set(recording.paths)
+    candidates = sorted((p for p in new_paths if p not in existing), key=_ts)
+    if not candidates:
+        return recording
+
+    reference_shape = recording.shape
+    loaded: list[tuple[Path, datetime, np.ndarray]] = []
+    skipped: list[tuple[Path, str]] = list(recording.skipped_files)
+
+    for i, p in enumerate(candidates):
+        try:
+            frame = load_frame(p)
+        except (OSError, UnicodeDecodeError, ValueError, RecordingError) as exc:
+            skipped.append((p, str(exc)))
+        else:
+            if reference_shape != (0, 0) and frame.shape != reference_shape:
+                skipped.append(
+                    (p, f"Abweichende Bildaufloesung {frame.shape} -- erwartet wurde {reference_shape}")
+                )
+            else:
+                loaded.append((p, _ts(p), frame))
+        if progress_cb is not None:
+            progress_cb(i + 1, len(candidates))
+
+    if not loaded:
+        return Recording(
+            paths=recording.paths,
+            timestamps=recording.timestamps,
+            frames=recording.frames,
+            had_duplicate_timestamps=recording.had_duplicate_timestamps,
+            skipped_files=skipped,
+        )
+
+    existing_frames = list(recording.frames) if recording.frames is not None else []
+    combined = list(zip(recording.paths, recording.timestamps, existing_frames)) + loaded
+    combined.sort(key=lambda entry: entry[1])
+
+    paths = [p for p, _, _ in combined]
+    timestamps = [ts for _, ts, _ in combined]
+    frames = [frame for _, _, frame in combined]
+    timestamps, had_duplicates = _deduplicate_timestamps(timestamps)
+
+    return Recording(
+        paths=paths,
+        timestamps=timestamps,
+        frames=np.stack(frames),
+        had_duplicate_timestamps=had_duplicates,
+        skipped_files=skipped,
+    )
+
+
+def load_folder(
+    folder: Path,
+    progress_cb=None,
+    pattern: re.Pattern = DEFAULT_FILENAME_PATTERN,
+    strptime_fmt: str = DEFAULT_FILENAME_STRPTIME_FMT,
+) -> Recording:
     paths = sorted(Path(folder).glob("*.csv"))
     if not paths:
         raise RecordingError(f"Keine CSV-Dateien in {folder} gefunden.")
-    return load_paths(paths, progress_cb=progress_cb)
+    return load_paths(paths, progress_cb=progress_cb, pattern=pattern, strptime_fmt=strptime_fmt)

@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-08-19
+Stand: 2026-08-24
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
@@ -33,10 +33,10 @@ INHALT
 
 Der Thermo-Sequenz-Viewer zeigt eine Serie von Thermokamera-Messungen
 (einzelne CSV-Dateien, je eine pro Zeitpunkt) als "Video" an und lässt
-zusätzlich bis zu 5 frei platzierbare, in Breite und Höhe unabhängig
-skalierbare Messbereiche (ROIs) definieren. Für jeden Messbereich wird
-der gemittelte Temperaturwert
-über alle geladenen Zeitpunkte hinweg als Graph dargestellt.
+zusätzlich beliebig viele frei platzierbare, in Breite und Höhe
+unabhängig skalierbare Messbereiche (ROIs, standardmäßig 5) definieren.
+Für jeden Messbereich wird der gemittelte Temperaturwert über alle
+geladenen Zeitpunkte hinweg als Graph dargestellt.
 
 Zusätzlich kann man mit der Maus über das Bild fahren und sieht live
 den Temperaturverlauf des Pixels unter dem Mauszeiger über alle Frames.
@@ -48,13 +48,22 @@ den Temperaturverlauf des Pixels unter dem Mauszeiger über alle Frames.
 
 Es gibt zwei Varianten:
 
-  a) Fertige exe (empfohlen fuer normale Nutzung)
-     Doppelklick auf ThermalViewer.exe. Es gibt zwei Ausgaben:
+  a) Fertige ausfuehrbare Datei (empfohlen fuer normale Nutzung)
+     Unter Windows: Doppelklick auf ThermalViewer.exe. Es gibt zwei
+     Ausgaben:
        - ThermalViewer-<version>-windows10-11.zip    (Windows 10/11)
        - ThermalViewer-<version>-windows7-legacy.zip (Windows 7)
      Falls unsicher, welche exe zum eigenen Rechner passt: die
      "windows10-11"-Variante zuerst probieren. Startet sie nicht, die
      "windows7-legacy"-Variante verwenden.
+
+     Unter Linux: ThermalViewer-<version>-linux.tar.gz entpacken, dann
+     in einem Terminal einmalig "chmod +x ThermalViewer" ausfuehren und
+     danach per Doppelklick oder "./ThermalViewer" starten. Setzt die
+     ueblichen Qt-Laufzeitbibliotheken voraus (u.a. libgl1, libegl1,
+     libxkbcommon0, die libxcb-*-Pakete, libdbus-1-3, libfontconfig1 -
+     unter Debian/Ubuntu z.B. per "sudo apt install libgl1 libegl1
+     libxkbcommon0 libdbus-1-3 libfontconfig1" nachinstallierbar).
 
   b) Aus dem Quellcode (fuer Entwicklung)
      Voraussetzung: Python-Paketverwaltung "uv" installiert.
@@ -94,6 +103,59 @@ Messreihe, bricht das Laden NICHT komplett ab. Die betroffene(n) Datei(en)
 werden automatisch uebersprungen, eine Warnung listet sie mit Grund auf,
 und die restliche (gueltige) Messreihe wird ganz normal geladen.
 
+NAMENSSCHEMA NICHT ERKANNT: Passt beim "Ordner öffnen..." KEINE der
+".csv"-Dateien im gewaehlten Ordner zum erwarteten Namensschema
+(Standard: "Record_JJJJ-MM-TT_SS-mm-ss", siehe Abschnitt 15), erscheint
+eine Rueckfrage mit drei Möglichkeiten:
+
+  - "Neuen Ordner wählen"      -> oeffnet erneut die Ordnerauswahl.
+  - "Namenstemplate anpassen…" -> oeffnet ein Fenster, in dem das
+                                   tatsaechliche Namensschema eingegeben
+                                   werden kann, z.B. "IMG_YYYY-MM-DD_
+                                   HH-mm-ss" fuer Dateien wie
+                                   "IMG_2026-08-24_14-30-00.csv".
+                                   Platzhalter (Groß-/Kleinschreibung
+                                   beachten): YYYY=Jahr, MM=Monat,
+                                   DD=Tag, HH=Stunde, mm=Minute,
+                                   ss=Sekunde (jeweils 2-stellig, YYYY
+                                   4-stellig) -- alle anderen Zeichen
+                                   muessen genau so im Dateinamen stehen.
+                                   Darunter zeigt eine LIVE-VORSCHAU
+                                   sofort, welche der tatsaechlich im
+                                   Ordner vorhandenen CSV-Dateien zum
+                                   gerade eingegebenen Schema passen
+                                   wuerden (Speichern erst moeglich, wenn
+                                   mindestens eine Datei passt). Ein
+                                   Haken "Als neues Standard-Namensschema
+                                   dauerhaft speichern" (Standard: AUS)
+                                   legt fest, ob das neue Schema nur fuer
+                                   diesen einen Ladevorgang gilt (danach
+                                   wieder das bisherige Schema) oder
+                                   dauerhaft als neuer Standard verwendet
+                                   wird.
+  - "Abbrechen"                -> bricht den Ladevorgang ab.
+
+Betrifft nur "Ordner öffnen…" (Punkt 5 der Anfrage bezog sich explizit
+auf den Ausgabe-Ordner) -- bei "Dateien öffnen…" werden Dateien einzeln
+per Hand ausgewaehlt, ein nicht erkanntes Namensschema faellt dort
+weiterhin automatisch auf das Datei-Änderungsdatum zurueck.
+
+LIVE-ORDNER UEBERWACHEN: Nach "Ordner öffnen..." laeuft automatisch im
+Hintergrund eine Live-Ueberwachung dieses Ordners, damit die App
+parallel zu einer noch laufenden Messung genutzt werden kann -- ohne
+dass dafuer etwas extra eingeschaltet werden muss. Alle 10 Sekunden wird
+geprueft, ob im geoeffneten Ordner neue CSV-Dateien abgelegt wurden, und
+diese werden automatisch nachgeladen - ohne die aktuelle Wiedergabe-
+position zu stoeren. War die Anzeige zuvor bereits beim letzten Frame
+(typisches "live mitschauen"), springt sie nach dem Nachladen
+automatisch zum jeweils neuesten Frame mit; wurde zuvor ein frueherer
+Frame betrachtet, bleibt die Position unveraendert. Das feste
+10-Sekunden-Intervall (statt sofortiger Reaktion auf jede neue Datei)
+verhindert, dass die App bei sehr haeufig abgelegten Dateien (z.B. alle
+500 ms) durch staendiges Nachladen unbenutzbar wird. Nur nach "Ordner
+öffnen..." aktiv, nicht nach "Dateien öffnen..." (dort fehlt ein
+eindeutiger gemeinsamer Ordner).
+
 
 ================================================================
 4. DER BILDBEREICH (LINKS)
@@ -107,12 +169,21 @@ oder zoomen - alle relevanten Messdaten befinden sich immer vollstaendig
 im sichtbaren Bereich. Lediglich die Messbereiche (ROIs, siehe unten)
 lassen sich per Maus verschieben und in der Groesse aendern.
 
+Direkt am Cursor-Kreuz im Bild wird zusaetzlich die Temperatur DES
+AKTUELLEN Bildpunkts eingeblendet (z.B. "23,4 °C") - dieselbe Stelle,
+die auch im Live-Graph (Abschnitt 8) verfolgt wird. Der Wert
+aktualisiert sich automatisch mit: bei Mausbewegung ueber ein anderes
+Pixel ebenso wie beim Wechsel auf einen anderen Frame waehrend der
+Wiedergabe (auch ohne die Maus zu bewegen) - so laesst sich die
+Temperatur an einer fixierten Stelle live waehrend des Abspielens
+mitverfolgen.
+
 Ueber "Ansicht > Design" laesst sich zwischen hellem und dunklem
 Farbschema wechseln (fuer die Oberflaeche). Die Wahl wird gespeichert
 und beim naechsten Start automatisch wieder eingestellt.
 
 Die Darstellung von Bild und Graphen (Hintergrund hell/dunkel, Schrift
-schwarz/weiss) laesst sich im rechten Panel unter "Grafik-Darstellung"
+schwarz/weiss) laesst sich ueber "Ansicht > Grafik-Darstellung"
 UNABHAENGIG vom App-Design waehlen ("Wie App-Design" / "Hell" /
 "Dunkel") - nuetzlich z.B. um Grafiken fuer einen Ausdruck hell zu
 halten, waehrend die restliche Oberflaeche dunkel bleibt.
@@ -131,15 +202,26 @@ einer Symbolleiste oben) und ist genauso breit wie das Bild selbst:
   - FPS-Feld                -> Abspielgeschwindigkeit (Frames pro Sekunde)
 
 Der aktuelle Zeitstempel des angezeigten Frames steht rechts daneben.
-Die Wiedergabe stoppt automatisch am letzten Frame.
+Die Wiedergabe stoppt automatisch am letzten Frame. Erneutes Klicken auf
+Play, nachdem das letzte Bild erreicht wurde, startet die Wiedergabe
+wieder von vorne (Frame 1).
 
 Zusaetzlich per Tastatur bedienbar (solange kein Text-/Zahlenfeld gerade
 editiert wird):
 
   - Pfeil rechts / links   -> einen Frame vor / zurueck
   - Bild-Auf / Bild-Ab     -> 10 Frames vor / zurueck
-  - Pos1 / Ende            -> zum ersten / letzten Frame springen
-  - Leertaste              -> Wiedergabe starten/pausieren (wie Play-Knopf)
+  - Pos1 / Ende            -> zum Auswertungsstart / zum Auswertungsende
+                              springen (Abschnitt 6, standardmaessig
+                              erster/letzter geladener Frame, beide
+                              manuell korrigierbar)
+  - Leertaste              -> Wiedergabe starten/pausieren (wie Play-Knopf).
+                              Bleibt dabei standardmaessig auf den
+                              Auswertungsbereich (Start bis Ende, siehe
+                              Abschnitt 6) begrenzt: steht der Regler beim
+                              Start bereits AUSSERHALB dieses Bereichs, laeuft
+                              die Wiedergabe stattdessen ungeklemmt bis zum
+                              tatsaechlich letzten Frame.
 
 Eine separate Kurzreferenz aller Tastatur-Shortcuts liegt in
 Tastatur-Shortcuts.txt (gleicher Ordner wie diese Datei).
@@ -149,37 +231,77 @@ Tastatur-Shortcuts.txt (gleicher Ordner wie diese Datei).
 6. MESSBEREICHE (ROI) ANLEGEN UND BEARBEITEN
 ================================================================
 
-Im rechten Panel "ROI & Legende" gibt es fuenf Bloecke (ROI 1 bis 5).
-Jeder Block enthaelt:
+Im rechten Panel "ROI & Legende" gibt es links eine senkrechte Liste,
+einen Eintrag pro Messbereich, per Klick auswaehlbar -- rechts daneben
+die Detailansicht des jeweils ausgewaehlten Messbereichs. Das spart
+Platz, da ROI-Namen meist kurz sind. Standardmaessig sind fuenf
+Messbereiche angelegt, benannt nach ihrer typischen Anordnung: "Oben",
+"Links", "Mitte", "Rechts" und "Unten" (in dieser Reihenfolge). Ueber den
+Knopf "+ Messbereich" oberhalb der Liste lassen sich beliebig viele
+weitere hinzufuegen -- jeder neue Messbereich hat exakt dieselben
+Funktionen wie die urspruenglichen fuenf und heisst zunaechst "ROI n". Die
+Trennlinie zwischen Liste und Detailansicht laesst sich per Maus
+verschieben. Das GESAMTE Panel (Legende, Maßstab und die ROI-Auswahl)
+sitzt in einem gemeinsamen Scrollbereich, damit bei knappem Platz alles
+erreichbar bleibt.
 
-  - Namensfeld (oben, fett)   -> frei editierbar, Klick hinein und
-                                 tippen. Erscheint auch als Beschriftung
-                                 direkt im Bild ueber dem Messbereich
-                                 sowie in der Legende der Graphen.
-                                 Leeres Feld faellt automatisch auf den
-                                 Standardnamen "ROI n" zurueck.
+Jeder Listeneintrag zeigt direkt VOR dem Namen ein Haekchen zum Ein-/
+Ausblenden dieses Messbereichs (Rechteck, Beschriftung, Graph-Kurve) --
+ohne ihn zu loeschen. Der Name selbst laesst sich per DOPPELKLICK auf den
+Eintrag direkt umbenennen; leer gelassen faellt er automatisch auf den
+Standardnamen zurueck. Ein Messbereich laesst sich auf zwei Arten
+auswaehlen (beide fuehren zum selben Ergebnis und aktivieren automatisch
+"Messbereich setzen", siehe unten -- ein Klick ins Bild platziert ihn
+dann sofort, ohne extra einen Knopf suchen zu muessen):
+
+  - Klick auf seinen Eintrag in der Liste, ODER
+  - Klick auf sein Rechteck direkt im Thermobild.
+
+Die Detailansicht des ausgewaehlten Messbereichs enthaelt (Farbe +
+"Messbereich setzen"/"Messbereich entfernen" kompakt in einer Zeile):
+
   - Farbfeld (kleines Quadrat)-> Klick oeffnet die Farbauswahl. Die
                                  Farbe gilt fuer das Quadrat im Bild,
                                  den Graphen und die Bild-Beschriftung.
-  - Checkbox "sichtbar"      -> blendet diesen Messbereich (Quadrat,
-                                 Beschriftung und Graph-Kurve) aus,
-                                 ohne ihn zu loeschen.
-  - "Im Bild platzieren"     -> Knopf aktivieren, dann einmal in den
-                                 Bildbereich klicken: der Messbereich
-                                 wird dort zentriert neu gesetzt.
-  - Felder X / Y             -> exakte Pixel-Koordinaten des Mittelpunkts.
+  - "Messbereich setzen"     -> Knopf aktivieren (oder den Messbereich
+                                 wie oben beschrieben auswaehlen), dann
+                                 einmal in den Bildbereich klicken: der
+                                 Messbereich wird dort zentriert neu
+                                 gesetzt.
+  - "Messbereich entfernen"  -> entfernt dieses ROI vollstaendig
+                                 (Rechteck, Beschriftung und Zeitverlauf-
+                                 Kurve) -- kann nicht rueckgaengig gemacht
+                                 werden.
+  - Felder X-Position /
+     Y-Position               -> exakte Pixel-Koordinaten des Mittelpunkts.
   - Felder Breite / Hoehe    -> Kantenlaengen in Pixeln, unabhaengig
                                  voneinander einstellbar (siehe unten).
                                  Ist ein Massstab definiert (Abschnitt
                                  11), erscheint darunter zusaetzlich die
                                  reale Groesse in mm.
-  - "Uebernehmen"            -> setzt den Messbereich exakt auf die
-                                 eingegebenen X/Y/Breite/Hoehe-Werte.
-  - "Zuruecksetzen"          -> stellt Position und Groesse wieder auf
+                                 In jedem der vier Felder (X-/Y-Position,
+                                 Breite, Hoehe) wird ein neu eingegebener
+                                 Wert sofort mit ENTER (oder beim
+                                 Verlassen des Feldes) uebernommen -- ein
+                                 Klick auf "Uebernehmen" ist dafuer nicht
+                                 zwingend noetig.
+  - Rechts, untereinander:
+     "Uebernehmen"            -> setzt den Messbereich exakt auf die
+                                 eingegebenen Positions-/Breite-/Hoehe-Werte
+                                 (identisch zum Druecken von ENTER in einem
+                                 der vier Felder).
+     "Position/Groesse
+      zuruecksetzen"          -> stellt Position und Groesse wieder auf
                                  den zuletzt bewusst gesetzten Stand her
                                  (z.B. nach versehentlichem Verschieben).
-  - "Reset"                  -> setzt Breite und Hoehe wieder gleich
-                                 (Quadrat), Mittelpunkt bleibt erhalten.
+     "Quadrieren"             -> uebernimmt die aktuelle Breite als neue
+                                 Hoehe (Quadrat), Mittelpunkt bleibt
+                                 erhalten. (Weder dieser noch der
+                                 "zuruecksetzen"-Knopf entfernt den
+                                 Messbereich - dafuer das Haekchen in der
+                                 Liste ausblenden ODER den Knopf
+                                 "Messbereich entfernen" verwenden, siehe
+                                 oben.)
 
 Ein bereits platzierter Messbereich laesst sich auch direkt im Bild mit
 der Maus verschieben und in der Groesse aendern. Dabei gibt es ZWEI
@@ -192,12 +314,30 @@ Arten von Ziehpunkten (Handles):
     unveraendert.
 
 So laesst sich ein Messbereich frei rechteckig formen, nicht nur
-quadratisch. Der "Reset"-Knopf macht ein verzerrtes Rechteck bei Bedarf
-wieder zum Quadrat.
+quadratisch. Der Knopf "Quadrieren" macht ein verzerrtes Rechteck bei
+Bedarf wieder zum Quadrat (die Breite bleibt dabei massgeblich, die
+Hoehe wird an sie angeglichen).
 
-Die Standardgroesse fuer NEU zu platzierende Messbereiche stellt man im
-Feld "Neue Messbereiche -> Standardgroesse" ein (neue Messbereiche
-starten quadratisch mit dieser Kantenlaenge).
+Neu platzierte Messbereiche starten quadratisch mit 30 px Kantenlaenge;
+danach laesst sich Breite/Hoehe wie oben beschrieben frei anpassen.
+
+AUSWERTUNGSSTART/-ENDE FESTLEGEN:
+Unterhalb des Bildes gibt es in der zweiten Zeile der Zeitleiste die
+Felder "Auswertungsstart:" und "Auswertungsende:" -- standardmaessig der
+erste bzw. jeweils letzte geladene Frame, per Zahl frei aenderbar (z.B.
+wenn eine Aufnahme vor/nach dem eigentlich interessanten Zeitraum noch
+weiterlief). Beide werden zusaetzlich direkt im Frame-Regler als kleine
+gruene (Start) bzw. rote (Ende) Markierung angezeigt -- diese Markierungen
+lassen sich auch DIREKT MIT DER MAUS im Frame-Regler verschieben, ohne
+Umweg ueber die Zahlenfelder. Start darf dabei nie hinter das Ende geraten
+(und umgekehrt): wird eine Grenze ueber die andere hinaus verschoben,
+folgt die andere automatisch nach.
+
+Die Tasten "Pos1"/"Ende" sowie "Start festlegen"/"Ende festlegen" bei der
+Verlaufs-Interpolation (siehe unten) springen zu diesem Auswertungsstart/
+-ende, nicht zwingend zum ersten/allerletzten Frame der Datei. Auch die
+Wiedergabe (Play) bleibt standardmaessig auf diesen Bereich begrenzt --
+siehe Abschnitt 5.
 
 VERLAUFS-INTERPOLATION (bewegte Messbereiche):
 Manche Messobjekte bewegen sich waehrend der Aufnahme im Bild (z.B.
@@ -206,19 +346,39 @@ Checkbox "Position/Groesse ueber Zeit interpolieren (Start -> Ende)".
 Standardmaessig AUS - ohne Aktivierung bleibt ein Messbereich wie
 bisher fest an einer Stelle stehen.
 
-Bei Aktivierung:
-  1. Zum ERSTEN Bild der Serie navigieren, Messbereich dort per Maus
-     oder Eingabefeldern korrekt positionieren, dann auf
-     "Start (erstes Bild) uebernehmen" klicken.
-  2. Zum LETZTEN Bild der Serie navigieren, Messbereich dort
-     positionieren (Position und/oder Groesse duerfen sich
-     unterscheiden), dann auf "Ende (letztes Bild) uebernehmen" klicken.
-  3. Sobald beide Punkte gesetzt sind, berechnet das Programm fuer alle
+Bei Aktivierung stehen zwei Knoepfe zur Verfuegung, die jeweils in ZWEI
+Schritten bedient werden. Waehrend der Erfassung treten alle ANDEREN
+Messbereiche im Bild stark verblasst in den Hintergrund, damit der
+gerade bearbeitete eindeutig im Fokus steht:
+  1. Auf "Start festlegen (1. Bild)..." klicken -> das Programm springt
+     automatisch zum AUSWERTUNGSSTART (siehe oben), aktiviert zugleich
+     "Messbereich setzen" und der Knopf beschriftet sich um in "Start
+     uebernehmen". Jetzt den Messbereich dort per Klick ins Bild neu
+     setzen (auch wenn er zuvor noch gar nicht platziert war) oder per
+     Maus/Eingabefeldern korrekt positionieren.
+  2. Erneut auf denselben Knopf ("Start uebernehmen") klicken, um die
+     jetzt eingestellte Position/Groesse als Start-Punkt zu speichern.
+     Der Knopf beschriftet sich danach wieder zurueck.
+  3. Genauso mit "Ende festlegen (letztes Bild)..." verfahren: erster
+     Klick springt zum AUSWERTUNGSENDE (siehe oben) und beschriftet den
+     Knopf zu "Ende uebernehmen" um -- der Messbereich selbst zeigt jetzt
+     leicht verblasst noch die Start-Geometrie, deutlich weniger stark
+     verblasst als die anderen Messbereiche. Dort den Messbereich
+     positionieren (Position und/oder Groesse duerfen sich vom Start
+     unterscheiden), zweiter Klick auf "Ende uebernehmen" speichert den
+     Ende-Punkt und stellt alle Messbereiche wieder normal sichtbar dar.
+     (Start und Ende haben bewusst unterschiedliche Beschriftungen, auch
+     wenn beide Knoepfe gleichzeitig auf "uebernehmen" stehen sollten.)
+  4. Sobald beide Punkte gesetzt sind, berechnet das Programm fuer alle
      Frames dazwischen die passende Zwischenposition/-groesse linear
-     entlang der ZEITACHSE (nicht einfach nach Frame-Nummer) - der
-     Messbereich "wandert" beim Abspielen/Scrubben entsprechend mit,
-     und auch der Temperaturverlauf-Graph wird aus den jeweils
-     korrekten, zeitlich interpolierten Bildausschnitten berechnet.
+     ueber den FRAME-INDEX zwischen Start- und Ende-Bild (nicht ueber
+     reale Zeitstempel -- so ist sichergestellt, dass die Bewegung
+     tatsaechlich ueber die GESAMTE gewaehlte Bildspanne verteilt ist und
+     ihr Ziel exakt erst im Ende-Bild erreicht, auch bei unregelmaessig
+     getakteten Aufnahmen mit Pausen dazwischen). Der Messbereich
+     "wandert" beim Abspielen/Scrubben entsprechend mit, und auch der
+     Temperaturverlauf-Graph wird aus den jeweils korrekten, interpolierten
+     Bildausschnitten berechnet.
 
 
 ================================================================
@@ -238,26 +398,32 @@ Rechts neben dem Bild liegt die Farbskala (Histogramm/Legende):
                                       Optik), "Inferno", "Plasma",
                                       "Viridis", "Magma", "Turbo",
                                       "Graustufen", "Hot", "Cividis",
-                                      "Coolwarm" und "Rainbow".
-      * Checkbox "Invertiert"     -> kehrt den gewaehlten Farbverlauf um
-                                      (kalt/warm vertauscht).
-      * Drei Optionen zur Skalierung:
-          - "Manuell"                        -> feste, selbst
-                                                 gewaehlte Grenzwerte
-                                                 (Felder "Min"/"Max").
-          - "Automatisch (pro Bild)"          -> Min/Max werden je
-                                                 Frame neu berechnet
-                                                 (Standard).
-          - "Automatisch (gesamte Serie)"     -> Min/Max werden EINMAL
-                                                 ueber ALLE geladenen
-                                                 Frames ermittelt und
-                                                 durchgehend verwendet -
-                                                 nuetzlich, um die
-                                                 Farbskala ueber die
-                                                 gesamte Aufnahme
-                                                 vergleichbar zu halten,
-                                                 statt sie pro Bild neu
-                                                 zu strecken.
+                                      "Coolwarm" und "Rainbow". Kalt
+                                      erscheint dabei stets dunkel,
+                                      heiss stets hell.
+      * Checkbox "Invertieren"    -> kehrt den gewaehlten Farbverlauf um
+                                      (kalt/warm vertauscht). Steht direkt
+                                      unter der Farbverlauf-Auswahl, mit
+                                      dieser eingerueckt, da sie inhaltlich
+                                      dazugehoert.
+      * "Automatisch:"             -> Radioknopf, schliesst sich mit
+                                      "Manuell:" gegenseitig aus (immer
+                                      genau einer von beiden aktiv).
+                                      Darunter zwei Varianten (nur bei
+                                      aktivem "Automatisch" bedienbar):
+                                      "Pro Bild" (Min/Max werden je Frame
+                                      neu berechnet) und "Ueber gesamte
+                                      Messung" (Min/Max werden EINMAL ueber
+                                      ALLE geladenen Frames ermittelt und
+                                      durchgehend verwendet -- nuetzlich,
+                                      um die Farbskala ueber die gesamte
+                                      Aufnahme vergleichbar zu halten,
+                                      statt sie pro Bild neu zu strecken;
+                                      Standard).
+      * "Manuell:"                 -> Radioknopf, darunter die Felder
+                                      "Max"/"Min" (in dieser Reihenfolge)
+                                      fuer feste, selbst gewaehlte
+                                      Grenzwerte.
 
 
 ================================================================
@@ -288,67 +454,108 @@ umschaltbar, oder als eigenes Fenster abtrennbar - siehe Abschnitt 13):
                        Rechtsklick ins Bild hebt die Fixierung wieder
                        auf, der Graph folgt danach wieder der Maus.
 
+Standardmaessig wertet der Live-Graph genau EIN Pixel aus. Ueber
+"Werkzeuge > Live-Cursor-Bereichsgroesse" in der Menueleiste laesst
+sich stattdessen ein quadratischer Bereich um das Cursor-Pixel
+(3x3, 5x5 oder 7x7 Pixel) waehlen, dessen Mittelwert angezeigt und
+exportiert wird - nuetzlich bei verrauschten Einzelpixeln. Die Wahl
+wird gemerkt und liegt bewusst NICHT im rechten Panel, sondern als
+eigenes Menue oben.
+
 Bei nur sehr wenigen Frames (z.B. nur 1-2) werden zusaetzlich kleine
 Punktmarker auf den Kurven angezeigt, da eine Linie erst ab zwei
 Punkten sichtbar waere.
+
+Unten rechts an beiden Graphen laesst sich per Dropdown "Zeitachse"
+zwischen "Uhrzeit" (echtes Datum/Uhrzeit, Standard) und "Laufzeit"
+(relative Zeit seit Aufnahmebeginn, Format HH:MM:SS) umschalten. Beide
+Umschalter sind miteinander synchronisiert (beide Graphen zeigen immer
+denselben Modus), da sie dieselbe Zeitachse abbilden.
 
 
 ================================================================
 9. GRAFIK UND CSV EXPORTIEREN
 ================================================================
 
-Alle Export-Funktionen sind an zwei Stellen erreichbar: unter jedem der
-beiden Graphen (Knoepfe "Grafik speichern..." / "Werte als CSV...")
-UND zentral im Menue "Export" oben in der Menueleiste (ruft dieselben
-Funktionen auf). Zusaetzlich bietet ein Rechtsklick direkt auf einen
-Graphen das native Kontextmenue von pyqtgraph mit einer weiteren,
-schnellen Export-Option (Bild oder SVG) fuer genau diesen Graphen
-alleine, ohne Thermobild.
+Alle Export-Funktionen sind zentral im Menue "Export" oben in der
+Menueleiste erreichbar (je zwei Eintraege fuer Zeitverlauf und Live-
+Graph: Grafik bzw. Werte als CSV). Ein Rechtsklick direkt auf den
+Zeitverlauf- oder Live-Graphen bietet zusaetzlich den Eintrag "Grafik
+speichern..." als Abkuerzung fuer GENAU denselben Export wie der
+jeweilige Menue-Punkt (identisches Fenster, identisches Ergebnis inkl.
+Thermobild) - nur der Umweg ueber die Menueleiste entfaellt. Ein
+Rechtsklick direkt auf das Thermobild exportiert (da es dafuer keine
+eigene Menue-Entsprechung gibt) weiterhin nur dieses eine Bild allein,
+mit demselben Fenster, aber ohne die Kombiniert/Getrennt-Auswahl.
 
 GRAFIK SPEICHERN (Thermobild + Kurve):
 Die exportierte Grafik zeigt das Thermobild mit der Position der
-Messbereiche (bzw. beim Live-Graph die Position des fixierten/zuletzt
-angefahrenen Cursor-Pixels als Kreuz) zusammen mit dem zugehoerigen
-Temperaturverlauf, damit auf einen Blick nachvollziehbar ist, WO im
-Bild gemessen wurde und WIE sich die Temperatur dort entwickelt hat.
+Messbereiche zusammen mit dem zugehoerigen Temperaturverlauf, damit auf
+einen Blick nachvollziehbar ist, WO im Bild gemessen wurde und WIE sich
+die Temperatur dort entwickelt hat.
 
   1. Aufloesung in DPI eingeben (z.B. 150 fuer Bildschirm, 300-600 fuer
      Druck/Berichte).
   2. Waehlen, ob Bild und Kurve KOMBINIERT (eine Grafik, Bild oben/Kurve
      unten) oder GETRENNT (zwei einzelne Dateien "..._Bild" und
      "..._Kurve") gespeichert werden sollen. Die Wahl wird gemerkt.
-  3. Dateiname und -format waehlen: PNG, JPEG, BMP, TIFF, WebP oder SVG
+  3. "Farbdarstellung" -> dieselbe Freiheit wie im Hauptfenster: entweder
+     "Aktuelle Anzeige-Einstellungen uebernehmen" (Standard) oder "Eigene
+     Einstellungen fuer diesen Export" mit eigenem Farbverlauf,
+     Invertierung, Skalierungsmodus (Abschnitt 7) und Min/Max NUR fuer
+     diese eine Grafik -- die Anzeige im Hauptfenster bleibt danach
+     unveraendert.
+  4. "Zeitachse:" (nur bei Export mit Kurve) -> "Uhrzeit", "Laufzeit" oder
+     "Beide" -- vorbelegt mit dem gerade im Hauptfenster aktiven
+     Umschalter (Abschnitt 8), unabhaengig davon aber frei aenderbar.
+     "Beide" fuegt eine ZWEITE Achse oben am Graphen hinzu, sodass Uhrzeit
+     UND Laufzeit gleichzeitig in EINER Grafik zu sehen sind (statt wie
+     sonst nur eine der beiden).
+  5. "Cursor-Position mit exportieren" (Standard: AUS) -- blendet das
+     Fadenkreuz samt Temperaturanzeige am fixierten/zuletzt angefahrenen
+     Cursor-Pixel (siehe Abschnitt 8, betrifft vor allem den Live-Graph)
+     im Thermobild mit ein. Bleibt der Haken leer, enthaelt die Grafik
+     unabhaengig vom aktuellen Bildschirmzustand KEINE Maus-Markierung.
+  6. Dateiname und -format waehlen: PNG, JPEG, BMP, TIFF, WebP oder SVG
      (Vektorgrafik - die Kurve bleibt darin als editierbarer Vektorpfad
      erhalten, das Thermobild selbst ist naturgemaess ein Rasterbild).
-  4. Zusaetzlich entsteht eine gleichnamige ".json"-Datei mit
+  7. Zusaetzlich entsteht eine gleichnamige ".json"-Datei mit
      Metadaten: Koordinaten, Groesse (px und, falls ein Massstab
      definiert ist, auch mm), Name und Farbe jedes Messbereichs,
      Quellordner, Anzahl der Frames, alle Zeitstempel und verwendete
      DPI - damit sich spaeter rekonstruieren laesst, wo die
      Messbereiche im Bild lagen, als die Grafik erzeugt wurde.
 
-Tipp: Beim Live-Graph vorher per Linksklick die gewuenschte Bildstelle
-fixieren (siehe Abschnitt 8) - sonst zeigt das exportierte Kreuz nur
-die zuletzt zufaellig ueberfahrene Mausposition.
+Das exportierte Thermobild ist dabei stets so eng wie moeglich
+zugeschnitten: unnoetiger Leerraum zwischen Bild und Y-Achse bzw.
+zwischen Bild und Farbskala (durch das feste Bild-Seitenverhaeltnis bei
+"krummen" Bildschirm-/Exportgroessen) wird automatisch entfernt, Achse
+und Farbskala schliessen direkt am Thermobild an.
 
 WERTE ALS CSV:
 Fuer die reinen Zahlen zur Weiterverarbeitung (z.B. Excel, Python).
 
-  - Beim Zeitverlauf-Graph erscheint zuerst ein Dialog, in dem sich die
-    Spaltenueberschrift jedes Messbereichs frei anpassen laesst
-    (voreingestellt ist der ROI-Name). Je Messbereich gibt es zwei
-    Autofill-Knoepfe: "Autofill: px" traegt Name + Pixelgroesse ein
-    (z.B. "ROI 1 (30x30 px)"), "Autofill: mm" traegt Name + reale
-    Groesse ein (z.B. "ROI 1 (10,0x10,0 mm)", nur verfuegbar wenn ein
-    Massstab definiert ist, siehe Abschnitt 11). Der Text laesst sich
-    danach auch komplett von Hand ueberschreiben.
-  - Die CSV-Datei enthaelt genau ZWEI Zeitspalten - "Laufzeit" (relative
-    Aufnahmedauer, beginnend bei 00:00:00) und "Zeitstempel" (echtes
-    Datum/Uhrzeit aus dem Dateinamen) - gefolgt von einer Spalte je
-    platziertem Messbereich (bei allen 5 Messbereichen also 7 Spalten
-    insgesamt).
-  - Beim Live-Graph: "Laufzeit", "Zeitstempel", Zeile, Spalte und
-    Temperatur des aktuellen bzw. fixierten Cursor-Pixels, eine Zeile
+  - Beim Zeitverlauf-Graph erscheint zuerst ein Auswahl-Dialog ("Export
+    Manager"): links eine Checkbox je platziertem Messbereich, mit der er
+    vom Export ausgeschlossen werden kann (Standard: ALLE ausgewaehlt,
+    ueber "Alle auswaehlen"/"Keine auswaehlen" auch auf einen Schlag
+    umschaltbar) - nuetzlich, wenn z.B. bei "beliebig vielen" angelegten
+    Messbereichen nur ein Teil davon in die Datei soll. Daneben laesst
+    sich die Spaltenueberschrift jedes (ausgewaehlten) Messbereichs frei
+    anpassen (voreingestellt ist der ROI-Name). Je Messbereich gibt es
+    zwei ankreuzbare Einheiten ("px"/"mm", mm nur verfuegbar wenn ein
+    Massstab definiert ist, siehe Abschnitt 11): ein Klick auf "px" oder
+    "mm" traegt die angehakten Einheiten SOFORT gemeinsam in den
+    Spaltennamen ein (z.B. bei px+mm beides angehakt:
+    "ROI 1 (30x30 px, 10,0x10,0 mm)") -- kein separater Knopf noetig. Der
+    Text laesst sich danach auch komplett von Hand ueberschreiben.
+  - Die CSV-Datei enthaelt genau ZWEI Zeitspalten - "Zeitstempel" (echtes
+    Datum/Uhrzeit aus dem Dateinamen) und "Laufzeit (HH:MM:SS)" (relative
+    Aufnahmedauer, beginnend bei 00:00:00) - gefolgt von einer Spalte je
+    AUSGEWAEHLTEM Messbereich (bei allen 5 Standard-Messbereichen ohne
+    Abwahl also 7 Spalten insgesamt).
+  - Beim Live-Graph: "Zeitstempel", "Laufzeit (HH:MM:SS)", Zeile, Spalte
+    und Temperatur des aktuellen bzw. fixierten Cursor-Pixels, eine Zeile
     pro Frame.
 
 Die CSV-Datei ist wie die Rohdaten ';'-getrennt mit Dezimalkomma, damit
@@ -364,8 +571,9 @@ Ueber "Export > Video exportieren..." laesst sich die geladene Serie
 als MP4-Video speichern:
 
   - Von-Frame / Bis-Frame  -> nur ein Ausschnitt der Serie exportieren
-                               (z.B. nur Frame 40 bis 100), Standard ist
-                               die komplette Serie.
+                               (z.B. nur Frame 40 bis 100), vorbelegt mit
+                               dem aktuell im Hauptfenster gesetzten
+                               Auswertungsstart/-ende (Abschnitt 4).
   - Wiedergabe-FPS          -> Abspielgeschwindigkeit im fertigen Video.
   - "Farbskala (Legende) im Video einblenden" -> ein-/ausschaltbar.
     Falls eingeblendet, zusaetzlich waehlbar:
@@ -376,9 +584,44 @@ als MP4-Video speichern:
         Invertierung, Skalierungsmodus und Min/Max werden nur fuer
         diesen einen Video-Export separat festgelegt, die Anzeige im
         Hauptfenster bleibt danach unveraendert.
+  - "Temperaturverlauf-Graph" -> "Graph mit anzeigen" (Standard: AUS)
+    blendet zusaetzlich den gewaehlten Kurven-Graphen ("Zeitverlauf
+    (Messbereiche)" oder "Live (Cursor-Pixel)") im Video ein -- mit
+    derselben wandernden Zeit-Markierungslinie, die auch im Hauptfenster
+    den aktuellen Frame auf der Kurve anzeigt, also genau wie in der
+    Anwendung selbst. "Position:" legt fest, WO der Graph relativ zum
+    Thermobild sitzt: Unter/Über/Links/Rechts vom Bild (frei waehlbar).
+    Hier befindet sich auch "Cursor-Position mit exportieren" (Standard:
+    AUS) -- wie beim Bild-Export (Abschnitt 9): blendet das Fadenkreuz
+    samt Temperaturanzeige am fixierten/zuletzt angefahrenen Cursor-Pixel
+    im Video mit ein. Bleibt der Haken leer, enthaelt das Video KEINE
+    Maus-Markierung.
+  - "Laufzeit" -> blendet unten im Video einen Streifen ein, waehlbar
+    als 2x2-Auswahl (Namen bewusst wie im uebrigen Programm, mit
+    Tooltip bei Zeitleiste/Zeitstempel; Standard: "Beides"):
+      * "Zeitleiste" -> Fortschrittsbalken mit gruener/roter Markierung
+        an der TATSAECHLICHEN Position von Start/Ende des exportierten
+        Bereichs INNERHALB DER GESAMTEN Aufnahme (nicht an den Rand der
+        Leiste geklemmt), ein blauer Punkt wandert dazwischen mit dem
+        aktuellen Frame mit, plus verstrichene/gesamte Laufzeit
+        (HH:MM:SS) relativ zum Aufnahmebeginn. Der Video-INHALT selbst
+        bleibt dabei unveraendert auf den gewaehlten Von-/Bis-Frame
+        beschraenkt -- die Leiste zeigt nur zusaetzlich dessen
+        Einbettung in die Gesamtaufnahme.
+      * "Keine" -> kein Streifen.
+      * "Zeitstempel" -> reales Datum/Uhrzeit des jeweiligen Bilds.
+      * "Beides" (Standard) -> Fortschrittsbalken UND Zeitstempel
+        gemeinsam.
 
-Der Export laeuft mit Fortschrittsanzeige (abbrechbar) und stellt
-danach automatisch wieder den Anzeigezustand von vor dem Export her.
+Wie beim Bild-Export ist das Thermobild im Video eng zugeschnitten
+(kein unnoetiger Leerraum links/rechts zwischen Bild und Achse bzw.
+Farbskala, siehe Abschnitt 9).
+
+Der Export laeuft mit Fortschrittsanzeige (abbrechbar). Waehrend des
+Renderns bleibt die Anzeige im Hauptfenster unveraendert (keine
+sichtbaren Linien-/Schriftgroessen-Sprünge mehr waehrend des Exports) und
+wird danach automatisch wieder auf den Anzeigezustand von vor dem Export
+zurueckgesetzt.
 
 
 ================================================================
@@ -389,17 +632,28 @@ Ueber "Werkzeuge > Massstab festlegen..." (oder den Knopf
 "Festlegen..." im Panel "Massstab") laesst sich eine Referenzlaenge im
 Bild definieren:
 
-  1. Startpunkt der Referenzlinie im Bild anklicken.
-  2. Endpunkt anklicken.
+  1. Startpunkt der Referenzlinie im Bild anklicken - ab hier ist eine
+     deutlich sichtbare Linie mit Punktmarkierung zu sehen (Standard-
+     farbe kraeftig rot).
+  2. Endpunkt anklicken - die Linie zieht sich bis zu dieser Stelle mit.
   3. Im erscheinenden Dialog die reale Laenge dieser Linie in mm
      eingeben (z.B. "30" fuer eine 30 mm lange Referenzstrecke).
 
-Danach zeigt das Panel "Massstab" den ermittelten Umrechnungsfaktor
-(z.B. "1 px ≈ 0,42 mm") und bei jedem Messbereich erscheint zusaetzlich
-zur Pixel-Groesse die reale Groesse in mm (in Klammern). Die Handhabung
-der Messbereiche selbst bleibt weiterhin in Pixeln - der mm-Wert ist
-nur eine zusaetzliche Anzeige. Ueber den Knopf "Entfernen" im
-Massstab-Panel laesst sich die Umrechnung wieder loeschen.
+Die Referenzlinie bleibt danach direkt im Bild stehen, mit der
+eingegebenen mm-Laenge als kleiner Beschriftung darunter - so ist auf
+einen Blick nachvollziehbar, welche Strecke dem Massstab zugrunde
+liegt. Zusaetzlich zeigt das Panel "Massstab" den ermittelten
+Umrechnungsfaktor (z.B. "1 px ≈ 0,42 mm") und bei jedem Messbereich
+erscheint zusaetzlich zur Pixel-Groesse die reale Groesse in mm (in
+Klammern). Die Handhabung der Messbereiche selbst bleibt weiterhin in
+Pixeln - der mm-Wert ist nur eine zusaetzliche Anzeige. Ueber den Knopf
+"Entfernen" im Massstab-Panel laesst sich die Umrechnung samt der
+eingezeichneten Referenzlinie wieder loeschen.
+
+Das kleine Farbfeld neben "Entfernen" oeffnet die Farbauswahl fuer die
+Referenzlinie -- nuetzlich, falls die Standardfarbe bei einem bestimmten
+Farbverlauf (z.B. "Hot", der ebenfalls viel Rot enthaelt) kaum zu
+erkennen ist.
 
 Der Massstab wird beim Speichern eines Projekts (Abschnitt 12) mit
 gesichert und laesst sich beim CSV-Export als "mm"-Autofill fuer
@@ -415,9 +669,10 @@ Ueber das Menue "Datei" lassen sich die Einstellungen einer Sitzung
 
   - "Projekt speichern..." -> schreibt Position, Groesse, Name, Farbe
                               und Sichtbarkeit aller Messbereiche sowie
-                              Farbverlauf, Legenden-Limits und die
-                              Standardgroesse fuer neue Messbereiche in
-                              eine Datei mit Endung ".tvproj".
+                              Farbverlauf, Legenden-Limits, Massstab
+                              (inkl. Referenzlinien-Farbe), Grafik-
+                              Darstellung und Auswertungsende in eine
+                              Datei mit Endung ".tvproj".
   - "Projekt laden..."     -> wendet eine zuvor gespeicherte
                               ".tvproj"-Datei auf die AKTUELL geladene
                               Messreihe an. Es muss also zuerst eine

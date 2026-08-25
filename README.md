@@ -47,18 +47,24 @@ Grafiken (Thermobild + Kurve, kombiniert oder getrennt, als
 PNG/JPEG/BMP/TIFF/WebP/SVG mit wählbarer DPI, eng zugeschnitten ohne
 Leerraum zwischen Bild und Achse/Farbskala, optional mit eigenem
 Farbverlauf/eigener Skalierung nur für diesen Export, eigener
-Zeitachse (Uhrzeit/Laufzeit/Beide gleichzeitig als Doppelachse) und Cursor-Position
-im Bild – Standard: aus), die reinen Messwerte als
-CSV (Spaltennamen frei mit Pixel- UND/ODER mm-Größe befüllbar, live beim
-Anklicken von „px“/„mm“) sowie
-ein wählbarer Frame-Bereich als MP4-Video (vorbelegt mit Auswertungsstart/
--ende, optional mit demselben Kurven-Graphen samt wandernder Zeit-Markierung
-wie im Hauptfenster – frei positionierbar über/unter/links/rechts vom
-Thermobild –, mit Cursor-Position und mit
-einblendbarer Laufzeit-Anzeige unten im Video: Zeitleiste (mit tatsächlicher
-Position des Ausschnitts innerhalb der Gesamtaufnahme)/Zeitstempel/Beides,
-Standard: Beides). Die Haupt-UI bleibt während des Renderns unverändert
-(keine sichtbaren Linien-/Schriftgrößen-Sprünge mehr). Ein
+Zeitachse (Uhrzeit/Laufzeit/Beide gleichzeitig als Doppelachse) sowie
+frei wählbar, welche Kurven in den Graphen kommen (einzelne Messbereiche
+und/oder Live-Cursor, per Ankreuzliste, Standard: alle Messbereiche) und
+ob der Cursor mit Temperaturanzeige im Thermobild selbst zu sehen ist
+(unabhängig von der Live-Cursor-Kurve umschaltbar, Standard: aus – die
+Kurve setzt den Cursor im Bild allerdings voraus)), die reinen Messwerte als
+CSV (Spaltenauswahl pro Messbereich/Live-Cursor, Spaltennamen frei mit
+Pixel- UND/ODER mm-Größe befüllbar – Standard: aus, per „ALLE px“/„ALLE
+mm“-Sammelhäkchen oder einzeln je Zeile) sowie
+ein wählbarer Frame-Bereich als MP4-Video oder Bildstapel (PNG/JPEG/BMP/
+TIFF/WebP, vorbelegt mit Auswertungsstart/-ende, optional mit demselben
+Kurven-Graphen (gleiche Messbereichs-/Live-Cursor-Auswahl wie beim
+Grafik-Export) samt wandernder Zeit-Markierung wie im Hauptfenster – frei
+positionierbar über/unter/links/rechts vom Thermobild –, mit Cursor-Position
+im Bild und mit einblendbarer Laufzeit-Anzeige unten im Video/Bild: Zeitleiste
+(mit tatsächlicher Position des Ausschnitts innerhalb der Gesamtaufnahme)/
+Zeitstempel/Beides, Standard: Beides). Die Haupt-UI bleibt während des
+Renderns unverändert (keine sichtbaren Linien-/Schriftgrößen-Sprünge mehr). Ein
 Rechtsklick direkt auf den Zeitverlauf- oder Live-Graphen bietet
 "Grafik speichern…" als Abkürzung für exakt denselben Export wie der
 jeweilige Menüpunkt; ein Rechtsklick auf das Thermobild selbst exportiert
@@ -69,7 +75,7 @@ Frames, Quellordner, DPI, Bildgröße). Über „Werkzeuge > Maßstab
 festlegen…“ lässt sich eine Referenzstrecke im Bild in mm definieren, um
 Messbereichsgrößen zusätzlich real (in mm) anzuzeigen; über „Werkzeuge >
 Live-Cursor-Bereichsgröße“ lässt sich der Live-Verlauf statt eines
-Einzelpixels auf den Mittelwert eines 3×3/5×5/7×7-Blocks um den
+Einzelpixels auf den Mittelwert eines 3×3/5×5/7×7/10×10-Blocks um den
 Cursor umstellen. Nach „Datei >
 Ordner öffnen…“ überwacht die App automatisch im Hintergrund diesen
 Ordner und lädt alle 10 Sekunden neu abgelegte CSV-Dateien nach, um
@@ -79,6 +85,9 @@ parallel zu einer laufenden Messung nutzbar zu sein. Native Qt-Dialogtexte
 
 Über „Ansicht > Design“ lässt sich zwischen hellem und dunklem Farbschema
 wechseln; die Wahl wird gespeichert und beim nächsten Start wiederhergestellt.
+Beide Farbschemata sind fest definiert und damit unabhängig vom Windows-
+Systemdesign (auch bei aktiviertem Windows-Dunkelmodus bleibt „Hell“
+tatsächlich hell).
 
 Über „Datei > Projekt speichern…/laden…“ lassen sich Messbereiche,
 Farbverlauf und Legenden-Limits in einer `.tvproj`-Datei sichern und auf
@@ -99,6 +108,21 @@ lesbar): [documentation/Bedienungsanleitung.txt](documentation/Bedienungsanleitu
 Separate Kurzreferenz aller Tastatur-Shortcuts:
 [documentation/Tastatur-Shortcuts.txt](documentation/Tastatur-Shortcuts.txt).
 Beide Dateien werden im Release-Zip mitausgeliefert (siehe unten).
+
+## Tests
+
+Ein eigenständiger, headless End-to-End-Smoke-Test (kein pytest nötig,
+läuft über `QT_QPA_PLATFORM=offscreen`) liegt in
+[tests/smoke_test.py](tests/smoke_test.py). Er erzeugt sein Test-Datenset
+selbst in einem temporären Ordner (kein manuelles Setup, kein extern
+abgelegter Beispiel-Datensatz nötig) und deckt Laden, ROIs/Interpolation,
+Design-Umschaltung, Grafik-/Video-/Bildstapel-/CSV-Export (inkl. der
+Messbereichs-/Live-Cursor-Auswahl und Cursor-Kopplung), Maßstab,
+Namensschema-Rückfrage und mehr ab:
+
+```
+uv run python tests/smoke_test.py
+```
 
 ## App-Icon
 

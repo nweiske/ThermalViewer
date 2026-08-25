@@ -2,6 +2,7 @@
 Import-Funktionen (Namensschema-Anpassung beim Laden)."""
 from __future__ import annotations
 
+import re
 from functools import partial
 from pathlib import Path
 
@@ -35,6 +36,11 @@ def _build_color_scale_override(
     layout.addWidget(radio_current)
     layout.addWidget(radio_custom)
 
+    # Eingerueckt unter "Eigene Einstellungen" -- nur bei dieser Wahl
+    # ueberhaupt nutzbar (siehe _update_enabled unten), soll optisch klar
+    # als deren Unterpunkte erkennbar sein.
+    indent_row = QtWidgets.QHBoxLayout()
+    indent_row.addSpacing(20)
     form = QtWidgets.QFormLayout()
     combo_cmap = QtWidgets.QComboBox()
     for label, _name in colormaps:
@@ -63,7 +69,8 @@ def _build_color_scale_override(
     spin_max.setValue(current_max)
     form.addRow("Min:", spin_min)
     form.addRow("Max:", spin_max)
-    layout.addLayout(form)
+    indent_row.addLayout(form)
+    layout.addLayout(indent_row)
 
     def _update_enabled() -> None:
         custom_enabled = radio_custom.isChecked()
@@ -84,6 +91,117 @@ def _build_color_scale_override(
         "spin_min": spin_min,
         "spin_max": spin_max,
     }
+
+
+_INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
+
+
+def sanitize_filename_prefix(prefix: str, fallback: str = "Frame") -> str:
+    """Ersetzt unter Windows/macOS/Linux in Dateinamen ungueltige Zeichen
+    (bzw. "/"/"\\", die ungewollt Unterordner erzeugen wuerden) durch "_" --
+    gemeinsam genutzt von der Live-Dateiname-Vorschau in VideoExportDialog
+    UND dem tatsaechlichen Bildstapel-Export (MainWindow._export_video),
+    damit die Vorschau niemals einen Dateinamen zeigt, der beim
+    tatsaechlichen Speichern anders aussehen wuerde."""
+    return _INVALID_FILENAME_CHARS.sub("_", prefix).strip() or fallback
+
+
+def _build_graph_content_selector(
+    roi_entries: list[tuple[int, str]],
+    live_available: bool,
+    default_live_checked: bool = False,
+) -> dict:
+    """Baut eine Ankreuzliste, welche Kurven (einzelne Messbereiche und/oder
+    die Live-Cursor-Kurve) in den exportierten Graphen aufgenommen werden --
+    gemeinsam genutzt von GraphicExportDialog und VideoExportDialog. Standard:
+    alle Messbereiche an, Live-Cursor aus. Die Live-Cursor-Checkbox wird vom
+    Aufrufer per _wire_cursor_curve_dependency() mit der Cursor-im-Bild-
+    Option gekoppelt (Kurve setzt Cursor-im-Bild voraus).
+
+    roi_entries: (number, name)-Paare -- Auswahl laeuft bewusst ueber die
+    eindeutige ROI-NUMMER statt ueber den (frei umbenennbaren, NICHT auf
+    Eindeutigkeit geprueften) Namen. Bugfix: bei zwei gleichnamigen
+    Messbereichen ueberschrieb ein namensbasiertes dict eine der beiden
+    Checkboxen stillschweigend, "Alle auswaehlen" traf dann nur noch eine
+    von beiden und der Export konnte nicht mehr zwischen ihnen unterscheiden."""
+    group_box = QtWidgets.QGroupBox("Graph-Inhalt")
+    outer = QtWidgets.QVBoxLayout(group_box)
+
+    select_row = QtWidgets.QHBoxLayout()
+    btn_all = QtWidgets.QPushButton("Alle auswählen")
+    btn_none = QtWidgets.QPushButton("Keine auswählen")
+    select_row.addWidget(btn_all)
+    select_row.addWidget(btn_none)
+    select_row.addStretch(1)
+    outer.addLayout(select_row)
+
+    checks: dict[int, QtWidgets.QCheckBox] = {}
+    if roi_entries:
+        grid = QtWidgets.QGridLayout()
+        grid.setHorizontalSpacing(16)
+        cols = 3
+        for i, (number, name) in enumerate(roi_entries):
+            chk = QtWidgets.QCheckBox(name)
+            chk.setChecked(True)
+            checks[number] = chk
+            grid.addWidget(chk, i // cols, i % cols)
+        outer.addLayout(grid)
+    else:
+        outer.addWidget(QtWidgets.QLabel("(Keine platzierten Messbereiche vorhanden.)"))
+
+    chk_live = QtWidgets.QCheckBox("Live-Cursor")
+    chk_live.setChecked(default_live_checked and live_available)
+    chk_live.setEnabled(live_available)
+    chk_live.setToolTip(
+        "Temperaturverlauf des fixierten/zuletzt mit der Maus gezeigten Cursor-Pixels. "
+        "Erfordert „Cursor-Position im Bild anzeigen“ (siehe unten)."
+        if live_available else
+        "Kein Live-Cursor-Pixel gewählt (Maus über das Bild bewegen oder eine Stelle "
+        "fixieren, um diese Option zu aktivieren)."
+    )
+    outer.addWidget(chk_live)
+
+    def _select_all(checked: bool) -> None:
+        for chk in checks.values():
+            chk.setChecked(checked)
+
+    btn_all.clicked.connect(partial(_select_all, True))
+    btn_none.clicked.connect(partial(_select_all, False))
+
+    return {"group_box": group_box, "checks": checks, "chk_live": chk_live}
+
+
+def _wire_cursor_curve_dependency(
+    chk_cursor_image: QtWidgets.QCheckBox, chk_cursor_curve: QtWidgets.QCheckBox
+) -> None:
+    """Koppelt "Cursor-Position im Bild anzeigen" mit der Live-Cursor-Kurve
+    im Graphen (Nutzerwunsch: "beides soll unabhängig voneinander möglich
+    sein, aber nicht Kurve ohne Cursor"): beide bleiben einzeln umschaltbar,
+    aber Kurve EIN erzwingt Cursor-im-Bild EIN, und Cursor-im-Bild AUS
+    erzwingt Kurve AUS. Ein Sperr-Flag verhindert dabei eine Signal-
+    Rueckkopplung zwischen den beiden verbundenen toggled-Handlern."""
+    guard = {"active": False}
+
+    def _on_curve_toggled(checked: bool) -> None:
+        if guard["active"] or not checked or chk_cursor_image.isChecked():
+            return
+        guard["active"] = True
+        try:
+            chk_cursor_image.setChecked(True)
+        finally:
+            guard["active"] = False
+
+    def _on_image_toggled(checked: bool) -> None:
+        if guard["active"] or checked or not chk_cursor_curve.isChecked():
+            return
+        guard["active"] = True
+        try:
+            chk_cursor_curve.setChecked(False)
+        finally:
+            guard["active"] = False
+
+    chk_cursor_curve.toggled.connect(_on_curve_toggled)
+    chk_cursor_image.toggled.connect(_on_image_toggled)
 
 
 def _disable_enter_auto_accept(buttons: QtWidgets.QDialogButtonBox) -> None:
@@ -148,9 +266,11 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         current_time_axis_mode: str = "clock",
         show_graph_source_choice: bool = False,
         live_available: bool = False,
+        roi_entries: list[tuple[int, str]] | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Grafik exportieren")
+        self.setMinimumWidth(480)
         self._settings = settings
         self._show_mode_choice = show_mode_choice
 
@@ -158,37 +278,57 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
         # Nur noch EIN Grafik-Export-Fenster statt getrennter "Zeitverlauf-"/
         # "Live-Grafik"-Menüpunkte (Nutzerwunsch): hier wird gewählt, welche
-        # Kurve(n) tatsächlich mit exportiert werden sollen.
-        self.chk_include_timeseries = None
-        self.chk_include_live = None
+        # Kurve(n) -- einzelne Messbereiche und/oder Live-Cursor -- tatsächlich
+        # mit exportiert werden sollen.
+        self._content_widgets = None
+        self.chk_cursor_position = None
         if show_graph_source_choice:
-            source_box = QtWidgets.QGroupBox("Graph-Inhalt")
-            source_layout = QtWidgets.QVBoxLayout(source_box)
-            self.chk_include_timeseries = QtWidgets.QCheckBox("Zeitverlauf (Messbereiche)")
-            self.chk_include_timeseries.setChecked(True)
-            self.chk_include_timeseries.setToolTip(
-                "Temperaturverlauf aller platzierten Messbereiche."
+            self._content_widgets = _build_graph_content_selector(
+                roi_entries or [], live_available, default_live_checked=False
             )
-            source_layout.addWidget(self.chk_include_timeseries)
-            self.chk_include_live = QtWidgets.QCheckBox("Live-Cursor-Kurve")
-            self.chk_include_live.setChecked(live_available)
-            self.chk_include_live.setEnabled(live_available)
-            self.chk_include_live.setToolTip(
-                "Temperaturverlauf des fixierten/zuletzt mit der Maus gezeigten Cursor-Pixels."
-                if live_available else
-                "Kein Live-Cursor-Pixel gewählt (Maus über das Bild bewegen oder eine Stelle "
-                "fixieren, um diese Option zu aktivieren)."
-            )
-            source_layout.addWidget(self.chk_include_live)
-            layout.addWidget(source_box)
+            layout.addWidget(self._content_widgets["group_box"])
 
+            # Eingerueckt unter "Graph-Inhalt" (gehoert inhaltlich zusammen,
+            # siehe _wire_cursor_curve_dependency: Live-Cursor-Kurve setzt
+            # diese Option voraus).
+            cursor_row = QtWidgets.QHBoxLayout()
+            cursor_row.addSpacing(20)
+            self.chk_cursor_position = QtWidgets.QCheckBox("Cursor-Position im Bild anzeigen")
+            self.chk_cursor_position.setChecked(False)
+            self.chk_cursor_position.setToolTip(
+                "Blendet das Fadenkreuz samt Temperaturanzeige am (fixierten oder\n"
+                "zuletzt mit der Maus angezeigten) Cursor-Pixel im exportierten\n"
+                "Thermobild mit ein. Unabhängig von der Live-Cursor-KURVE oben\n"
+                "einzeln steuerbar -- die Kurve setzt diese Option aber voraus."
+            )
+            cursor_row.addWidget(self.chk_cursor_position)
+            cursor_row.addStretch(1)
+            layout.addLayout(cursor_row)
+            _wire_cursor_curve_dependency(self.chk_cursor_position, self._content_widgets["chk_live"])
+        else:
+            # Kein Graph in diesem Export (z.B. Einzelexport des Thermobilds
+            # per Rechtsklick) -- die Option bleibt trotzdem sinnvoll, hier
+            # aber ohne Kopplung an eine (nicht vorhandene) Kurve.
+            self.chk_cursor_position = QtWidgets.QCheckBox("Cursor-Position im Bild anzeigen")
+            self.chk_cursor_position.setChecked(False)
+            self.chk_cursor_position.setToolTip(
+                "Blendet das Fadenkreuz samt Temperaturanzeige am (fixierten oder\n"
+                "zuletzt mit der Maus angezeigten) Cursor-Pixel im exportierten\n"
+                "Thermobild mit ein. Standardmäßig aus, damit die Grafik nicht\n"
+                "ungewollt eine Maus-/Debug-Markierung enthält."
+            )
+            layout.addWidget(self.chk_cursor_position)
+
+        # DPI und Kombiniert/Getrennt nebeneinander statt untereinander --
+        # beides sind kurze, unabhaengige Ausgabe-Einstellungen.
+        top_row = QtWidgets.QHBoxLayout()
         form = QtWidgets.QFormLayout()
         self.spin_dpi = QtWidgets.QSpinBox()
         self.spin_dpi.setRange(50, 1200)
         self.spin_dpi.setSingleStep(10)
         self.spin_dpi.setValue(default_dpi)
         form.addRow("Auflösung (DPI):", self.spin_dpi)
-        layout.addLayout(form)
+        top_row.addLayout(form)
 
         self.radio_combined = None
         self.radio_separate = None
@@ -199,11 +339,14 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             self.radio_separate = QtWidgets.QRadioButton("Getrennt (zwei Dateien: Bild und Kurve einzeln)")
             mode_layout.addWidget(self.radio_combined)
             mode_layout.addWidget(self.radio_separate)
-            layout.addWidget(mode_box)
+            top_row.addWidget(mode_box, 1)
 
             separate = bool(settings.value("export/separate_images", False, type=bool))
             self.radio_separate.setChecked(separate)
             self.radio_combined.setChecked(not separate)
+        else:
+            top_row.addStretch(1)
+        layout.addLayout(top_row)
 
         # Dieselbe Freiheit wie in der UI: Farbverlauf/Invertiert/Skalierung
         # unabhängig von der aktuell angezeigten Einstellung für GENAU diesen
@@ -231,16 +374,6 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             time_form.addRow("Zeitachse:", self.combo_time_axis)
             layout.addLayout(time_form)
 
-        self.chk_cursor_position = QtWidgets.QCheckBox("Cursor-Position mit exportieren")
-        self.chk_cursor_position.setChecked(False)
-        self.chk_cursor_position.setToolTip(
-            "Blendet das Fadenkreuz samt Temperaturanzeige am (fixierten oder\n"
-            "zuletzt mit der Maus angezeigten) Cursor-Pixel im exportierten\n"
-            "Thermobild mit ein. Standardmäßig aus, damit die Grafik nicht\n"
-            "ungewollt eine Maus-/Debug-Markierung enthält."
-        )
-        layout.addWidget(self.chk_cursor_position)
-
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
         )
@@ -250,15 +383,14 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         layout.addWidget(buttons)
 
     def _on_accept(self) -> None:
-        if (
-            self.chk_include_timeseries is not None
-            and not self.chk_include_timeseries.isChecked()
-            and not self.chk_include_live.isChecked()
-        ):
-            QtWidgets.QMessageBox.information(
-                self, "Keine Auswahl", "Bitte mindestens eine Kurve (Zeitverlauf und/oder Live-Cursor) auswählen."
-            )
-            return
+        if self._content_widgets is not None:
+            any_roi = any(chk.isChecked() for chk in self._content_widgets["checks"].values())
+            if not any_roi and not self._content_widgets["chk_live"].isChecked():
+                QtWidgets.QMessageBox.information(
+                    self, "Keine Auswahl",
+                    "Bitte mindestens einen Messbereich und/oder Live-Cursor auswählen."
+                )
+                return
         self.accept()
 
     def dpi(self) -> int:
@@ -271,14 +403,24 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._settings.setValue("export/separate_images", value)
         return value
 
-    def include_timeseries(self) -> bool:
-        return self.chk_include_timeseries is None or self.chk_include_timeseries.isChecked()
+    def included_roi_numbers(self) -> set[int]:
+        """Nummern (RoiEntry.number, eindeutig -- siehe _build_graph_content_selector)
+        der ausgewählten Messbereiche -- leere Menge, falls der Dialog gar
+        keine Graph-Inhalt-Auswahl anbietet (show_graph_source_choice=False)."""
+        if self._content_widgets is None:
+            return set()
+        return {number for number, chk in self._content_widgets["checks"].items() if chk.isChecked()}
 
     def include_live(self) -> bool:
-        return self.chk_include_live is not None and self.chk_include_live.isChecked()
+        return self._content_widgets is not None and self._content_widgets["chk_live"].isChecked()
+
+    def has_graph_content(self) -> bool:
+        """Ob ueberhaupt ein Graph exportiert werden soll -- False nur, wenn
+        show_graph_source_choice=False war (kein Graph in diesem Export)."""
+        return self._content_widgets is not None
 
     def export_cursor_position(self) -> bool:
-        return self.chk_cursor_position.isChecked()
+        return self.chk_cursor_position is not None and self.chk_cursor_position.isChecked()
 
     def use_custom_colors(self) -> bool:
         return self._color_widgets["radio_custom"].isChecked()
@@ -320,9 +462,12 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         current_fps: float,
         default_start_frame: int = 1,
         default_end_frame: int | None = None,
+        roi_entries: list[tuple[int, str]] | None = None,
+        live_available: bool = False,
     ):
         super().__init__(parent)
         self.setWindowTitle("Video / Bildstapel exportieren")
+        self.setMinimumWidth(720)
 
         layout = QtWidgets.QVBoxLayout(self)
 
@@ -339,6 +484,10 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         output_layout.addWidget(self.radio_output_video)
         output_layout.addWidget(self.radio_output_images)
 
+        # Eingerueckt, um optisch klar als Unterpunkte von "Bildstapel"
+        # erkennbar zu sein (Nutzerwunsch: Zusammengehoeriges einruecken).
+        image_indent_row = QtWidgets.QHBoxLayout()
+        image_indent_row.addSpacing(20)
         image_form = QtWidgets.QFormLayout()
         self.combo_image_format = QtWidgets.QComboBox()
         for label, ext in (
@@ -356,11 +505,18 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         )
         image_form.addRow("Bildformat:", self.combo_image_format)
         image_form.addRow("Dateiname-Präfix:", self.edit_image_prefix)
-        output_layout.addLayout(image_form)
-        layout.addWidget(output_box)
+        self.lbl_filename_preview = QtWidgets.QLabel()
+        image_form.addRow("Beispiel:", self.lbl_filename_preview)
+        image_indent_row.addLayout(image_form)
+        output_layout.addLayout(image_indent_row)
+        layout_top = QtWidgets.QHBoxLayout()
+        layout_top.addWidget(output_box, 1)
 
-        range_box = QtWidgets.QGroupBox("Frame-Bereich")
-        range_layout = QtWidgets.QFormLayout(range_box)
+        # Frame-Bereich (Von/Bis nebeneinander statt untereinander) + FPS
+        # in derselben rechten Spalte wie "Ausgabeform" (Nutzerwunsch:
+        # Export-Fenster nicht nur nach unten wachsen lassen).
+        range_box = QtWidgets.QGroupBox("Frame-Bereich && Tempo")
+        range_outer = QtWidgets.QVBoxLayout(range_box)
         # Frame-Nummern hier bewusst 1-basiert (wie ueberall sonst in der App,
         # z.B. Statuszeile "Frame 1/8") -- intern (frame_range()) wird auf
         # 0-basierte Indizes umgerechnet. Vorbelegt mit dem aktuell in der
@@ -375,26 +531,49 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.spin_end = QtWidgets.QSpinBox()
         self.spin_end.setRange(1, last)
         self.spin_end.setValue(min(max(1, default_end_frame), last))
-        range_layout.addRow("Von Frame:", self.spin_start)
-        range_layout.addRow("Bis Frame:", self.spin_end)
-        layout.addWidget(range_box)
+        range_row = QtWidgets.QHBoxLayout()
+        from_form = QtWidgets.QFormLayout()
+        from_form.addRow("Von Frame:", self.spin_start)
+        range_row.addLayout(from_form)
+        to_form = QtWidgets.QFormLayout()
+        to_form.addRow("Bis Frame:", self.spin_end)
+        range_row.addLayout(to_form)
+        range_outer.addLayout(range_row)
 
         fps_form = QtWidgets.QFormLayout()
         self.spin_fps = LocaleTolerantDoubleSpinBox()
         self.spin_fps.setRange(0.5, 60.0)
         self.spin_fps.setValue(current_fps)
         fps_form.addRow("Wiedergabe-FPS im Video:", self.spin_fps)
-        layout.addLayout(fps_form)
+        range_outer.addLayout(fps_form)
+        layout_top.addWidget(range_box, 1)
+        layout.addLayout(layout_top)
 
         def _update_output_mode_enabled() -> None:
             is_video = self.radio_output_video.isChecked()
             self.spin_fps.setEnabled(is_video)
             self.combo_image_format.setEnabled(not is_video)
             self.edit_image_prefix.setEnabled(not is_video)
+            self.lbl_filename_preview.setEnabled(not is_video)
 
         self.radio_output_video.toggled.connect(_update_output_mode_enabled)
         self.radio_output_images.toggled.connect(_update_output_mode_enabled)
         _update_output_mode_enabled()
+
+        def _update_filename_preview() -> None:
+            prefix = sanitize_filename_prefix(self.edit_image_prefix.text())
+            ext = self.combo_image_format.currentData() or ".png"
+            count = max(1, self.spin_end.value() - self.spin_start.value() + 1)
+            digits = len(str(count))
+            self.lbl_filename_preview.setText(f"{prefix}_{1:0{digits}d}{ext}, {prefix}_{2:0{digits}d}{ext}, …")
+
+        self.edit_image_prefix.textChanged.connect(_update_filename_preview)
+        self.combo_image_format.currentIndexChanged.connect(_update_filename_preview)
+        self.spin_start.valueChanged.connect(_update_filename_preview)
+        self.spin_end.valueChanged.connect(_update_filename_preview)
+        _update_filename_preview()
+
+        row2 = QtWidgets.QHBoxLayout()
 
         legend_box = QtWidgets.QGroupBox("Farbskala / Legende")
         legend_layout = QtWidgets.QVBoxLayout(legend_box)
@@ -408,6 +587,10 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         legend_layout.addWidget(self.radio_current_settings)
         legend_layout.addWidget(self.radio_custom_settings)
 
+        # Eingerueckt unter "Eigene Einstellungen" (nur bei aktivierter Legende
+        # UND dieser Wahl ueberhaupt nutzbar, siehe _update_enabled unten).
+        custom_indent_row = QtWidgets.QHBoxLayout()
+        custom_indent_row.addSpacing(20)
         custom_form = QtWidgets.QFormLayout()
         self.combo_cmap = QtWidgets.QComboBox()
         for label, _name in colormaps:
@@ -426,6 +609,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.combo_level_mode.setCurrentIndex(max(0, idx))
         custom_form.addRow("Skalierung:", self.combo_level_mode)
 
+        minmax_row = QtWidgets.QHBoxLayout()
         self.spin_min = LocaleTolerantDoubleSpinBox()
         self.spin_min.setRange(-100.0, 2000.0)
         self.spin_min.setDecimals(1)
@@ -434,10 +618,16 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.spin_max.setRange(-100.0, 2000.0)
         self.spin_max.setDecimals(1)
         self.spin_max.setValue(current_max)
-        custom_form.addRow("Min:", self.spin_min)
-        custom_form.addRow("Max:", self.spin_max)
-        legend_layout.addLayout(custom_form)
-        layout.addWidget(legend_box)
+        min_form = QtWidgets.QFormLayout()
+        min_form.addRow("Min:", self.spin_min)
+        minmax_row.addLayout(min_form)
+        max_form = QtWidgets.QFormLayout()
+        max_form.addRow("Max:", self.spin_max)
+        minmax_row.addLayout(max_form)
+        custom_form.addRow(minmax_row)
+        custom_indent_row.addLayout(custom_form)
+        legend_layout.addLayout(custom_indent_row)
+        row2.addWidget(legend_box, 1)
 
         def _update_enabled() -> None:
             enabled = self.chk_legend.isChecked()
@@ -455,36 +645,45 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # Graph (Temperaturverlauf) zusaetzlich zum Thermobild im Export --
         # mit der ohnehin schon vorhandenen wandernden Markierungslinie
         # (frame_marker/live_frame_marker), genau wie im Hauptfenster
-        # (Bugreport: "genauso wie in der UI").
+        # (Bugreport: "genauso wie in der UI"). Punkt: "Graph mit anzeigen"
+        # -> "Graph mit exportieren" (klarer, da es um den fertigen Export
+        # geht, nicht die aktuelle Anzeige).
         graph_box = QtWidgets.QGroupBox("Temperaturverlauf-Graph")
         graph_layout = QtWidgets.QVBoxLayout(graph_box)
-        self.chk_show_graph = QtWidgets.QCheckBox("Graph mit anzeigen")
+        self.chk_show_graph = QtWidgets.QCheckBox("Graph mit exportieren")
         self.chk_show_graph.setToolTip(
             "Zeigt den gewählten Kurven-Graphen (mit der wandernden Zeit-Markierung, "
             "genau wie im Hauptfenster) zusätzlich im Export an."
         )
         graph_layout.addWidget(self.chk_show_graph)
-        self.combo_graph_source = QtWidgets.QComboBox()
-        self.combo_graph_source.addItem("Zeitverlauf (Messbereiche)", "timeseries")
-        self.combo_graph_source.addItem("Live (Cursor-Pixel)", "live")
-        self.combo_graph_source.setEnabled(False)
-        self.chk_show_graph.toggled.connect(self.combo_graph_source.setEnabled)
+
+        # Eingerueckt unter "Graph mit exportieren" -- Inhalt/Position/
+        # Cursor sind nur relevant, wenn ueberhaupt ein Graph exportiert wird.
+        graph_indent_row = QtWidgets.QHBoxLayout()
+        graph_indent_row.addSpacing(20)
+        graph_indent_col = QtWidgets.QVBoxLayout()
+
+        self._content_widgets = _build_graph_content_selector(
+            roi_entries or [], live_available, default_live_checked=False
+        )
+        graph_indent_col.addWidget(self._content_widgets["group_box"])
+
         self.combo_graph_position = QtWidgets.QComboBox()
         self.combo_graph_position.addItem("Unter dem Bild", "unten")
         self.combo_graph_position.addItem("Über dem Bild", "oben")
         self.combo_graph_position.addItem("Links vom Bild", "links")
         self.combo_graph_position.addItem("Rechts vom Bild", "rechts")
-        self.combo_graph_position.setEnabled(False)
-        self.chk_show_graph.toggled.connect(self.combo_graph_position.setEnabled)
-        graph_form = QtWidgets.QFormLayout()
-        graph_form.addRow("Graph:", self.combo_graph_source)
-        graph_form.addRow("Position:", self.combo_graph_position)
-        graph_layout.addLayout(graph_form)
+        position_form = QtWidgets.QFormLayout()
+        position_form.addRow("Position:", self.combo_graph_position)
+        graph_indent_col.addLayout(position_form)
 
         # Hierher verschoben (statt eigener Punkt weiter unten) -- gehoert
-        # inhaltlich zum Thermobild-Teil des Videos, wird aber nur zusammen
-        # mit dem Graphen als sinnvoll empfunden (Nutzerwunsch).
-        self.chk_cursor_position = QtWidgets.QCheckBox("Cursor-Position mit exportieren")
+        # inhaltlich zum Graph-/Cursor-Teil des Videos. "Live-Cursor" oben in
+        # der Ankreuzliste (die KURVE im Graphen) setzt diese Option (den
+        # Cursor IM BILD) voraus, beide bleiben aber unabhaengig umschaltbar
+        # (Nutzerwunsch: "beides unabhängig voneinander möglich, aber nicht
+        # Kurve ohne Cursor").
+        self.chk_cursor_position = QtWidgets.QCheckBox("Cursor-Position im Bild anzeigen")
         self.chk_cursor_position.setChecked(False)
         self.chk_cursor_position.setToolTip(
             "Blendet das Fadenkreuz samt Temperaturanzeige am (fixierten oder\n"
@@ -492,8 +691,21 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             "Video/Bildstapel mit ein. Standardmäßig aus, damit der Export nicht\n"
             "ungewollt eine Maus-/Debug-Markierung enthält."
         )
-        graph_layout.addWidget(self.chk_cursor_position)
-        layout.addWidget(graph_box)
+        graph_indent_col.addWidget(self.chk_cursor_position)
+        _wire_cursor_curve_dependency(self.chk_cursor_position, self._content_widgets["chk_live"])
+
+        graph_indent_row.addLayout(graph_indent_col)
+        graph_layout.addLayout(graph_indent_row)
+
+        def _update_graph_enabled(checked: bool) -> None:
+            self._content_widgets["group_box"].setEnabled(checked)
+            self.combo_graph_position.setEnabled(checked)
+            self.chk_cursor_position.setEnabled(checked)
+
+        self.chk_show_graph.toggled.connect(_update_graph_enabled)
+        _update_graph_enabled(False)
+        row2.addWidget(graph_box, 1)
+        layout.addLayout(row2)
 
         # Bereich einheitlich "Zeitachse" genannt (wie beim Bild-Export, siehe
         # GraphicExportDialog) -- die einzelne Option darin heisst "Laufzeit"
@@ -538,6 +750,14 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 self, "Ungültiger Bereich", "Der End-Frame muss größer oder gleich dem Start-Frame sein."
             )
             return
+        if self.chk_show_graph.isChecked():
+            any_roi = any(chk.isChecked() for chk in self._content_widgets["checks"].values())
+            if not any_roi and not self._content_widgets["chk_live"].isChecked():
+                QtWidgets.QMessageBox.information(
+                    self, "Keine Auswahl",
+                    "Bitte mindestens einen Messbereich und/oder Live-Cursor für den Graphen auswählen."
+                )
+                return
         self.accept()
 
     def frame_range(self) -> tuple[int, int]:
@@ -551,7 +771,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         return self.combo_image_format.currentData()
 
     def image_prefix(self) -> str:
-        return self.edit_image_prefix.text().strip() or "Frame"
+        return sanitize_filename_prefix(self.edit_image_prefix.text())
 
     def fps(self) -> float:
         return self.spin_fps.value()
@@ -580,8 +800,11 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     def show_graph(self) -> bool:
         return self.chk_show_graph.isChecked()
 
-    def graph_source(self) -> str:
-        return self.combo_graph_source.currentData()
+    def included_roi_numbers(self) -> set[int]:
+        return {number for number, chk in self._content_widgets["checks"].items() if chk.isChecked()}
+
+    def include_live(self) -> bool:
+        return self._content_widgets["chk_live"].isChecked()
 
     def graph_position(self) -> str:
         return self.combo_graph_position.currentData()
@@ -661,15 +884,35 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         grid_header = QtWidgets.QHBoxLayout()
         grid_header.addWidget(QtWidgets.QLabel(
             "„px“/„mm“ ankreuzen (kombinierbar) -- der Spaltenname aktualisiert "
-            "sich dabei sofort automatisch, bleibt danach aber frei editierbar:"
+            "sich dabei sofort automatisch, bleibt danach aber frei editierbar. "
+            "Standardmäßig aus, „ALLE“ markiert/entmarkiert die jeweilige Spalte "
+            "für alle Zeilen auf einmal:"
         ))
         grid_header.addStretch(1)
         layout.addLayout(grid_header)
 
         self._checks: list[QtWidgets.QCheckBox] = []
         self._edits: list[QtWidgets.QLineEdit] = []
+        self._px_checks: list[QtWidgets.QCheckBox] = []
+        self._mm_checks: list[QtWidgets.QCheckBox] = []
+        self._bulk_update = False
         grid = QtWidgets.QGridLayout()
-        for row, entry in enumerate(entries):
+
+        # Kopfzeile mit den beiden "ALLE"-Sammel-Checkboxen fuer px/mm.
+        self.chk_px_all = QtWidgets.QCheckBox("ALLE px")
+        self.chk_px_all.setToolTip("Pixel-Größe für alle (auswählbaren) Zeilen auf einmal an-/abhaken.")
+        self.chk_mm_all = QtWidgets.QCheckBox("ALLE mm")
+        self.chk_mm_all.setToolTip("Reale Größe in mm für alle (auswählbaren) Zeilen auf einmal an-/abhaken.")
+        header_unit_row = QtWidgets.QHBoxLayout()
+        header_unit_row.setContentsMargins(0, 0, 0, 0)
+        header_unit_row.addWidget(self.chk_px_all)
+        header_unit_row.addWidget(self.chk_mm_all)
+        header_unit_widget = QtWidgets.QWidget()
+        header_unit_widget.setLayout(header_unit_row)
+        grid.addWidget(header_unit_widget, 0, 3)
+
+        for offset, entry in enumerate(entries):
+            row = offset + 1
             chk = QtWidgets.QCheckBox()
             chk.setChecked(True)
             chk.setToolTip(f"„{entry['name']}“ in den Export einschließen")
@@ -684,11 +927,14 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
             has_mm = entry.get("width_mm") is not None
             chk_px = QtWidgets.QCheckBox("px")
-            chk_px.setChecked(True)
+            chk_px.setChecked(False)
             chk_px.setToolTip("Pixel-Größe in den Spaltennamen aufnehmen")
             chk_mm = QtWidgets.QCheckBox("mm")
+            chk_mm.setChecked(False)
             chk_mm.setToolTip("Reale Größe in mm in den Spaltennamen aufnehmen (benötigt gesetzten Maßstab)")
             chk_mm.setEnabled(has_mm)
+            self._px_checks.append(chk_px)
+            self._mm_checks.append(chk_mm)
             unit_row = QtWidgets.QHBoxLayout()
             unit_row.setContentsMargins(0, 0, 0, 0)
             for w in (chk_px, chk_mm):
@@ -698,13 +944,26 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             unit_widget.setLayout(unit_row)
             grid.addWidget(unit_widget, row, 3)
 
+            # Ein-/Ausschluss der ganzen Zeile aendert, welche px/mm-
+            # Checkboxen ueberhaupt "relevant" (aktiviert) sind -- NACH den
+            # obigen setEnabled()-Verbindungen angehaengt, damit die "ALLE"-
+            # Sammel-Checkbox stets den bereits aktualisierten Aktiviert-
+            # Zustand sieht (Signal-Reihenfolge = Verbindungsreihenfolge).
+            chk.toggled.connect(partial(self._sync_all_checkbox, self.chk_px_all, self._px_checks))
+            chk.toggled.connect(partial(self._sync_all_checkbox, self.chk_mm_all, self._mm_checks))
+
             # Klick auf "px" oder "mm" aktualisiert den Spaltennamen sofort --
             # kein separater "Übernehmen"-Knopf mehr noetig. Der Name bleibt
             # danach trotzdem frei editierbar (Autofill ueberschreibt ihn nur
             # bei einem erneuten Klick auf eines der beiden Haekchen).
             chk_px.toggled.connect(partial(self._apply_autofill, edit, entry, chk_px, chk_mm))
             chk_mm.toggled.connect(partial(self._apply_autofill, edit, entry, chk_px, chk_mm))
+            chk_px.toggled.connect(partial(self._sync_all_checkbox, self.chk_px_all, self._px_checks))
+            chk_mm.toggled.connect(partial(self._sync_all_checkbox, self.chk_mm_all, self._mm_checks))
         layout.addLayout(grid)
+
+        self.chk_px_all.toggled.connect(partial(self._bulk_set_checked, self._px_checks))
+        self.chk_mm_all.toggled.connect(partial(self._bulk_set_checked, self._mm_checks))
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
@@ -721,6 +980,34 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     @staticmethod
     def _update_mm_checkbox_enabled(chk_unit: QtWidgets.QCheckBox, entry: dict, checked: bool) -> None:
         chk_unit.setEnabled(checked and entry.get("width_mm") is not None)
+
+    def _bulk_set_checked(self, checks: list[QtWidgets.QCheckBox], checked: bool) -> None:
+        """Setzt alle (aktivierten) px- bzw. mm-Checkboxen auf einmal --
+        Handler der "ALLE"-Sammel-Checkbox. Das Sperr-Flag verhindert, dass
+        jede einzelne dadurch ausgeloeste toggled()-Rueckmeldung
+        (_sync_all_checkbox) die Sammel-Checkbox waehrend des Durchlaufs
+        selbst wieder veraendert."""
+        self._bulk_update = True
+        try:
+            for chk in checks:
+                if chk.isEnabled():
+                    chk.setChecked(checked)
+        finally:
+            self._bulk_update = False
+
+    def _sync_all_checkbox(
+        self, master: QtWidgets.QCheckBox, checks: list[QtWidgets.QCheckBox], *_args
+    ) -> None:
+        """Haelt die "ALLE"-Sammel-Checkbox konsistent, wenn eine einzelne
+        Zeile manuell (de-)aktiviert wird -- angehakt, sobald alle aktuell
+        auswählbaren (aktivierten) Zeilen-Checkboxen angehakt sind."""
+        if self._bulk_update:
+            return
+        relevant = [c for c in checks if c.isEnabled()]
+        all_checked = bool(relevant) and all(c.isChecked() for c in relevant)
+        master.blockSignals(True)
+        master.setChecked(all_checked)
+        master.blockSignals(False)
 
     def _on_accept(self) -> None:
         if not any(chk.isChecked() for chk in self._checks):

@@ -1391,6 +1391,9 @@ class MainWindow(QtWidgets.QMainWindow):
         row += 1
 
         interp_row = QtWidgets.QHBoxLayout()
+        # Eingerueckt, um als Unterpunkte der Checkbox darueber erkennbar zu
+        # sein (nur bei aktivierter Interpolation nutzbar, siehe unten).
+        interp_row.setContentsMargins(20, 0, 0, 0)
         btn_interp_start = QtWidgets.QPushButton(INTERP_START_LABEL)
         btn_interp_start.setToolTip(
             f"Springt zum ersten Bild, positionieren,\ndann „{INTERP_START_CAPTURE_LABEL}“ klicken."
@@ -1649,7 +1652,14 @@ class MainWindow(QtWidgets.QMainWindow):
         app = QtWidgets.QApplication.instance()
         if app is not None:
             app.setStyle("Fusion")
-            app.setPalette(self._dark_palette() if key == "dark" else app.style().standardPalette())
+            # Bugfix: "app.style().standardPalette()" fuer Hell klingt neutral,
+            # liefert unter Windows aber die vom Betriebssystem-Design
+            # abgeleitete Palette -- ist dort der Windows-eigene Dunkelmodus
+            # aktiv, blieb das Fenster trotz Umschalten auf "Hell" faktisch
+            # dunkel (Bugreport: "Warum ist das gesamte Fenster immernoch im
+            # Darkmode?"). Beide Modi verwenden jetzt eine explizit fest
+            # definierte Palette, unabhaengig vom OS-Design.
+            app.setPalette(self._dark_palette() if key == "dark" else self._light_palette())
             # Widgets mit eigenem setStyleSheet (z.B. Zeitstempel-Anzeige) haben
             # in der Praxis nicht immer zuverlaessig die neue QApplication-
             # Palette uebernommen -- explizites Neu-Polieren erzwingt die
@@ -1765,6 +1775,52 @@ class MainWindow(QtWidgets.QMainWindow):
         palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Base, window)
         palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Button, window)
         palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Highlight, QtGui.QColor("#454545"))
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.HighlightedText, disabled_text)
+        return palette
+
+    @staticmethod
+    def _light_palette() -> QtGui.QPalette:
+        """Vollstaendige helle Palette fuer den Fusion-Stil, Gegenstueck zu
+        _dark_palette() -- wird explizit gesetzt statt sich auf
+        app.style().standardPalette() zu verlassen (siehe _apply_theme fuer
+        den Grund: diese folgt unter Windows dem OS-Design)."""
+        palette = QtGui.QPalette()
+        window = QtGui.QColor("#efefef")
+        base = QtGui.QColor("#ffffff")
+        alternate_base = QtGui.QColor("#f5f5f5")
+        button = QtGui.QColor("#efefef")
+        text = QtGui.QColor("#000000")
+        disabled_text = QtGui.QColor("#a0a0a0")
+        highlight = QtGui.QColor("#3b82f6")
+        link = QtGui.QColor("#2563eb")
+
+        palette.setColor(QtGui.QPalette.Window, window)
+        palette.setColor(QtGui.QPalette.WindowText, text)
+        palette.setColor(QtGui.QPalette.Base, base)
+        palette.setColor(QtGui.QPalette.AlternateBase, alternate_base)
+        palette.setColor(QtGui.QPalette.ToolTipBase, QtGui.QColor("#ffffdc"))
+        palette.setColor(QtGui.QPalette.ToolTipText, text)
+        palette.setColor(QtGui.QPalette.Text, text)
+        palette.setColor(QtGui.QPalette.Button, button)
+        palette.setColor(QtGui.QPalette.ButtonText, text)
+        palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor("#cc0000"))
+        palette.setColor(QtGui.QPalette.Highlight, highlight)
+        palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
+        palette.setColor(QtGui.QPalette.Light, QtGui.QColor("#ffffff"))
+        palette.setColor(QtGui.QPalette.Midlight, QtGui.QColor("#e3e3e3"))
+        palette.setColor(QtGui.QPalette.Dark, QtGui.QColor("#a0a0a0"))
+        palette.setColor(QtGui.QPalette.Mid, QtGui.QColor("#b8b8b8"))
+        palette.setColor(QtGui.QPalette.Shadow, QtGui.QColor("#767676"))
+        palette.setColor(QtGui.QPalette.Link, link)
+        palette.setColor(QtGui.QPalette.LinkVisited, link)
+        if hasattr(QtGui.QPalette, "PlaceholderText"):
+            palette.setColor(QtGui.QPalette.PlaceholderText, disabled_text)
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.WindowText, disabled_text)
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Text, disabled_text)
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.ButtonText, disabled_text)
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Base, window)
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Button, window)
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Highlight, QtGui.QColor("#d4d4d4"))
         palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.HighlightedText, disabled_text)
         return palette
 
@@ -4381,41 +4437,72 @@ class MainWindow(QtWidgets.QMainWindow):
         return image.width(), image.height()
 
     @contextlib.contextmanager
-    def _temporarily_show_live_in_timeseries(self):
-        """Sorgt dafuer, dass der Export des Zeitverlauf-Graphen IMMER auch
-        den Live-Cursor-Verlauf enthaelt, wenn einer verfuegbar ist (Punkt 5:
-        "egal an was ich interessiert bin, beide Modi in einer Datei") --
-        unabhaengig vom Haekchen "Live-Cursor-Kurve zusätzlich anzeigen"
-        (Punkt 8). Stellt den vorherigen Anzeigezustand danach exakt wieder
-        her, damit ein Export die laufende Sitzung nicht sichtbar veraendert."""
-        already_visible = self.chk_show_live_in_timeseries.isChecked()
+    def _temporary_graph_content(self, selected_numbers: set[int], include_live: bool):
+        """Blendet im Zeitverlauf-Graphen (self.timeseries_plot) genau die
+        gewaehlten Kurven ein -- einzelne Messbereiche per NUMMER
+        (selected_numbers, RoiEntry.number) und optional die Live-Cursor-Kurve
+        (include_live) -- und stellt danach exakt den vorherigen
+        Anzeigezustand wieder her. Gemeinsam genutzt von Grafik-, Video- und
+        Bildstapel-Export (Nutzerwunsch: "einzelne ROIs (+Live-Cursor) zur
+        Auswahl", "beides unabhängig voneinander möglich").
+
+        Bewusst ueber die eindeutige Nummer statt den (frei umbenennbaren,
+        nicht auf Eindeutigkeit geprueften) Namen identifiziert -- siehe
+        _build_graph_content_selector in dialogs.py fuer den Bugreport dazu
+        (zwei gleichnamige Messbereiche liessen sich sonst im Export-Dialog
+        nicht mehr unabhaengig voneinander auswaehlen).
+
+        Ersetzt die vorherige, nur einseitig ("immer dazuschalten, nie
+        wegschalten") arbeitende _temporarily_show_live_in_timeseries."""
+        prev_curve_visible = {}
+        for entry in self.roi_entries:
+            if not entry.placed:
+                continue
+            prev_curve_visible[entry.number] = entry.curve.isVisible()
+            entry.curve.setVisible(entry.number in selected_numbers)
+
+        prev_live_checked = self.chk_show_live_in_timeseries.isChecked()
         has_live_pixel = self._hover_row is not None and self._hover_col is not None
-        if already_visible or not has_live_pixel:
-            yield
-            return
-        values = self._live_cursor_series(self._hover_row, self._hover_col)
-        self.timeseries_live_curve.setData(self.recording.unix_seconds(), values)
-        self.timeseries_legend.addItem(self.timeseries_live_curve, "Live (Cursor)")
-        self.timeseries_live_curve.setVisible(True)
+        want_live = include_live and has_live_pixel
+
+        def _show_live() -> None:
+            values = self._live_cursor_series(self._hover_row, self._hover_col)
+            self.timeseries_live_curve.setData(self.recording.unix_seconds(), values)
+            self.timeseries_legend.addItem(self.timeseries_live_curve, "Live (Cursor)")
+            self.timeseries_live_curve.setVisible(True)
+
+        def _hide_live() -> None:
+            self.timeseries_legend.removeItem(self.timeseries_live_curve)
+            self.timeseries_live_curve.setVisible(False)
+
+        if want_live and not prev_live_checked:
+            _show_live()
+        elif not want_live and prev_live_checked:
+            _hide_live()
         try:
             yield
         finally:
-            self.timeseries_legend.removeItem(self.timeseries_live_curve)
-            self.timeseries_live_curve.setVisible(False)
+            for entry in self.roi_entries:
+                if entry.number in prev_curve_visible:
+                    entry.curve.setVisible(prev_curve_visible[entry.number])
+            if want_live and not prev_live_checked:
+                _hide_live()
+            elif not want_live and prev_live_checked:
+                _show_live()
 
     def _export_graphic(self) -> None:
         """Einziges Grafik-Export-Fenster (statt getrennter "Zeitverlauf-"/
         "Live-Grafik"-Menüpunkte, Nutzerwunsch: "nur noch ein einziges CSV/-
-        Bild-Export Fenster"). Der Dialog selbst fragt ab, welche Kurve(n)
-        (Messbereiche und/oder Live-Cursor) exportiert werden sollen -- ist
-        der Zeitverlauf dabei, wird der Live-Cursor-Verlauf (falls
-        mitgewählt) als zusätzliche Kurve IN DENSELBEN Graphen eingeblendet
-        (siehe _temporarily_show_live_in_timeseries); ist NUR der Live-
-        Cursor gewählt, wird stattdessen der separate Live-Graph exportiert."""
+        Bild-Export Fenster"). Der Dialog fragt ab, welche Kurven -- einzelne
+        Messbereiche und/oder Live-Cursor -- tatsächlich exportiert werden
+        sollen (Nutzerwunsch: "einzelne ROIs (+Live-Cursor) zur Auswahl");
+        beides landet gemeinsam in EINEM Graphen (self.timeseries_plot, siehe
+        _temporary_graph_content)."""
         if self.recording is None:
             QtWidgets.QMessageBox.information(self, "Keine Daten", "Bitte zuerst eine Messreihe laden.")
             return
         live_available = self._hover_row is not None and self._hover_col is not None
+        roi_entries = [(e.number, e.name) for e in self.roi_entries if e.placed]
 
         export_dialog = GraphicExportDialog(
             self, self._settings, default_dpi=150,
@@ -4428,31 +4515,26 @@ class MainWindow(QtWidgets.QMainWindow):
             current_time_axis_mode=self._time_display_mode,
             show_graph_source_choice=True,
             live_available=live_available,
+            roi_entries=roi_entries,
         )
         if export_dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
 
+        selected_numbers = export_dialog.included_roi_numbers()
         include_live = export_dialog.include_live() and live_available
-        if export_dialog.include_timeseries():
-            curve_widget = self.timeseries_plot
-            suggested_name = "Zeitverlauf_mit_Position.png"
-            metadata_fn = self._timeseries_metadata
-            curve_title = (
-                "Temperaturverlauf (Messbereiche + Live-Cursor)" if include_live
-                else "Temperaturverlauf (Messbereiche)"
-            )
-            overlay_ctx = (
-                self._temporarily_show_live_in_timeseries() if include_live else contextlib.nullcontext()
-            )
+        curve_widget = self.timeseries_plot
+        suggested_name = "Zeitverlauf_mit_Position.png"
+        if selected_numbers and include_live:
+            curve_title = "Temperaturverlauf (Messbereiche + Live-Cursor)"
+        elif include_live:
+            curve_title = "Temperaturverlauf (Live-Cursor)"
         else:
-            curve_widget = self.live_plot
-            suggested_name = "Live-Verlauf_mit_Position.png"
-            metadata_fn = self._live_metadata
-            curve_title = "Live-Temperaturverlauf (Cursor-Pixel)"
-            overlay_ctx = contextlib.nullcontext()
+            curve_title = "Temperaturverlauf (Messbereiche)"
 
-        with overlay_ctx:
-            self._export_combined_image(export_dialog, curve_widget, suggested_name, metadata_fn, curve_title)
+        with self._temporary_graph_content(selected_numbers, include_live):
+            self._export_combined_image(
+                export_dialog, curve_widget, suggested_name, self._timeseries_metadata, curve_title
+            )
 
     def _bind_native_export(
         self, widget: QtWidgets.QWidget, suggested_name: str, combined_export_fn=None
@@ -4814,6 +4896,7 @@ class MainWindow(QtWidgets.QMainWindow):
         default_end = (
             self._eval_end_index if self._eval_end_index is not None else self.recording.n_frames - 1
         )
+        live_available = self._hover_row is not None and self._hover_col is not None
         dialog = VideoExportDialog(
             self,
             n_frames=self.recording.n_frames,
@@ -4826,6 +4909,8 @@ class MainWindow(QtWidgets.QMainWindow):
             current_fps=self.fps_spin.value(),
             default_start_frame=default_start + 1,
             default_end_frame=default_end + 1,
+            roi_entries=[(e.number, e.name) for e in self.roi_entries if e.placed],
+            live_available=live_available,
         )
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
@@ -4851,9 +4936,13 @@ class MainWindow(QtWidgets.QMainWindow):
         include_cursor = dialog.export_cursor_position()
         graph_widget = None
         graph_position = "unten"
+        selected_roi_numbers: set[int] = set()
+        include_live_curve = False
         if dialog.show_graph():
-            graph_widget = self.timeseries_plot if dialog.graph_source() == "timeseries" else self.live_plot
+            graph_widget = self.timeseries_plot
             graph_position = dialog.graph_position()
+            selected_roi_numbers = dialog.included_roi_numbers()
+            include_live_curve = dialog.include_live()
 
         if output_mode == "video":
             video_filters = {
@@ -4881,11 +4970,11 @@ class MainWindow(QtWidgets.QMainWindow):
             if not folder:
                 return
             image_ext = dialog.image_format()
-            # Freies Textfeld (anders als sonstige Dateinamen, die aus einem
-            # nativen Speichern-Dialog kommen) -- Zeichen entfernen, die unter
-            # Windows/macOS/Linux in Dateinamen ungueltig sind bzw. (bei "/"
-            # oder "\") ungewollt Unterordner erzeugen wuerden.
-            image_prefix = re.sub(r'[\\/:*?"<>|]', "_", dialog.image_prefix()).strip() or "Frame"
+            # dialog.image_prefix() saeubert bereits selbst (sanitize_filename_prefix
+            # in dialogs.py, gemeinsam mit der Live-Vorschau im Dialog genutzt) --
+            # Zeichen, die unter Windows/macOS/Linux in Dateinamen ungueltig sind
+            # bzw. (bei "/" oder "\") ungewollt Unterordner erzeugen wuerden.
+            image_prefix = dialog.image_prefix()
 
         # Aktuellen Anzeigezustand sichern, um ihn nach dem Export wiederherzustellen.
         prev_index = self.current_index
@@ -4935,6 +5024,8 @@ class MainWindow(QtWidgets.QMainWindow):
             with self._maybe_hidden_live_cursor(include_cursor), \
                     (self._widget_raised_for_export(graph_widget) if graph_widget is not None
                      else contextlib.nullcontext()), \
+                    (self._temporary_graph_content(selected_roi_numbers, include_live_curve)
+                     if graph_widget is not None else contextlib.nullcontext()), \
                     self._frozen_ui_during_export(), \
                     self._scaled_export_visuals(scale):
                 # EINMALIG (nicht pro Frame) berechnet -- siehe
@@ -5038,6 +5129,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 }
             rois.append(roi_info)
 
+        cursor = None
+        if self._hover_row is not None and self._hover_col is not None:
+            cursor = {"zeile": self._hover_row, "spalte": self._hover_col}
+
         return {
             "quellordner": str(self.recording.paths[0].parent) if self.recording.paths else None,
             "anzahl_frames": self.recording.n_frames,
@@ -5045,15 +5140,5 @@ class MainWindow(QtWidgets.QMainWindow):
             "zeitstempel": [t.isoformat() for t in self.recording.timestamps],
             "px_zu_mm": self._px_to_mm,
             "rois": rois,
-        }
-
-    def _live_metadata(self) -> dict:
-        cursor = None
-        if self._hover_row is not None and self._hover_col is not None:
-            cursor = {"zeile": self._hover_row, "spalte": self._hover_col}
-        return {
-            "quellordner": str(self.recording.paths[0].parent) if self.recording.paths else None,
-            "anzahl_frames": self.recording.n_frames,
-            "zeitstempel": [t.isoformat() for t in self.recording.timestamps],
-            "cursor_pixel": cursor,
+            "live_cursor_pixel": cursor,
         }

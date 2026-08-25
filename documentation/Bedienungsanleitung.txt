@@ -514,13 +514,12 @@ einen Blick nachvollziehbar ist, WO im Bild gemessen wurde und WIE sich
 die Temperatur dort entwickelt hat.
 
   1. "Graph-Inhalt" -> per Checkbox waehlen, welche Kurve(n) exportiert
-     werden: "Zeitverlauf (Messbereiche)" und/oder "Live-Cursor-Kurve"
-     (Letztere nur anwaehlbar, wenn gerade ein Live-Cursor-Pixel
-     verfuegbar ist, siehe Abschnitt 8). Ist der Zeitverlauf mit dabei,
-     erscheint die Live-Cursor-Kurve als ZUSAETZLICHE Kurve IM SELBEN
-     Graphen; ist NUR die Live-Cursor-Kurve angehakt, wird stattdessen
-     der eigenstaendige Live-Graph exportiert. Mindestens eine der
-     beiden Checkboxen muss angehakt sein.
+     werden: JEDER platzierte Messbereich einzeln ("Alle auswaehlen"/
+     "Keine auswaehlen" schaltet alle auf einmal um, Standard: alle an)
+     und/oder "Live-Cursor" (nur anwaehlbar, wenn gerade ein Live-Cursor-
+     Pixel verfuegbar ist, siehe Abschnitt 8; Standard: aus). Alle
+     angehakten Kurven erscheinen gemeinsam IM SELBEN Graphen. Mindestens
+     eine Kurve muss angehakt sein.
   2. Aufloesung in DPI eingeben (z.B. 150 fuer Bildschirm, 300-600 fuer
      Druck/Berichte).
   3. Waehlen, ob Bild und Kurve KOMBINIERT (eine Grafik, Bild oben/Kurve
@@ -538,11 +537,17 @@ die Temperatur dort entwickelt hat.
      "Beide" fuegt eine ZWEITE Achse oben am Graphen hinzu, sodass Uhrzeit
      UND Laufzeit gleichzeitig in EINER Grafik zu sehen sind (statt wie
      sonst nur eine der beiden).
-  6. "Cursor-Position mit exportieren" (Standard: AUS) -- blendet das
+  6. "Cursor-Position im Bild anzeigen" (Standard: AUS) -- blendet das
      Fadenkreuz samt Temperaturanzeige am fixierten/zuletzt angefahrenen
-     Cursor-Pixel (siehe Abschnitt 8, betrifft vor allem den Live-Graph)
-     im Thermobild mit ein. Bleibt der Haken leer, enthaelt die Grafik
-     unabhaengig vom aktuellen Bildschirmzustand KEINE Maus-Markierung.
+     Cursor-Pixel (siehe Abschnitt 8) im Thermobild mit ein. Bleibt der
+     Haken leer, enthaelt die Grafik unabhaengig vom aktuellen
+     Bildschirmzustand KEINE Maus-Markierung. Unabhaengig von der
+     "Live-Cursor"-Kurve unter Punkt 1 einzeln schaltbar -- BEIDE
+     zusammen sind moeglich (Cursor im Bild UND seine Kurve im Graphen),
+     ebenso NUR der Cursor im Bild ohne Kurve. Die Kurve allein OHNE
+     Cursor im Bild ist dagegen nicht sinnvoll: ein Anhaken von
+     "Live-Cursor" aktiviert diese Option automatisch mit; ein
+     nachtraegliches Abhaken hier deaktiviert dann auch die Kurve wieder.
   7. Dateiname und -format waehlen: PNG, JPEG, BMP, TIFF, WebP oder SVG
      (Vektorgrafik - die Kurve bleibt darin als editierbarer Vektorpfad
      erhalten, das Thermobild selbst ist naturgemaess ein Rasterbild).
@@ -564,7 +569,7 @@ Fuer die reinen Zahlen zur Weiterverarbeitung (z.B. Excel, Python). Nur
 EIN Export-Fenster fuer Messbereichs- UND Live-Cursor-Werte (statt
 frueher getrennter Exporte):
 
-  - Zuerst erscheint ein Auswahl-Dialog ("Export Manager"): links eine
+  - Zuerst erscheint ein Auswahl-Dialog ("CSV-Export"): links eine
     Checkbox je platziertem Messbereich, mit der er vom Export
     ausgeschlossen werden kann (Standard: ALLE ausgewaehlt, ueber "Alle
     auswaehlen"/"Keine auswaehlen" auch auf einen Schlag umschaltbar) -
@@ -577,11 +582,14 @@ frueher getrennter Exporte):
     sich die Spaltenueberschrift jedes (ausgewaehlten) Eintrags frei
     anpassen (voreingestellt ist der jeweilige Name). Je Eintrag gibt es
     zwei ankreuzbare Einheiten ("px"/"mm", mm nur verfuegbar wenn ein
-    Massstab definiert ist, siehe Abschnitt 11): ein Klick auf "px" oder
-    "mm" traegt die angehakten Einheiten SOFORT gemeinsam in den
-    Spaltennamen ein (z.B. bei px+mm beides angehakt:
+    Massstab definiert ist, siehe Abschnitt 11; Standard: BEIDE aus): ein
+    Klick auf "px" oder "mm" traegt die angehakten Einheiten SOFORT
+    gemeinsam in den Spaltennamen ein (z.B. bei px+mm beides angehakt:
     "ROI 1 (30x30 px, 10,0x10,0 mm)") -- kein separater Knopf noetig. Der
-    Text laesst sich danach auch komplett von Hand ueberschreiben.
+    Text laesst sich danach auch komplett von Hand ueberschreiben. Oben in
+    der Kopfzeile schalten "ALLE px"/"ALLE mm" die jeweilige Einheit fuer
+    alle Zeilen auf einmal um (und zeigen automatisch an, ob bereits
+    ueberall angehakt ist).
   - Die CSV-Datei enthaelt genau ZWEI Zeitspalten - "Zeitstempel" (echtes
     Datum/Uhrzeit aus dem Dateinamen) und "Laufzeit (HH:MM:SS)" (relative
     Aufnahmedauer, beginnend bei 00:00:00) - gefolgt von einer Spalte je
@@ -637,18 +645,25 @@ Alle uebrigen Einstellungen im Dialog:
         Invertierung, Skalierungsmodus und Min/Max werden nur fuer
         diesen einen Export separat festgelegt, die Anzeige im
         Hauptfenster bleibt danach unveraendert.
-  - "Temperaturverlauf-Graph" -> "Graph mit anzeigen" (Standard: AUS)
-    blendet zusaetzlich den gewaehlten Kurven-Graphen ("Zeitverlauf
-    (Messbereiche)" oder "Live (Cursor-Pixel)") mit ein -- mit derselben
+  - "Temperaturverlauf-Graph" -> "Graph mit exportieren" (Standard: AUS)
+    blendet zusaetzlich einen Kurven-Graphen mit ein -- mit derselben
     wandernden Zeit-Markierungslinie, die auch im Hauptfenster den
     aktuellen Frame auf der Kurve anzeigt, also genau wie in der
-    Anwendung selbst. "Position:" legt fest, WO der Graph relativ zum
-    Thermobild sitzt: Unter/Über/Links/Rechts vom Bild (frei waehlbar).
-    Hier befindet sich auch "Cursor-Position mit exportieren" (Standard:
-    AUS) -- wie beim Bild-Export (Abschnitt 9): blendet das Fadenkreuz
-    samt Temperaturanzeige am fixierten/zuletzt angefahrenen Cursor-Pixel
-    mit ein. Bleibt der Haken leer, enthaelt der Export KEINE
-    Maus-Markierung.
+    Anwendung selbst. "Graph-Inhalt" darunter waehlt PER CHECKBOX, welche
+    Kurve(n) darin erscheinen: jeder platzierte Messbereich einzeln
+    (Standard: alle an) und/oder "Live-Cursor" (nur verfuegbar, wenn
+    gerade ein Live-Cursor-Pixel vorliegt, siehe Abschnitt 8; Standard:
+    aus) -- genau wie beim Grafik-Export (Abschnitt 9). "Position:" legt
+    fest, WO der Graph relativ zum Thermobild sitzt: Unter/Über/Links/
+    Rechts vom Bild (frei waehlbar). Hier befindet sich auch
+    "Cursor-Position im Bild anzeigen" (Standard: AUS) -- wie beim
+    Bild-Export (Abschnitt 9): blendet das Fadenkreuz samt
+    Temperaturanzeige am fixierten/zuletzt angefahrenen Cursor-Pixel im
+    Thermobild mit ein, unabhaengig von der "Live-Cursor"-Kurve
+    einzeln schaltbar (die Kurve setzt diese Option allerdings voraus --
+    ein Anhaken von "Live-Cursor" aktiviert sie automatisch mit).
+    Bleibt der Haken leer, enthaelt der Export KEINE Maus-Markierung im
+    Bild.
   - "Zeitachse" -> blendet unten im Bild einen Streifen ein, waehlbar
     als 2x2-Auswahl (Namen bewusst wie im uebrigen Programm, mit
     Tooltip bei Laufzeit/Zeitstempel; Standard: "Beides"):

@@ -27,7 +27,7 @@ def _build_color_scale_override(
     aktiven Anzeige zu wählen (Bugreport: "gebe mir dieselbe Freiheit wie
     in der UI"). Gibt die erzeugten Widgets als dict zurück; group_box wird
     vom Aufrufer selbst ins eigene Layout eingehängt."""
-    group_box = QtWidgets.QGroupBox("Farbdarstellung")
+    group_box = QtWidgets.QGroupBox("Farbskala / Legende")
     layout = QtWidgets.QVBoxLayout(group_box)
 
     radio_current = QtWidgets.QRadioButton("Aktuelle Anzeige-Einstellungen übernehmen")
@@ -657,8 +657,18 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         )
         graph_layout.addWidget(self.chk_show_graph)
 
-        # Eingerueckt unter "Graph mit exportieren" -- Inhalt/Position/
-        # Cursor sind nur relevant, wenn ueberhaupt ein Graph exportiert wird.
+        # Eingerueckt unter "Graph mit exportieren" -- Inhalt/Position sind
+        # nur relevant, wenn ueberhaupt ein Graph exportiert wird. Der Cursor
+        # lebt bewusst NICHT mehr hier drin (siehe cursor_box weiter unten):
+        # er zeigt sich auf dem THERMOBILD, nicht im Graphen, war hier aber
+        # frueher verschachtelt -- dadurch war unklar, ob man gerade das Bild
+        # oder den Graphen konfiguriert (UX-Feedback: "im Bereich
+        # 'Temperaturverlauf-Graph' weiß ich manchmal nicht, was ich hier
+        # konkret konfiguriere... das Bild? den Graphen?"), und der Cursor war
+        # ausserdem ungewollt an "Graph mit exportieren" gekoppelt (ohne
+        # Graph nicht erreichbar) -- Widerspruch zum Nutzerwunsch, Cursor-im-
+        # Bild und Live-Cursor-KURVE unabhaengig voneinander waehlbar zu
+        # machen (nur die Kurve setzt den Cursor voraus, nicht umgekehrt).
         graph_indent_row = QtWidgets.QHBoxLayout()
         graph_indent_row.addSpacing(20)
         graph_indent_col = QtWidgets.QVBoxLayout()
@@ -677,43 +687,53 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         position_form.addRow("Position:", self.combo_graph_position)
         graph_indent_col.addLayout(position_form)
 
-        # Hierher verschoben (statt eigener Punkt weiter unten) -- gehoert
-        # inhaltlich zum Graph-/Cursor-Teil des Videos. "Live-Cursor" oben in
-        # der Ankreuzliste (die KURVE im Graphen) setzt diese Option (den
-        # Cursor IM BILD) voraus, beide bleiben aber unabhaengig umschaltbar
-        # (Nutzerwunsch: "beides unabhängig voneinander möglich, aber nicht
-        # Kurve ohne Cursor").
-        self.chk_cursor_position = QtWidgets.QCheckBox("Cursor-Position im Bild anzeigen")
-        self.chk_cursor_position.setChecked(False)
-        self.chk_cursor_position.setToolTip(
-            "Blendet das Fadenkreuz samt Temperaturanzeige am (fixierten oder\n"
-            "zuletzt mit der Maus angezeigten) Cursor-Pixel im exportierten\n"
-            "Video/Bildstapel mit ein. Standardmäßig aus, damit der Export nicht\n"
-            "ungewollt eine Maus-/Debug-Markierung enthält."
-        )
-        graph_indent_col.addWidget(self.chk_cursor_position)
-        _wire_cursor_curve_dependency(self.chk_cursor_position, self._content_widgets["chk_live"])
-
         graph_indent_row.addLayout(graph_indent_col)
         graph_layout.addLayout(graph_indent_row)
 
         def _update_graph_enabled(checked: bool) -> None:
             self._content_widgets["group_box"].setEnabled(checked)
             self.combo_graph_position.setEnabled(checked)
-            self.chk_cursor_position.setEnabled(checked)
 
         self.chk_show_graph.toggled.connect(_update_graph_enabled)
         _update_graph_enabled(False)
         row2.addWidget(graph_box, 1)
         layout.addLayout(row2)
 
-        # Bereich einheitlich "Zeitachse" genannt (wie beim Bild-Export, siehe
-        # GraphicExportDialog) -- die einzelne Option darin heisst "Laufzeit"
-        # (Fortschrittsbalken mit verstrichener Zeit), um sie klar vom
-        # "Zeitstempel" (reales Datum/Uhrzeit) zu unterscheiden. Zusaetzliche
-        # Tooltips erklaeren, was genau jede Option im Export einblendet
-        # (Bugreport: unklar, wie die jeweilige Anzeige am Ende aussieht).
-        overlay_box = QtWidgets.QGroupBox("Zeitachse")
+        # Eigener, vom Graphen UNABHAENGIGER Kasten fuer den Cursor IM BILD
+        # (Fadenkreuz + Live-Temperatur-Text direkt auf dem Thermobild) --
+        # bewusst getrennt von "Temperaturverlauf-Graph" (siehe Kommentar
+        # oben) und daher auch nicht an "Graph mit exportieren" gekoppelt.
+        # Zusammen mit "Zeitanzeige im Bild" in einer Zeile, da beides
+        # zusaetzliche Einblendungen DIREKT AUF DEM BILD sind (im Unterschied
+        # zum Graphen-Inhalt/-Position oben).
+        cursor_box = QtWidgets.QGroupBox("Cursor im Bild")
+        cursor_layout = QtWidgets.QVBoxLayout(cursor_box)
+        self.chk_cursor_position = QtWidgets.QCheckBox("Cursor-Position im Bild anzeigen")
+        self.chk_cursor_position.setChecked(False)
+        self.chk_cursor_position.setToolTip(
+            "Blendet das Fadenkreuz samt Temperaturanzeige am (fixierten oder\n"
+            "zuletzt mit der Maus angezeigten) Cursor-Pixel im exportierten\n"
+            "Video/Bildstapel mit ein. Unabhängig von „Graph mit exportieren“\n"
+            "und der Live-Cursor-KURVE im Graphen einzeln steuerbar -- die\n"
+            "Kurve setzt diese Option aber voraus."
+        )
+        cursor_layout.addWidget(self.chk_cursor_position)
+        _wire_cursor_curve_dependency(self.chk_cursor_position, self._content_widgets["chk_live"])
+
+        # Bewusst NICHT "Zeitachse" genannt (frueherer Stand): dieser Name wird
+        # an anderer Stelle (Hauptfenster-Steuerung, GraphicExportDialog) schon
+        # fuer die x-Achsen-Anzeige des KURVEN-GRAPHEN verwendet
+        # (Uhrzeit/Laufzeit/Beide) -- hier geht es dagegen um einen Text/Balken,
+        # der direkt IN DAS BILD/VIDEO eingebrannt wird, ein anderes Konzept.
+        # Gleicher Begriff fuer zwei unterschiedliche Dinge sorgte fuer genau
+        # die Verwechslungsgefahr, die im UX-Review vermieden werden sollte
+        # (Bugreport: "Sind alle Namen der Optionen ... intuitiv, oder koennte
+        # ich etwas missverstehen?"). Die einzelne Option "Laufzeit" (Fortschritts-
+        # balken mit verstrichener Zeit) bleibt klar vom "Zeitstempel" (reales
+        # Datum/Uhrzeit) unterschieden; Tooltips erklaeren, was genau jede
+        # Option im Export einblendet (Bugreport: unklar, wie die jeweilige
+        # Anzeige am Ende aussieht).
+        overlay_box = QtWidgets.QGroupBox("Zeitanzeige im Bild")
         overlay_grid = QtWidgets.QGridLayout(overlay_box)
         self.radio_overlay_timeline = QtWidgets.QRadioButton("Laufzeit")
         self.radio_overlay_timeline.setToolTip(
@@ -734,7 +754,15 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         overlay_grid.addWidget(self.radio_overlay_none, 0, 1)
         overlay_grid.addWidget(self.radio_overlay_timestamp, 1, 0)
         overlay_grid.addWidget(self.radio_overlay_both, 1, 1)
-        layout.addWidget(overlay_box)
+
+        # Cursor-im-Bild und Zeitanzeige-im-Bild nebeneinander -- beides sind
+        # zusaetzliche Einblendungen direkt auf dem Bild/Video (im Unterschied
+        # zum Graphen-Kasten oben), daher hier bewusst als eigenes Zeilenpaar
+        # gruppiert statt einzeln untereinander.
+        overlay_row = QtWidgets.QHBoxLayout()
+        overlay_row.addWidget(cursor_box, 1)
+        overlay_row.addWidget(overlay_box, 1)
+        layout.addLayout(overlay_row)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel

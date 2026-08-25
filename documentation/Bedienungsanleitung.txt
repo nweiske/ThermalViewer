@@ -525,7 +525,7 @@ die Temperatur dort entwickelt hat.
   3. Waehlen, ob Bild und Kurve KOMBINIERT (eine Grafik, Bild oben/Kurve
      unten) oder GETRENNT (zwei einzelne Dateien "..._Bild" und
      "..._Kurve") gespeichert werden sollen. Die Wahl wird gemerkt.
-  4. "Farbdarstellung" -> dieselbe Freiheit wie im Hauptfenster: entweder
+  4. "Farbskala / Legende" -> dieselbe Freiheit wie im Hauptfenster: entweder
      "Aktuelle Anzeige-Einstellungen uebernehmen" (Standard) oder "Eigene
      Einstellungen fuer diesen Export" mit eigenem Farbverlauf,
      Invertierung, Skalierungsmodus (Abschnitt 7) und Min/Max NUR fuer
@@ -625,8 +625,8 @@ speichern - ganz oben im Dialog per "Ausgabeform" waehlbar:
     gewaehlt, in den alle Bilder geschrieben werden. Die
     "Wiedergabe-FPS" hat fuer den Bildstapel keine Bedeutung (Feld bleibt
     ausgegraut) - alle uebrigen Einstellungen (Frame-Bereich,
-    Farbskala/Legende, Zeitachse, Temperaturverlauf-Graph) gelten
-    identisch fuer beide Ausgabeformen.
+    Farbskala/Legende, Temperaturverlauf-Graph, Cursor im Bild,
+    Zeitanzeige im Bild) gelten identisch fuer beide Ausgabeformen.
 
 Alle uebrigen Einstellungen im Dialog:
 
@@ -655,18 +655,23 @@ Alle uebrigen Einstellungen im Dialog:
     gerade ein Live-Cursor-Pixel vorliegt, siehe Abschnitt 8; Standard:
     aus) -- genau wie beim Grafik-Export (Abschnitt 9). "Position:" legt
     fest, WO der Graph relativ zum Thermobild sitzt: Unter/Über/Links/
-    Rechts vom Bild (frei waehlbar). Hier befindet sich auch
-    "Cursor-Position im Bild anzeigen" (Standard: AUS) -- wie beim
-    Bild-Export (Abschnitt 9): blendet das Fadenkreuz samt
-    Temperaturanzeige am fixierten/zuletzt angefahrenen Cursor-Pixel im
-    Thermobild mit ein, unabhaengig von der "Live-Cursor"-Kurve
-    einzeln schaltbar (die Kurve setzt diese Option allerdings voraus --
-    ein Anhaken von "Live-Cursor" aktiviert sie automatisch mit).
-    Bleibt der Haken leer, enthaelt der Export KEINE Maus-Markierung im
-    Bild.
-  - "Zeitachse" -> blendet unten im Bild einen Streifen ein, waehlbar
-    als 2x2-Auswahl (Namen bewusst wie im uebrigen Programm, mit
-    Tooltip bei Laufzeit/Zeitstempel; Standard: "Beides"):
+    Rechts vom Bild (frei waehlbar). Dieser gesamte Kasten betrifft NUR
+    den Kurven-Graphen -- nicht das Thermobild selbst.
+  - "Cursor im Bild" -> EIGENER, vom Graphen UNABHAENGIGER Kasten (bewusst
+    NICHT Teil von "Temperaturverlauf-Graph", auch bei ausgeschaltetem
+    "Graph mit exportieren" bedienbar): "Cursor-Position im Bild anzeigen"
+    (Standard: AUS) blendet das Fadenkreuz samt Temperaturanzeige am
+    fixierten/zuletzt angefahrenen Cursor-Pixel im THERMOBILD mit ein,
+    unabhaengig von der "Live-Cursor"-Kurve im Graphen einzeln schaltbar
+    (die Kurve setzt diese Option allerdings voraus -- ein Anhaken von
+    "Live-Cursor" aktiviert sie automatisch mit). Bleibt der Haken leer,
+    enthaelt der Export KEINE Maus-Markierung im Bild.
+  - "Zeitanzeige im Bild" -> blendet unten im Bild einen Streifen ein,
+    waehlbar als 2x2-Auswahl (Namen bewusst wie im uebrigen Programm, mit
+    Tooltip bei Laufzeit/Zeitstempel; Standard: "Beides"). Nicht zu
+    verwechseln mit "Zeitachse:" beim Grafik-Export (Abschnitt 9, Punkt 5)
+    -- dort geht es um die X-ACHSE des Kurven-Graphen, hier um einen Text/
+    Balken, der direkt in das Bild/Video eingebrannt wird:
       * "Laufzeit" -> Fortschrittsbalken mit gruener/roter Markierung
         an der TATSAECHLICHEN Position von Start/Ende des exportierten
         Bereichs INNERHALB DER GESAMTEN Aufnahme (nicht an den Rand der

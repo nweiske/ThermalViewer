@@ -2597,10 +2597,13 @@ check(
 
 def test_video_dialog_overlay_group_is_laufzeit_2x2_grid_with_tooltips():
     # Verlauf: Gruppe zuerst umbenannt von "Zeitanzeige im Video" -> "Laufzeit",
-    # spaeter (Vereinheitlichung mit dem Bild-Export, siehe GraphicExportDialog)
-    # nochmal umbenannt -> "Zeitachse". Radiobuttons nicht als Liste, sondern
-    # als 2x2-Matrix (Zeile 1: Zeitleiste/Keine, Zeile 2: Zeitstempel/Beides);
-    # Zeitleiste/Zeitstempel zusaetzlich mit erklaerendem Tooltip.
+    # dann (Vereinheitlichung mit dem Bild-Export, siehe GraphicExportDialog)
+    # zu "Zeitachse", und schliesslich (UX-Review: "Zeitachse" wird an anderer
+    # Stelle bereits fuer die x-Achse des Kurven-Graphen verwendet, gleicher
+    # Begriff fuer zwei verschiedene Dinge verwirrt) zu "Zeitanzeige im Bild"
+    # umbenannt. Radiobuttons nicht als Liste, sondern als 2x2-Matrix (Zeile 1:
+    # Zeitleiste/Keine, Zeile 2: Zeitstempel/Beides); Zeitleiste/Zeitstempel
+    # zusaetzlich mit erklaerendem Tooltip.
     from thermal_viewer.dialogs import VideoExportDialog
 
     dlg = VideoExportDialog(
@@ -2610,7 +2613,7 @@ def test_video_dialog_overlay_group_is_laufzeit_2x2_grid_with_tooltips():
     )
     overlay_box = dlg.radio_overlay_timeline.parentWidget()
     assert isinstance(overlay_box, QtWidgets.QGroupBox)
-    assert overlay_box.title() == "Zeitachse", overlay_box.title()
+    assert overlay_box.title() == "Zeitanzeige im Bild", overlay_box.title()
 
     grid = overlay_box.layout()
     assert isinstance(grid, QtWidgets.QGridLayout)
@@ -3151,7 +3154,15 @@ check(
 
 # ============================================================ Round 3 =====
 
-def test_video_export_dialog_cursor_under_graph_box_and_beides_default():
+def test_video_export_dialog_cursor_independent_of_graph_box_and_beides_default():
+    # UX-Review: die Cursor-im-Bild-Checkbox lag frueher VERSCHACHTELT im
+    # "Temperaturverlauf-Graph"-Kasten und war dadurch an "Graph mit
+    # exportieren" gekoppelt (ohne Graph nicht erreichbar) -- unklar, ob man
+    # gerade das Bild oder den Graphen konfiguriert, UND ein Widerspruch zum
+    # Nutzerwunsch, Cursor-im-Bild unabhaengig von der Live-Cursor-KURVE (und
+    # damit unabhaengig vom Graphen insgesamt) waehlbar zu machen. Jetzt: ein
+    # eigener "Cursor im Bild"-Kasten, der weder zum Graph-Kasten gehoert noch
+    # von "Graph mit exportieren" deaktiviert wird.
     from thermal_viewer.dialogs import VideoExportDialog as RealVideoExportDialog
 
     dlg = RealVideoExportDialog(
@@ -3162,17 +3173,33 @@ def test_video_export_dialog_cursor_under_graph_box_and_beides_default():
     try:
         assert dlg.radio_overlay_both.isChecked() is True, "Default fuer 'Laufzeit' muss 'Beides' sein"
         assert dlg.timeline_overlay_mode() == "both"
-        assert dlg.chk_cursor_position.parentWidget() is dlg.chk_show_graph.parentWidget(), (
-            "Cursor-Checkbox muss jetzt im 'Temperaturverlauf-Graph'-Kasten liegen"
+
+        cursor_box = dlg.chk_cursor_position.parentWidget()
+        assert isinstance(cursor_box, QtWidgets.QGroupBox)
+        assert cursor_box.title() == "Cursor im Bild", cursor_box.title()
+        assert cursor_box is not dlg.chk_show_graph.parentWidget(), (
+            "Cursor-Kasten darf NICHT mehr im 'Temperaturverlauf-Graph'-Kasten liegen"
         )
-        assert dlg.chk_cursor_position.parentWidget().title() == "Temperaturverlauf-Graph"
+
+        # Unabhaengig von "Graph mit exportieren" bedienbar -- weder AUS noch
+        # AN darf die Cursor-Checkbox deaktivieren.
+        assert dlg.chk_show_graph.isChecked() is False
+        assert dlg.chk_cursor_position.isEnabled() is True
+        dlg.chk_cursor_position.setChecked(True)
+        assert dlg.export_cursor_position() is True
+        dlg.chk_show_graph.setChecked(True)
+        assert dlg.chk_cursor_position.isEnabled() is True
+        assert dlg.export_cursor_position() is True
+        dlg.chk_show_graph.setChecked(False)
+        assert dlg.chk_cursor_position.isEnabled() is True
+        assert dlg.export_cursor_position() is True, "Cursor-Wert muss trotz 'Graph aus' erhalten bleiben"
     finally:
         dlg.close()
 
 
 check(
-    "video export dialog: 'Cursor-Position' moved under 'Temperaturverlauf-Graph', 'Laufzeit' defaults to 'Beides'",
-    test_video_export_dialog_cursor_under_graph_box_and_beides_default,
+    "video export dialog: 'Cursor im Bild' ist eigener Kasten, unabhaengig von 'Graph mit exportieren', 'Laufzeit' defaults to 'Beides'",
+    test_video_export_dialog_cursor_independent_of_graph_box_and_beides_default,
 )
 
 

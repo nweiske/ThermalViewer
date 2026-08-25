@@ -29,8 +29,15 @@ from .data import (
     load_paths,
     validate_filename_template,
 )
-from .dialogs import CsvColumnDialog, FilenameTemplateDialog, GraphicExportDialog, VideoExportDialog
+from .dialogs import (
+    CsvColumnDialog,
+    FilenameTemplateDialog,
+    GraphicExportDialog,
+    RulerLengthDialog,
+    VideoExportDialog,
+)
 from .roi import AdjustableROI, bounds_px_for
+from .widgets import LocaleTolerantDoubleSpinBox
 
 pg.setConfigOptions(imageAxisOrder="row-major", antialias=True)
 
@@ -241,6 +248,9 @@ class RoiEntry:
         view_box.addItem(self.roi)
 
         # Namensbeschriftung direkt im Bild, oben links über dem ROI-Rechteck.
+        # Zeigt zusaetzlich (zweite Zeile) die aktuelle gemittelte Temperatur
+        # dieses Messbereichs (Punkt 10, siehe update_temperature_label).
+        self._last_temperature: float | None = None
         self.label = pg.TextItem(text=self.name, color=color, anchor=(0, 1), fill=(0, 0, 0, 140))
         self.label.setVisible(False)
         view_box.addItem(self.label)
@@ -261,7 +271,21 @@ class RoiEntry:
     def set_name(self, name: str) -> None:
         self.name = name
         self.curve.opts["name"] = name
-        self.label.setText(name)
+        self._refresh_label_text()
+
+    def _refresh_label_text(self) -> None:
+        if self._last_temperature is None:
+            self.label.setText(self.name)
+        else:
+            self.label.setText(f"{self.name}\n{self._last_temperature:.1f} °C")
+
+    def update_temperature_label(self, temperature: float) -> None:
+        """Aktualisiert die im Bild angezeigte Beschriftung um die aktuell
+        gemittelte Temperatur dieses Messbereichs (Punkt 10) -- wird bei
+        jedem Frame-Wechsel fuer alle platzierten Messbereiche neu
+        aufgerufen, damit der Wert live mitlaeuft."""
+        self._last_temperature = temperature
+        self._refresh_label_text()
 
     def set_color(self, color: str) -> None:
         self.color = color
@@ -544,9 +568,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # zuvor bereits vergebene Nummer wiederverwenden.
         self._roi_next_number = 1
         self._current_theme = DEFAULT_THEME
-        # Grafik-Darstellung (Punkt 13): "app" folgt dem App-Design, sonst
-        # unabhaengig davon fest "light"/"dark".
-        self._graph_theme_mode = "app"
         self._graph_bg = THEMES[DEFAULT_THEME]["pg_background"]
         self._graph_fg = THEMES[DEFAULT_THEME]["pg_foreground"]
         # Min/Max ueber alle Frames der aktuellen Aufnahme (Punkt 1), einmalig
@@ -554,9 +575,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self._global_level_range: tuple[float, float] | None = None
         # Maßstab (Punkt 12): mm pro Pixel, None = kein Maßstab definiert.
         self._px_to_mm: float | None = None
+        # Reale Laenge (mm) der Referenzlinie, UNABHAENGIG von ihrer aktuellen
+        # Pixel-Distanz (Punkt 11) -- beim Ziehen der Endpunkte bleibt dieser
+        # Wert konstant und _px_to_mm wird aus der neuen Pixel-Distanz neu
+        # berechnet; beim Doppelklick-Bearbeiten ist es umgekehrt.
+        self._ruler_mm_value: float | None = None
         self._ruler_armed = False
         self._ruler_start: tuple[float, float] | None = None
-        self._ruler_line: pg.PlotDataItem | None = None
+        # Waehrend der Klick-Klick-Erstellung (siehe _handle_ruler_click) nur
+        # ein einfacher, nicht interaktiver Vorschau-Marker -- die fertige
+        # Linie (self._ruler_line) ist ein ziehbares LineSegmentROI.
+        self._ruler_preview_marker: pg.PlotDataItem | None = None
+        self._ruler_line: pg.LineSegmentROI | None = None
         self._ruler_text: pg.TextItem | None = None
         # Anpassbar (siehe btn_ruler_color), da eine feste Farbe bei manchen
         # Farbverlaeufen (z.B. "Hot") auf der Referenzlinie kaum zu erkennen
@@ -613,16 +643,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._connect_scene_events()
 
         # Fuer die beiden Kurven-Graphen soll ein Rechtsklick "Exportieren"
-        # exakt denselben Weg wie der jeweilige Export-Menü-Punkt nehmen
-        # (inkl. Kombiniert/Getrennt-Auswahl und Thermobild mit Position) --
-        # nicht nur einen aehnlich aussehenden, aber auf diesen einen
-        # Graphen beschraenkten Dialog. Fuer das Thermobild selbst gibt es
-        # keinen direkten Menü-Eintrag (Export-Menü kennt nur "Zeitverlauf-"/
-        # "Live-Grafik", beide inkl. Bild) -- bleibt daher beim bisherigen,
-        # auf dieses eine Widget beschraenkten Einzel-Export.
+        # exakt denselben Weg wie der Export-Menü-Punkt "Grafik
+        # exportieren…" nehmen (inkl. Kombiniert/Getrennt- und Graph-Inhalt-
+        # Auswahl) -- nicht nur einen aehnlich aussehenden, aber auf diesen
+        # einen Graphen beschraenkten Dialog. Fuer das Thermobild selbst
+        # gibt es keinen direkten Menü-Eintrag -- bleibt daher beim
+        # bisherigen, auf dieses eine Widget beschraenkten Einzel-Export.
         self._bind_native_export(self.glw, "Thermobild.png")
-        self._bind_native_export(self.timeseries_plot, "Zeitverlauf.png", self._export_timeseries_graphic)
-        self._bind_native_export(self.live_plot, "Live-Verlauf.png", self._export_live_graphic)
+        self._bind_native_export(self.timeseries_plot, "Zeitverlauf.png", self._export_graphic)
+        self._bind_native_export(self.live_plot, "Live-Verlauf.png", self._export_graphic)
 
         # _build_image_canvas() setzt vorlaeufig die rohe, unkorrigierte
         # Farbpalette (kein combo_cmap/chk_cmap_invert existierte zu dem
@@ -635,26 +664,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self._live_cursor_kernel_size = saved_kernel_size
             self._live_cursor_kernel_actions[saved_kernel_size].setChecked(True)
 
-        saved_graph_mode = self._settings.value("graph_theme_mode", "app")
-        if saved_graph_mode in self._graph_theme_actions:
-            self._graph_theme_actions[saved_graph_mode].setChecked(True)
-            self._graph_theme_mode = saved_graph_mode
-
         saved_theme = self._settings.value("theme", DEFAULT_THEME)
         self._apply_theme(saved_theme if saved_theme in THEMES else DEFAULT_THEME)
-        if self._graph_theme_mode != "app":
-            # _apply_theme() aktualisiert die Graphen-Farben nur, wenn der Modus
-            # "app" ist -- bei einem gespeicherten fixen Graphen-Design (Punkt
-            # 13) muss es hier zusaetzlich einmalig angewendet werden, sonst
-            # bleiben Bild/Kurven beim Start auf pyqtgraphs Standardfarben.
-            fixed_theme = THEMES[self._graph_theme_mode]
-            self._apply_graph_colors(fixed_theme["pg_background"], fixed_theme["pg_foreground"])
 
         saved_time_mode = self._settings.value("time_display_mode", "clock")
         self._apply_time_display_mode(saved_time_mode if saved_time_mode in ("clock", "runtime") else "clock")
 
         # Dateinamens-Schema (Punkt 5): standardmaessig "Record_YYYY-MM-DD_
-        # HH-mm-ss", per QSettings dauerhaft ueberschreibbar (siehe
+        # hh-mm-ss", per QSettings dauerhaft ueberschreibbar (siehe
         # FilenameTemplateDialog/_set_filename_template). _active_* haelt
         # zusaetzlich fest, welches Schema die AKTUELL geladene Aufnahme
         # tatsaechlich verwendet hat -- kann vom Standard abweichen, wenn der
@@ -772,14 +789,21 @@ class MainWindow(QtWidgets.QMainWindow):
         row1.addWidget(self.frame_spin)
 
         row1.addWidget(QtWidgets.QLabel("  FPS: "))
-        self.fps_spin = QtWidgets.QDoubleSpinBox()
+        self.fps_spin = LocaleTolerantDoubleSpinBox()
         self.fps_spin.setRange(0.5, 60.0)
         self.fps_spin.setValue(10.0)
         self.fps_spin.valueChanged.connect(self._on_fps_changed)
         row1.addWidget(self.fps_spin)
 
         self.timestamp_label = QtWidgets.QLabel("  –")
-        self.timestamp_label.setStyleSheet("font-weight: bold; padding-left: 8px;")
+        # Fett + Einzug bewusst NICHT per setStyleSheet (Qt uebernimmt bei
+        # stylesheet-gestylten Widgets eine spaeter geaenderte QApplication-
+        # Palette in der Praxis nicht immer zuverlaessig, siehe _apply_theme) --
+        # QFont/Contents-Margins sind von diesem Palette-Caching nicht betroffen.
+        bold_font = self.timestamp_label.font()
+        bold_font.setBold(True)
+        self.timestamp_label.setFont(bold_font)
+        self.timestamp_label.setContentsMargins(8, 0, 0, 0)
         row1.addWidget(self.timestamp_label)
 
         row2 = QtWidgets.QHBoxLayout()
@@ -813,10 +837,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.play_timer = QtCore.QTimer(self)
         self.play_timer.timeout.connect(self._advance_frame)
 
-    def _build_time_display_row(self) -> tuple[QtWidgets.QHBoxLayout, QtWidgets.QComboBox]:
-        """Zeile mit rechtsbuendigem Uhrzeit/Laufzeit-Umschalter, unterhalb
-        eines Kurven-Graphen platziert (also unten rechts an diesem Graphen)."""
+    def _build_time_display_row(
+        self, plot_widget: pg.PlotWidget
+    ) -> tuple[QtWidgets.QHBoxLayout, QtWidgets.QComboBox]:
+        """Zeile mit Achsen-Reset-Knopf und rechtsbuendigem Uhrzeit/Laufzeit-
+        Umschalter, unterhalb eines Kurven-Graphen platziert (also unten
+        rechts an diesem Graphen, Punkt 9/Punkt 5)."""
         row = QtWidgets.QHBoxLayout()
+        btn_reset_view = QtWidgets.QPushButton("Achsen zurücksetzen")
+        btn_reset_view.setToolTip(
+            "Setzt Zoom/Verschieben dieses Graphen zurück (X- und Y-Achse wieder auf den "
+            "kompletten Datenbereich) -- falls per Maus verzoomt/verschoben wurde."
+        )
+        btn_reset_view.clicked.connect(partial(self._reset_plot_view, plot_widget))
+        row.addWidget(btn_reset_view)
         row.addStretch(1)
         row.addWidget(QtWidgets.QLabel("Zeitachse:"))
         combo = QtWidgets.QComboBox()
@@ -825,6 +859,21 @@ class MainWindow(QtWidgets.QMainWindow):
         combo.setToolTip("Zeigt die x-Achse als echte Uhrzeit oder als Laufzeit seit Aufnahmebeginn (HH:MM:SS)")
         row.addWidget(combo)
         return row, combo
+
+    @staticmethod
+    def _reset_plot_view(plot_widget: pg.PlotWidget) -> None:
+        # Bugfix: enableAutoRange() liess den Auto-Fit-Modus dauerhaft AN
+        # (pyqtgraph passt die Achsen danach bei JEDER weiteren
+        # Datenaenderung/Groessenaenderung automatisch neu an) -- in
+        # Kombination mit der dynamischen Achsenbeschriftungsbreite fuehrte
+        # das dazu, dass der sichtbare Bereich bei mehrfachem Klicken immer
+        # weiter schrumpfte, statt stabil auf den vollen Datenbereich zu
+        # bleiben (Bugreport: "schrumpft immer weiter"). autoRange() allein
+        # passt die Achsen genau EINMAL an den vollen Datenbereich an, ohne
+        # den Dauer-Modus zu aktivieren -- danach bleibt die Ansicht stabil,
+        # bis der Nutzer erneut manuell zoomt/verschiebt oder den Knopf
+        # wieder anklickt.
+        plot_widget.getPlotItem().autoRange()
 
     def _build_plots(self) -> None:
         self.axis_timeseries_bottom = TimeAxisItem()
@@ -848,6 +897,18 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.timeseries_plot.addItem(self.frame_marker)
 
+        # Zusaetzliche, standardmaessig ausgeblendete Kurve fuer den
+        # Live-Cursor-Verlauf DIREKT im Zeitverlauf-Graphen (Punkt 8) -- eine
+        # eigene PlotDataItem-Instanz, da ein und dasselbe pyqtgraph-Item
+        # nicht gleichzeitig auf zwei Plots liegen kann; ihre Daten werden
+        # in _update_live_cursor() parallel zu self.live_curve gepflegt.
+        self.timeseries_live_curve = pg.PlotDataItem(
+            pen=pg.mkPen("#38bdf8", width=2),
+            symbol="o", symbolSize=5, symbolBrush="#38bdf8", symbolPen=None,
+        )
+        self.timeseries_live_curve.setVisible(False)
+        self.timeseries_plot.addItem(self.timeseries_live_curve)
+
         # Export-Buttons hier bewusst entfernt (siehe Menü „Export“ und das
         # native Rechtsklick-Kontextmenü auf dem Graphen selbst) -- doppelte,
         # unklar benannte Buttons ("Grafik speichern…"/"Werte als CSV…", ohne
@@ -856,7 +917,19 @@ class MainWindow(QtWidgets.QMainWindow):
         timeseries_layout = QtWidgets.QVBoxLayout(self.timeseries_widget)
         timeseries_layout.setContentsMargins(4, 4, 4, 4)
         timeseries_layout.addWidget(self.timeseries_plot)
-        ts_time_row, self.combo_time_display_timeseries = self._build_time_display_row()
+
+        # Punkt 8: zusaetzlich (opt-in), den Live-Cursor-Verlauf direkt mit in
+        # diesen Graphen einzublenden, statt extra ins Live-Panel wechseln zu
+        # muessen.
+        self.chk_show_live_in_timeseries = QtWidgets.QCheckBox("Live-Cursor-Kurve zusätzlich anzeigen")
+        self.chk_show_live_in_timeseries.setToolTip(
+            "Blendet den Temperaturverlauf des Live-Cursor-Pixels zusätzlich zu den "
+            "Messbereichen in diesem Graphen ein (dieselbe Kurve wie im Live-Panel)."
+        )
+        self.chk_show_live_in_timeseries.toggled.connect(self._on_show_live_in_timeseries_toggled)
+        timeseries_layout.addWidget(self.chk_show_live_in_timeseries)
+
+        ts_time_row, self.combo_time_display_timeseries = self._build_time_display_row(self.timeseries_plot)
         timeseries_layout.addLayout(ts_time_row)
 
         self.axis_live_bottom = TimeAxisItem()
@@ -890,7 +963,7 @@ class MainWindow(QtWidgets.QMainWindow):
         live_layout.setContentsMargins(4, 4, 4, 4)
         live_layout.addWidget(self.live_label)
         live_layout.addWidget(self.live_plot)
-        live_time_row, self.combo_time_display_live = self._build_time_display_row()
+        live_time_row, self.combo_time_display_live = self._build_time_display_row(self.live_plot)
         live_layout.addLayout(live_time_row)
 
         self._time_display_combos = [self.combo_time_display_timeseries, self.combo_time_display_live]
@@ -1026,7 +1099,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         legend_layout.addWidget(self.radio_level_manual, 4, 0)
         legend_layout.addWidget(QtWidgets.QLabel("Max:"), 4, 1)
-        self.spin_level_max = QtWidgets.QDoubleSpinBox()
+        self.spin_level_max = LocaleTolerantDoubleSpinBox()
         self.spin_level_max.setRange(-100.0, 2000.0)
         self.spin_level_max.setDecimals(1)
         self.spin_level_max.setValue(50.0)
@@ -1036,7 +1109,7 @@ class MainWindow(QtWidgets.QMainWindow):
         legend_layout.addWidget(self.spin_level_max, 4, 2)
 
         legend_layout.addWidget(QtWidgets.QLabel("Min:"), 5, 1)
-        self.spin_level_min = QtWidgets.QDoubleSpinBox()
+        self.spin_level_min = LocaleTolerantDoubleSpinBox()
         self.spin_level_min.setRange(-100.0, 2000.0)
         self.spin_level_min.setDecimals(1)
         self.spin_level_min.setSuffix(" °C")
@@ -1262,7 +1335,7 @@ class MainWindow(QtWidgets.QMainWindow):
         grid.addWidget(
             QtWidgets.QLabel("X-Position:"), row, 0, alignment=QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter
         )
-        spin_x = QtWidgets.QDoubleSpinBox()
+        spin_x = LocaleTolerantDoubleSpinBox()
         spin_x.setRange(0, 100000)
         spin_x.setDecimals(1)
         grid.addWidget(spin_x, row, 1)
@@ -1271,7 +1344,7 @@ class MainWindow(QtWidgets.QMainWindow):
         grid.addWidget(
             QtWidgets.QLabel("Y-Position:"), row, 2, alignment=QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter
         )
-        spin_y = QtWidgets.QDoubleSpinBox()
+        spin_y = LocaleTolerantDoubleSpinBox()
         spin_y.setRange(0, 100000)
         spin_y.setDecimals(1)
         grid.addWidget(spin_y, row, 3)
@@ -1281,7 +1354,7 @@ class MainWindow(QtWidgets.QMainWindow):
         grid.addWidget(
             QtWidgets.QLabel("Breite:"), row, 0, alignment=QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter
         )
-        spin_width = QtWidgets.QDoubleSpinBox()
+        spin_width = LocaleTolerantDoubleSpinBox()
         spin_width.setRange(1, 100000)
         spin_width.setValue(DEFAULT_ROI_SIZE)
         grid.addWidget(spin_width, row, 1)
@@ -1290,7 +1363,7 @@ class MainWindow(QtWidgets.QMainWindow):
         grid.addWidget(
             QtWidgets.QLabel("Höhe:"), row, 2, alignment=QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter
         )
-        spin_height = QtWidgets.QDoubleSpinBox()
+        spin_height = LocaleTolerantDoubleSpinBox()
         spin_height.setRange(1, 100000)
         spin_height.setValue(DEFAULT_ROI_SIZE)
         grid.addWidget(spin_height, row, 3)
@@ -1459,41 +1532,17 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu.addAction(self.live_dock.toggleViewAction())
 
         view_menu.addSeparator()
-        theme_menu = view_menu.addMenu("Design")
-        self._theme_actions: dict[str, QtGui.QAction] = {}
-        theme_group = QtGui.QActionGroup(self)
-        theme_group.setExclusive(True)
-        for key, theme in THEMES.items():
-            act = theme_menu.addAction(theme["label"])
-            act.setCheckable(True)
-            act.triggered.connect(partial(self._on_theme_selected, key))
-            theme_group.addAction(act)
-            self._theme_actions[key] = act
-
-        # Hintergrund-/Schriftfarbe von Thermobild und Kurven-Graphen,
-        # unabhaengig vom App-Design (siehe "Design" oben) waehlbar -- z.B.
-        # fuer helle Exporte bei dunklem App-Design.
-        graph_theme_menu = view_menu.addMenu("Grafik-Darstellung")
-        self._graph_theme_actions: dict[str, QtGui.QAction] = {}
-        graph_theme_group = QtGui.QActionGroup(self)
-        graph_theme_group.setExclusive(True)
-        graph_theme_options = [
-            ("app", "Wie App-Design"),
-            ("light", "Hell (schwarze Schrift)"),
-            ("dark", "Dunkel (weiße Schrift)"),
-        ]
-        for key, label in graph_theme_options:
-            act = graph_theme_menu.addAction(label)
-            act.setCheckable(True)
-            act.setToolTip(
-                "Hintergrund-/Schriftfarbe von Thermobild und Kurven-Graphen -- unabhängig vom "
-                "übrigen App-Design (siehe \"Design\" oben) wählbar, z.B. für helle Exporte bei "
-                "dunklem App-Design."
-            )
-            act.triggered.connect(partial(self._on_graph_theme_selected, key))
-            graph_theme_group.addAction(act)
-            self._graph_theme_actions[key] = act
-        self._graph_theme_actions["app"].setChecked(True)
+        # Ein einziger Umschalter statt getrennter "Design"/"Grafik-
+        # Darstellung"-Untermenues (Nutzerwunsch: "nur noch einen einzigen
+        # Knopf ... zwischen Dark-/Light-Mode hin und her wechseln") --
+        # betrifft App-Oberflaeche UND Thermobild/Kurven-Graphen gemeinsam.
+        self.act_dark_mode = view_menu.addAction("Dunkelmodus")
+        self.act_dark_mode.setCheckable(True)
+        self.act_dark_mode.setToolTip(
+            "Wechselt zwischen hellem und dunklem Erscheinungsbild -- gilt einheitlich für die "
+            "gesamte Oberfläche inkl. Thermobild und Kurven-Graphen."
+        )
+        self.act_dark_mode.toggled.connect(self._on_dark_mode_toggled)
 
         tools_menu = self.menuBar().addMenu("&Werkzeuge")
         act_ruler = tools_menu.addAction("Maßstab festlegen…")
@@ -1512,7 +1561,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._live_cursor_kernel_actions: dict[int, QtGui.QAction] = {}
         kernel_group = QtGui.QActionGroup(self)
         kernel_group.setExclusive(True)
-        for size in (1, 3, 5, 7):
+        for size in (1, 3, 5, 7, 10):
             label = "1×1 Pixel (Standard)" if size == 1 else f"{size}×{size} Pixel (Mittelwert)"
             act = kernel_menu.addAction(label)
             act.setCheckable(True)
@@ -1522,36 +1571,33 @@ class MainWindow(QtWidgets.QMainWindow):
         self._live_cursor_kernel_actions[1].setChecked(True)
 
         export_menu = self.menuBar().addMenu("&Export")
-        act_export_video = export_menu.addAction("Video exportieren…")
-        act_export_video.setToolTip("Exportiert einen wählbaren Frame-Bereich als MP4-Video.")
+        act_export_video = export_menu.addAction("Video / Bildstapel exportieren…")
+        act_export_video.setToolTip(
+            "Exportiert einen wählbaren Frame-Bereich als MP4-, AVI- oder WebM-Video, oder "
+            "wahlweise als Bildstapel (eine Bilddatei pro Frame)."
+        )
         act_export_video.triggered.connect(self._export_video)
         export_menu.addSeparator()
-        act_export_ts_graphic = export_menu.addAction("Zeitverlauf-Grafik exportieren…")
-        act_export_ts_graphic.setToolTip(
-            "Speichert Thermobild (mit Position der Messbereiche) und Temperaturverlauf "
-            "gemeinsam oder getrennt als Grafik(en)."
+        # Nur noch EIN Grafik- und EIN CSV-Export-Fenster (statt getrennter
+        # "Zeitverlauf-"/"Live-"-Varianten) -- welche Kurve(n) tatsaechlich mit
+        # hinein sollen, waehlt der jeweilige Dialog selbst per Haekchen
+        # (Nutzerwunsch: "nur noch ein einziges CSV/-Bild-Export Fenster").
+        act_export_graphic = export_menu.addAction("Grafik exportieren…")
+        act_export_graphic.setToolTip(
+            "Speichert Thermobild (mit Position der Messbereiche/des Cursors) und "
+            "Temperaturverlauf gemeinsam oder getrennt als Grafik(en) -- welche Kurve(n) "
+            "(Messbereiche und/oder Live-Cursor) dabei sind, wählt der Dialog selbst."
         )
-        act_export_ts_graphic.triggered.connect(self._export_timeseries_graphic)
-        act_export_live_graphic = export_menu.addAction("Live-Grafik exportieren…")
-        act_export_live_graphic.setToolTip(
-            "Speichert Thermobild (mit Position des Cursor-Pixels) und Temperaturverlauf "
-            "gemeinsam oder getrennt als Grafik(en)."
-        )
-        act_export_live_graphic.triggered.connect(self._export_live_graphic)
+        act_export_graphic.triggered.connect(self._export_graphic)
         export_menu.addSeparator()
-        act_export_ts_csv = export_menu.addAction("Zeitverlauf-Werte als CSV…")
-        act_export_ts_csv.setToolTip(
-            "Speichert die Temperaturwerte aller platzierten Messbereiche über die Zeit als CSV-Datei."
+        act_export_csv = export_menu.addAction("Werte als CSV exportieren…")
+        act_export_csv.setToolTip(
+            "Speichert die Temperaturwerte aller platzierten Messbereiche und/oder des "
+            "Live-Cursor-Pixels wählbar über die Zeit als eine gemeinsame CSV-Datei."
         )
-        act_export_ts_csv.triggered.connect(self._export_roi_csv)
-        act_export_live_csv = export_menu.addAction("Live-Werte als CSV…")
-        act_export_live_csv.setToolTip(
-            "Speichert den Temperaturverlauf des Cursor-Pixels über die Zeit als CSV-Datei."
-        )
-        act_export_live_csv.triggered.connect(self._export_live_csv)
+        act_export_csv.triggered.connect(self._export_csv)
         self._requires_recording_actions.extend([
-            act_export_video, act_export_ts_graphic, act_export_live_graphic,
-            act_export_ts_csv, act_export_live_csv,
+            act_export_video, act_export_graphic, act_export_csv,
         ])
 
         for action in self._requires_recording_actions:
@@ -1592,9 +1638,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.play_button.toggle()
 
     # -------------------------------------------------------------- Design
-    def _on_theme_selected(self, key: str) -> None:
-        self._apply_theme(key)
-        self._settings.setValue("theme", key)
+    def _on_dark_mode_toggled(self, checked: bool) -> None:
+        self._apply_theme("dark" if checked else "light")
+        self._settings.setValue("theme", self._current_theme)
 
     def _apply_theme(self, key: str) -> None:
         theme = THEMES[key]
@@ -1604,18 +1650,28 @@ class MainWindow(QtWidgets.QMainWindow):
         if app is not None:
             app.setStyle("Fusion")
             app.setPalette(self._dark_palette() if key == "dark" else app.style().standardPalette())
+            # Widgets mit eigenem setStyleSheet (z.B. Zeitstempel-Anzeige) haben
+            # in der Praxis nicht immer zuverlaessig die neue QApplication-
+            # Palette uebernommen -- explizites Neu-Polieren erzwingt die
+            # Aktualisierung (Bugreport: Zeitstempel blieb nach Dunkel->Hell-
+            # Wechsel in grauer, auf hellem Hintergrund kaum lesbarer Schrift).
+            for widget in app.allWidgets():
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
+                widget.update()
 
-        if self._graph_theme_mode == "app":
-            self._apply_graph_colors(theme["pg_background"], theme["pg_foreground"])
+        self._apply_graph_colors(theme["pg_background"], theme["pg_foreground"])
 
-        if key in self._theme_actions:
-            self._theme_actions[key].setChecked(True)
+        if hasattr(self, "act_dark_mode"):
+            self.act_dark_mode.blockSignals(True)
+            self.act_dark_mode.setChecked(key == "dark")
+            self.act_dark_mode.blockSignals(False)
 
     def _apply_graph_colors(self, bg: str, fg: str) -> None:
         """Setzt Hintergrund-/Vordergrundfarbe der Grafik-Widgets (Thermobild,
-        Zeitverlauf, Live-Kurve). Getrennt von _apply_theme, damit die
-        Grafik-Darstellung (Punkt 13) unabhängig vom übrigen App-Design
-        gewählt werden kann."""
+        Zeitverlauf, Live-Kurve), passend zum gerade gewaehlten App-Design
+        (siehe _apply_theme -- beides ist seit dem einzigen Dunkelmodus-
+        Umschalter fest gekoppelt, keine unabhaengige Wahl mehr)."""
         self.glw.setBackground(bg)
         self.timeseries_plot.setBackground(bg)
         self.live_plot.setBackground(bg)
@@ -1635,15 +1691,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._graph_bg = bg
         self._graph_fg = fg
-
-    def _on_graph_theme_selected(self, mode: str) -> None:
-        self._graph_theme_mode = mode
-        theme_key = self._current_theme if mode == "app" else mode
-        theme = THEMES[theme_key]
-        self._apply_graph_colors(theme["pg_background"], theme["pg_foreground"])
-        self._settings.setValue("graph_theme_mode", mode)
-        if mode in self._graph_theme_actions:
-            self._graph_theme_actions[mode].setChecked(True)
 
     def _on_time_display_changed(self, _index: int) -> None:
         combo = self.sender()
@@ -1669,28 +1716,56 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @staticmethod
     def _dark_palette() -> QtGui.QPalette:
+        """Vollstaendige dunkle Palette fuer den Fusion-Stil.
+
+        Bugfix: die vorherige Version setzte nur Window/Base/Text/Button
+        & Co., aber NICHT Light/Midlight/Dark/Mid/Shadow/Link -- genau
+        diese Rollen nutzt Fusion fuer 3D-Kanten/Schattierungen (Rahmen
+        von GroupBox/Buttons, Schieberegler-Rille, Scrollbalken,
+        deaktivierte Bedienelemente). Ohne sie blieben solche Elemente
+        auf ihren urspruenglichen HELLEN Standardwerten haengen, wodurch
+        der Dunkelmodus fleckig/unvollstaendig wirkte (Bugreport:
+        "funktioniert noch nicht flaechendeckend/sauber")."""
         palette = QtGui.QPalette()
         window = QtGui.QColor("#2b2b2b")
         base = QtGui.QColor("#232323")
+        alternate_base = QtGui.QColor("#2f2f2f")
+        button = QtGui.QColor("#3a3a3a")
         text = QtGui.QColor("#e0e0e0")
         disabled_text = QtGui.QColor("#7a7a7a")
         highlight = QtGui.QColor("#3b82f6")
+        link = QtGui.QColor("#60a5fa")
 
         palette.setColor(QtGui.QPalette.Window, window)
         palette.setColor(QtGui.QPalette.WindowText, text)
         palette.setColor(QtGui.QPalette.Base, base)
-        palette.setColor(QtGui.QPalette.AlternateBase, window)
+        palette.setColor(QtGui.QPalette.AlternateBase, alternate_base)
         palette.setColor(QtGui.QPalette.ToolTipBase, window)
         palette.setColor(QtGui.QPalette.ToolTipText, text)
         palette.setColor(QtGui.QPalette.Text, text)
-        palette.setColor(QtGui.QPalette.Button, window)
+        palette.setColor(QtGui.QPalette.Button, button)
         palette.setColor(QtGui.QPalette.ButtonText, text)
         palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor("#ff5555"))
         palette.setColor(QtGui.QPalette.Highlight, highlight)
         palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
+        # 3D-Schattierungen (Rahmen, Rillen, Trennlinien) -- ohne diese vier
+        # bleiben GroupBox-Rahmen, Schieberegler-Rille etc. hell (siehe oben).
+        palette.setColor(QtGui.QPalette.Light, QtGui.QColor("#4a4a4a"))
+        palette.setColor(QtGui.QPalette.Midlight, QtGui.QColor("#3f3f3f"))
+        palette.setColor(QtGui.QPalette.Dark, QtGui.QColor("#1a1a1a"))
+        palette.setColor(QtGui.QPalette.Mid, QtGui.QColor("#2f2f2f"))
+        palette.setColor(QtGui.QPalette.Shadow, QtGui.QColor("#0d0d0d"))
+        palette.setColor(QtGui.QPalette.Link, link)
+        palette.setColor(QtGui.QPalette.LinkVisited, link)
+        if hasattr(QtGui.QPalette, "PlaceholderText"):
+            palette.setColor(QtGui.QPalette.PlaceholderText, disabled_text)
         palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.WindowText, disabled_text)
         palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Text, disabled_text)
         palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.ButtonText, disabled_text)
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Base, window)
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Button, window)
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Highlight, QtGui.QColor("#454545"))
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.HighlightedText, disabled_text)
         return palette
 
     def _connect_scene_events(self) -> None:
@@ -1884,6 +1959,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for entry in self.roi_entries:
             entry.curve.setSymbol(symbol)
         self.live_curve.setSymbol(symbol)
+        self.timeseries_live_curve.setSymbol(symbol)
 
         self._recompute_curves()
 
@@ -1959,7 +2035,6 @@ class MainWindow(QtWidgets.QMainWindow):
             "level_max": self.spin_level_max.value(),
             "px_zu_mm": self._px_to_mm,
             "massstab_farbe": self._ruler_color,
-            "grafik_theme": self._graph_theme_mode,
             "auswertungsstart_frame": self._eval_start_index,
             "auswertungsende_frame": self._eval_end_index,
             "rois": rois,
@@ -2069,9 +2144,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._refresh_scale_label()
 
-        graph_theme = data.get("grafik_theme")
-        if isinstance(graph_theme, str) and graph_theme in self._graph_theme_actions:
-            self._on_graph_theme_selected(graph_theme)
+        # Hinweis: "grafik_theme" aus alten Projektdateien (vor dem
+        # einheitlichen Dunkelmodus-Umschalter) wird bewusst ignoriert -- die
+        # Grafik-Darstellung folgt jetzt immer dem aktuellen App-Design.
 
         eval_start = data.get("auswertungsstart_frame")
         if isinstance(eval_start, int) and self.recording is not None and 0 <= eval_start < self.recording.n_frames:
@@ -2342,6 +2417,7 @@ class MainWindow(QtWidgets.QMainWindow):
             entry.spin_height.setRange(1, max(1, rows))
             entry.curve.setSymbol(symbol)
         self.live_curve.setSymbol(symbol)
+        self.timeseries_live_curve.setSymbol(symbol)
 
         self._hover_row = None
         self._hover_col = None
@@ -2349,6 +2425,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.live_cursor_marker.setVisible(False)
         self.live_cursor_label.setVisible(False)
         self.live_curve.clear()
+        self.timeseries_live_curve.clear()
         self.live_label.setText(
             "Maus über das Bild bewegen, um den Temperaturverlauf am Cursor-Pixel live zu sehen. "
             "Linksklick fixiert die Stelle, Rechtsklick löst die Fixierung wieder."
@@ -2512,20 +2589,38 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_widget_value(self.spin_level_min, lo)
         self._set_widget_value(self.spin_level_max, hi)
 
+    def _sync_histogram_levels(self, lo: float, hi: float) -> None:
+        # Bugfix: self.image_item.setLevels() allein bewegt die eigene
+        # Anzeige des HistogramLUTItem (Balken/Griffe direkt neben der
+        # Farb-Legende) NICHT mit -- ohne diesen expliziten Aufruf blieb der
+        # Balken nach dem Laden einer Messreihe bei seinem Konstruktions-
+        # Default (0°) stehen, bis der Nutzer den Skalierungs-Modus manuell
+        # nochmal umschaltete (Bugreport). blockSignals, da _set_level_spins
+        # (vom Aufrufer direkt danach aufgerufen) dieselben Werte ohnehin
+        # schon an die Spinboxen uebertraegt -- sonst wuerde
+        # _on_histogram_levels_changed dieselbe Arbeit redundant wiederholen.
+        self.histogram.blockSignals(True)
+        self.histogram.setLevels(lo, hi)
+        self.histogram.blockSignals(False)
+
     def _apply_levels_for_frame(self, frame: np.ndarray) -> None:
         mode = self._level_mode()
         if mode == "per_frame":
             self.image_item.setImage(frame, autoLevels=True)
             lo, hi = self.image_item.getLevels()
+            self._sync_histogram_levels(lo, hi)
             self._set_level_spins(lo, hi)
         elif mode == "global" and self._global_level_range is not None:
             lo, hi = self._global_level_range
             self.image_item.setImage(frame, autoLevels=False)
             self.image_item.setLevels((lo, hi))
+            self._sync_histogram_levels(lo, hi)
             self._set_level_spins(lo, hi)
         else:
+            lo, hi = self.spin_level_min.value(), self.spin_level_max.value()
             self.image_item.setImage(frame, autoLevels=False)
-            self.image_item.setLevels((self.spin_level_min.value(), self.spin_level_max.value()))
+            self.image_item.setLevels((lo, hi))
+            self._sync_histogram_levels(lo, hi)
 
     @staticmethod
     def _interp_fraction(idx: int, start_idx: int, end_idx: int) -> float:
@@ -2546,6 +2641,27 @@ class MainWindow(QtWidgets.QMainWindow):
             frac = self._interp_fraction(idx, entry.interp_start_frame, entry.interp_end_frame)
             entry.apply_interp_frame(frac)
             self._sync_roi_spinboxes(entry)
+
+    def _update_roi_temperature_labels(self, idx: int) -> None:
+        """Aktualisiert die im Bild neben dem Namen angezeigte, aktuell
+        gemittelte Temperatur jedes platzierten Messbereichs (Punkt 10).
+        Direkt aus den Rohdaten des aktuellen Frames berechnet (statt aus
+        entry.curve gelesen), damit die Anzeige unabhaengig davon korrekt
+        ist, ob _recompute_curves() fuer diesen Frame bereits gelaufen ist."""
+        if self.recording is None:
+            return
+        shape = self.recording.shape
+        for entry in self.roi_entries:
+            if not entry.placed:
+                continue
+            if entry.is_interp_ready():
+                frac = self._interp_fraction(idx, entry.interp_start_frame, entry.interp_end_frame)
+                x, y, w, h = entry.interp_rect(frac)
+                row0, row1, col0, col1 = bounds_px_for(x, y, w, h, shape)
+            else:
+                row0, row1, col0, col1 = entry.bounds_px(shape)
+            temperature = float(self.recording.frames[idx, row0:row1, col0:col1].mean())
+            entry.update_temperature_label(temperature)
 
     def _show_frame(self, idx: int) -> None:
         if self.recording is None or self.recording.n_frames == 0:
@@ -2574,6 +2690,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.live_frame_marker.setValue(unix[idx])
 
         self._update_interpolated_rois(idx)
+        self._update_roi_temperature_labels(idx)
 
         self._update_status_bar()
 
@@ -2945,6 +3062,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ruler_start = None
 
     def _hide_ruler_visuals(self) -> None:
+        if self._ruler_preview_marker is not None:
+            self._ruler_preview_marker.setVisible(False)
         if self._ruler_line is not None:
             self._ruler_line.setVisible(False)
         if self._ruler_text is not None:
@@ -2958,7 +3077,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def _apply_ruler_color(self) -> None:
         if self._ruler_line is not None:
             self._ruler_line.setPen(pg.mkPen(self._ruler_color, width=3))
-            self._ruler_line.setSymbolBrush(self._ruler_color)
         if self._ruler_text is not None:
             self._ruler_text.setColor(self._ruler_color)
 
@@ -2972,6 +3090,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _clear_ruler_scale(self) -> None:
         self._px_to_mm = None
+        self._ruler_mm_value = None
         self._hide_ruler_visuals()
         self._refresh_scale_label()
         for entry in self.roi_entries:
@@ -2998,33 +3117,35 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if self._ruler_start is None:
             self._ruler_start = point
-            if self._ruler_line is None:
-                # Deutlich sichtbare, durchgezogene Linie mit Punktmarkern an
-                # beiden Enden (statt der zuvor kaum erkennbaren, gestrichelten
-                # 1px-Linie) -- Farbe ueber btn_ruler_color anpassbar, da eine
-                # feste Farbe bei manchen Farbverlaeufen kaum zu erkennen waere.
-                self._ruler_line = pg.PlotDataItem(
+            # Nur eine einfache, nicht interaktive Vorschau waehrend der
+            # Klick-Klick-Erstellung -- die fertige, ziehbare Linie
+            # (self._ruler_line) entsteht erst unten nach Bestaetigung der
+            # Laenge.
+            if self._ruler_preview_marker is None:
+                self._ruler_preview_marker = pg.PlotDataItem(
                     pen=pg.mkPen(self._ruler_color, width=3),
                     symbol="o",
                     symbolSize=8,
                     symbolBrush=self._ruler_color,
                     symbolPen="#ffffff",
                 )
-                self._ruler_line.setZValue(11)
-                self.view_box.addItem(self._ruler_line)
+                self._ruler_preview_marker.setZValue(11)
+                self.view_box.addItem(self._ruler_preview_marker)
             if self._ruler_text is None:
                 self._ruler_text = pg.TextItem(color=self._ruler_color, anchor=(0.5, 0), fill=(0, 0, 0, 160))
                 self._ruler_text.setZValue(11)
                 self.view_box.addItem(self._ruler_text)
+            if self._ruler_line is not None:
+                self._ruler_line.setVisible(False)
             self._ruler_text.setVisible(False)
-            self._ruler_line.setData([point[0]], [point[1]])
-            self._ruler_line.setVisible(True)
+            self._ruler_preview_marker.setData([point[0]], [point[1]])
+            self._ruler_preview_marker.setVisible(True)
             self.statusBar().showMessage("Maßstab: jetzt den Endpunkt der Referenzlinie anklicken.")
             return
 
         start = self._ruler_start
         end = point
-        self._ruler_line.setData([start[0], end[0]], [start[1], end[1]])
+        self._ruler_preview_marker.setData([start[0], end[0]], [start[1], end[1]])
         pixel_distance = ((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2) ** 0.5
         self._ruler_armed = False
         self._ruler_start = None
@@ -3039,24 +3160,100 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
 
-        mm_value, ok = QtWidgets.QInputDialog.getDouble(
-            self, "Maßstab", "Länge dieser Linie in mm:", 10.0, 0.001, 1_000_000.0, 3
-        )
-        if not ok or mm_value <= 0:
+        length_dialog = RulerLengthDialog(self, current_mm=self._ruler_mm_value or 10.0)
+        if length_dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             self._hide_ruler_visuals()
             return
+        mm_value = length_dialog.mm_value()
+
+        self._ruler_preview_marker.setVisible(False)
+        self._create_or_move_ruler_line(start, end)
         self._px_to_mm = mm_value / pixel_distance
-        # Referenzlinie samt mm-Beschriftung an der Messstelle im Bild stehen
-        # lassen, bis ein neuer Maßstab gesetzt oder der aktuelle entfernt wird.
-        mid_x, mid_y = (start[0] + end[0]) / 2, (start[1] + end[1]) / 2
-        self._ruler_text.setText(f"{self._format_de(mm_value, 1)} mm")
-        self._ruler_text.setPos(mid_x, mid_y)
-        self._ruler_text.setVisible(True)
+        self._ruler_mm_value = mm_value
+        self._update_ruler_text_position()
         self._refresh_scale_label()
         for entry in self.roi_entries:
             self._update_roi_mm_label(entry)
         self.statusBar().showMessage(
             f"Maßstab gesetzt: 1 px ≈ {self._format_de(self._px_to_mm, 4)} mm", 5000
+        )
+
+    def _create_or_move_ruler_line(self, start: tuple[float, float], end: tuple[float, float]) -> None:
+        """Erzeugt die fertige, ziehbare Maßstab-Linie (Punkt 11) oder setzt
+        eine bereits bestehende neu -- ein LineSegmentROI statt der zuvor
+        starren PlotDataItem, damit sich beide Endpunkte per Maus nachträglich
+        verschieben lassen, ohne den Maßstab komplett neu zeichnen zu müssen."""
+        if self._ruler_line is not None:
+            self.view_box.removeItem(self._ruler_line)
+        self._ruler_line = pg.LineSegmentROI(
+            positions=[list(start), list(end)], pen=pg.mkPen(self._ruler_color, width=3)
+        )
+        self._ruler_line.setZValue(11)
+        self.view_box.addItem(self._ruler_line)
+        self._ruler_line.sigRegionChangeFinished.connect(self._on_ruler_line_dragged)
+
+    def _on_ruler_line_dragged(self) -> None:
+        """Nach dem Ziehen eines Endpunkts (Punkt 11): die reale Länge
+        (self._ruler_mm_value) bleibt fest, px-zu-mm wird aus der neuen
+        Pixel-Distanz neu berechnet -- entspricht einer Nachkalibrierung ohne
+        den Maßstab neu setzen zu müssen."""
+        if self._ruler_line is None or self._ruler_mm_value is None:
+            return
+        p1, p2 = self._ruler_line.listPoints()
+        pixel_distance = (p2 - p1).length()
+        if pixel_distance < 1e-6:
+            # Degenerierter Zustand (beide Punkte uebereinander) -- bisherige
+            # Kalibrierung beibehalten, statt durch Null zu teilen.
+            return
+        self._px_to_mm = self._ruler_mm_value / pixel_distance
+        self._update_ruler_text_position()
+        self._refresh_scale_label()
+        for entry in self.roi_entries:
+            self._update_roi_mm_label(entry)
+
+    def _update_ruler_text_position(self) -> None:
+        if self._ruler_line is None or self._ruler_text is None or self._ruler_mm_value is None:
+            return
+        p1, p2 = self._ruler_line.listPoints()
+        mid = (p1 + p2) / 2
+        self._ruler_text.setText(f"{self._format_de(self._ruler_mm_value, 1)} mm")
+        self._ruler_text.setPos(mid.x(), mid.y())
+        self._ruler_text.setVisible(True)
+
+    def _ruler_hit_test(self, scene_pos: QtCore.QPointF) -> bool:
+        """Prueft, ob scene_pos auf der Maßstab-Linie oder ihrer mm-
+        Beschriftung liegt -- fuer die Doppelklick-Bearbeitung (Punkt 11)."""
+        if self._ruler_line is not None and self._ruler_line.isVisible():
+            shape = self._ruler_line.mapToScene(self._ruler_line.shape())
+            if shape.contains(scene_pos):
+                return True
+        if self._ruler_text is not None and self._ruler_text.isVisible():
+            if self._ruler_text.sceneBoundingRect().contains(scene_pos):
+                return True
+        return False
+
+    def _edit_ruler_length(self) -> None:
+        """Doppelklick auf die Maßstab-Linie/-Beschriftung (Punkt 11): erlaubt,
+        die reale Länge (mm) direkt zu ändern, OHNE die aktuellen Endpunkte
+        anzutasten -- Gegenstück zum Ziehen der Endpunkte (dort bleibt die
+        Länge fest, hier bleiben die Endpunkte fest)."""
+        if self._ruler_line is None or self._ruler_mm_value is None:
+            return
+        length_dialog = RulerLengthDialog(self, current_mm=self._ruler_mm_value)
+        if length_dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        p1, p2 = self._ruler_line.listPoints()
+        pixel_distance = (p2 - p1).length()
+        if pixel_distance < 1e-6:
+            return
+        self._ruler_mm_value = length_dialog.mm_value()
+        self._px_to_mm = self._ruler_mm_value / pixel_distance
+        self._update_ruler_text_position()
+        self._refresh_scale_label()
+        for entry in self.roi_entries:
+            self._update_roi_mm_label(entry)
+        self.statusBar().showMessage(
+            f"Maßstab aktualisiert: 1 px ≈ {self._format_de(self._px_to_mm, 4)} mm", 5000
         )
 
     # ------------------------------------------------------- Maus/Bild
@@ -3066,6 +3263,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if self._ruler_armed:
             self._handle_ruler_click(event)
+            return
+
+        if event.double() and self._ruler_hit_test(event.scenePos()):
+            self._edit_ruler_length()
             return
 
         if self._armed_entry is not None:
@@ -3147,13 +3348,22 @@ class MainWindow(QtWidgets.QMainWindow):
         """Auf das Bild geclippter row0:row1, col0:col1-Bereich um das
         Cursor-Pixel, dessen Kantenlaenge ueber "Werkzeuge > Live-Cursor-
         Bereichsgröße" einstellbar ist (Standard: 1x1, d.h. genau dieses
-        eine Pixel -- bisheriges Verhalten)."""
-        half = self._live_cursor_kernel_size // 2
+        eine Pixel -- bisheriges Verhalten).
+
+        "before"/"after" statt eines einzelnen "half" (Bugfix): fuer die
+        bisherigen UNGERADEN Groessen (3/5/7) ist before==after-1==half,
+        identisch zum alten Verhalten. Fuer eine GERADE Groesse (10x10,
+        neu) waere ein einzelnes "half = size // 2" dagegen nur size-1
+        Pixel breit (asymmetrisch) statt tatsaechlich size Pixel -- die
+        Beschriftung "10×10" haette also gelogen."""
+        size = self._live_cursor_kernel_size
+        before = size // 2
+        after = size - before
         rows, cols = self.recording.shape
-        row0 = max(0, row - half)
-        row1 = min(rows, row + half + 1)
-        col0 = max(0, col - half)
-        col1 = min(cols, col + half + 1)
+        row0 = max(0, row - before)
+        row1 = min(rows, row + after)
+        col0 = max(0, col - before)
+        col1 = min(cols, col + after)
         return row0, row1, col0, col1
 
     def _live_cursor_series(self, row: int, col: int) -> np.ndarray:
@@ -3177,7 +3387,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _update_live_cursor(self, row: int, col: int) -> None:
         self._hover_row, self._hover_col = row, col
         values = self._live_cursor_series(row, col)
-        self.live_curve.setData(self.recording.unix_seconds(), values)
+        unix = self.recording.unix_seconds()
+        self.live_curve.setData(unix, values)
+        if self.chk_show_live_in_timeseries.isChecked():
+            self.timeseries_live_curve.setData(unix, values)
         suffix = "" if self._live_cursor_kernel_size == 1 else (
             f" ({self._live_cursor_kernel_size}×{self._live_cursor_kernel_size}-Mittel)"
         )
@@ -3185,6 +3398,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.live_cursor_marker.setData([col + 0.5], [row + 0.5])
         self.live_cursor_marker.setVisible(True)
         self._update_status_bar()
+
+    def _on_show_live_in_timeseries_toggled(self, checked: bool) -> None:
+        if checked:
+            if self._hover_row is not None and self._hover_col is not None:
+                values = self._live_cursor_series(self._hover_row, self._hover_col)
+                self.timeseries_live_curve.setData(self.recording.unix_seconds(), values)
+            self.timeseries_legend.addItem(self.timeseries_live_curve, "Live (Cursor)")
+        else:
+            self.timeseries_legend.removeItem(self.timeseries_live_curve)
+        self.timeseries_live_curve.setVisible(checked)
 
     def _update_status_bar(self) -> None:
         if self.recording is None:
@@ -3325,6 +3548,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.live_cursor_marker.setPen(pg.mkPen("#38bdf8", width=round(2 * ps)))
         self.live_curve.setPen(pg.mkPen("#38bdf8", width=round(2 * ps)))
+        self.timeseries_live_curve.setPen(pg.mkPen("#38bdf8", width=round(2 * ps)))
         self.frame_marker.setPen(dash_pen(round(1 * ps)))
         self.live_frame_marker.setPen(dash_pen(round(1 * ps)))
 
@@ -3342,6 +3566,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._ruler_line.setPen(pg.mkPen(self._ruler_color, width=3))
             self.live_cursor_marker.setPen(pg.mkPen("#38bdf8", width=2))
             self.live_curve.setPen(pg.mkPen("#38bdf8", width=2))
+            self.timeseries_live_curve.setPen(pg.mkPen("#38bdf8", width=2))
             self.frame_marker.setPen(dash_pen(1))
             self.live_frame_marker.setPen(dash_pen(1))
             for lg, t in zip(legends, old_legend_transforms):
@@ -3474,10 +3699,13 @@ class MainWindow(QtWidgets.QMainWindow):
         _dual_time_axis_export. Gibt None fuer Widgets ohne eigene Zeitachse
         zurueck (z.B. das Thermobild self.glw)."""
         if widget is self.timeseries_plot:
+            curves = [entry.curve for entry in self.roi_entries]
+            if self.timeseries_live_curve.isVisible():
+                curves.append(self.timeseries_live_curve)
             return (
                 self.axis_timeseries_bottom,
                 self.axis_timeseries_top,
-                [entry.curve for entry in self.roi_entries],
+                curves,
                 [self.frame_marker],
             )
         if widget is self.live_plot:
@@ -4152,17 +4380,79 @@ class MainWindow(QtWidgets.QMainWindow):
             raise OSError(f"Konnte Bild nicht speichern: {path}")
         return image.width(), image.height()
 
-    def _export_timeseries_graphic(self) -> None:
-        self._export_combined_image(
-            self.timeseries_plot, "Zeitverlauf_mit_Position.png", self._timeseries_metadata,
-            "Temperaturverlauf (Messbereiche)",
-        )
+    @contextlib.contextmanager
+    def _temporarily_show_live_in_timeseries(self):
+        """Sorgt dafuer, dass der Export des Zeitverlauf-Graphen IMMER auch
+        den Live-Cursor-Verlauf enthaelt, wenn einer verfuegbar ist (Punkt 5:
+        "egal an was ich interessiert bin, beide Modi in einer Datei") --
+        unabhaengig vom Haekchen "Live-Cursor-Kurve zusätzlich anzeigen"
+        (Punkt 8). Stellt den vorherigen Anzeigezustand danach exakt wieder
+        her, damit ein Export die laufende Sitzung nicht sichtbar veraendert."""
+        already_visible = self.chk_show_live_in_timeseries.isChecked()
+        has_live_pixel = self._hover_row is not None and self._hover_col is not None
+        if already_visible or not has_live_pixel:
+            yield
+            return
+        values = self._live_cursor_series(self._hover_row, self._hover_col)
+        self.timeseries_live_curve.setData(self.recording.unix_seconds(), values)
+        self.timeseries_legend.addItem(self.timeseries_live_curve, "Live (Cursor)")
+        self.timeseries_live_curve.setVisible(True)
+        try:
+            yield
+        finally:
+            self.timeseries_legend.removeItem(self.timeseries_live_curve)
+            self.timeseries_live_curve.setVisible(False)
 
-    def _export_live_graphic(self) -> None:
-        self._export_combined_image(
-            self.live_plot, "Live-Verlauf_mit_Position.png", self._live_metadata,
-            "Live-Temperaturverlauf (Cursor-Pixel)",
+    def _export_graphic(self) -> None:
+        """Einziges Grafik-Export-Fenster (statt getrennter "Zeitverlauf-"/
+        "Live-Grafik"-Menüpunkte, Nutzerwunsch: "nur noch ein einziges CSV/-
+        Bild-Export Fenster"). Der Dialog selbst fragt ab, welche Kurve(n)
+        (Messbereiche und/oder Live-Cursor) exportiert werden sollen -- ist
+        der Zeitverlauf dabei, wird der Live-Cursor-Verlauf (falls
+        mitgewählt) als zusätzliche Kurve IN DENSELBEN Graphen eingeblendet
+        (siehe _temporarily_show_live_in_timeseries); ist NUR der Live-
+        Cursor gewählt, wird stattdessen der separate Live-Graph exportiert."""
+        if self.recording is None:
+            QtWidgets.QMessageBox.information(self, "Keine Daten", "Bitte zuerst eine Messreihe laden.")
+            return
+        live_available = self._hover_row is not None and self._hover_col is not None
+
+        export_dialog = GraphicExportDialog(
+            self, self._settings, default_dpi=150,
+            colormaps=COLORMAPS,
+            current_colormap_index=self.combo_cmap.currentIndex(),
+            current_invert=self.chk_cmap_invert.isChecked(),
+            current_level_mode=self._level_mode(),
+            current_min=self.spin_level_min.value(),
+            current_max=self.spin_level_max.value(),
+            current_time_axis_mode=self._time_display_mode,
+            show_graph_source_choice=True,
+            live_available=live_available,
         )
+        if export_dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+
+        include_live = export_dialog.include_live() and live_available
+        if export_dialog.include_timeseries():
+            curve_widget = self.timeseries_plot
+            suggested_name = "Zeitverlauf_mit_Position.png"
+            metadata_fn = self._timeseries_metadata
+            curve_title = (
+                "Temperaturverlauf (Messbereiche + Live-Cursor)" if include_live
+                else "Temperaturverlauf (Messbereiche)"
+            )
+            overlay_ctx = (
+                self._temporarily_show_live_in_timeseries() if include_live else contextlib.nullcontext()
+            )
+        else:
+            curve_widget = self.live_plot
+            suggested_name = "Live-Verlauf_mit_Position.png"
+            metadata_fn = self._live_metadata
+            curve_title = "Live-Temperaturverlauf (Cursor-Pixel)"
+            overlay_ctx = contextlib.nullcontext()
+
+        with overlay_ctx:
+            self._export_combined_image(export_dialog, curve_widget, suggested_name, metadata_fn, curve_title)
 
     def _bind_native_export(
         self, widget: QtWidgets.QWidget, suggested_name: str, combined_export_fn=None
@@ -4181,9 +4471,9 @@ class MainWindow(QtWidgets.QMainWindow):
         davon nicht betroffen und wird dadurch automatisch auch hier genutzt.
 
         combined_export_fn (optional): ruft bei Klick GENAU dieselbe Methode
-        auf wie der entsprechende Export-Menü-Punkt (z.B.
-        _export_timeseries_graphic), statt des sonst genutzten, auf dieses
-        eine Widget beschraenkten Einzel-Export-Dialogs -- fuer ein
+        auf wie der entsprechende Export-Menü-Punkt (_export_graphic), statt
+        des sonst genutzten, auf dieses eine Widget beschraenkten Einzel-
+        Export-Dialogs -- fuer ein
         Rechtsklick-Menü, das sich exakt wie das Menüband verhaelt
         (Bugreport: Rechtsklick "Exportieren" sollte ins selbe Menü wie
         ueber das Menüband fuehren)."""
@@ -4281,28 +4571,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(f"Grafik gespeichert: {path_obj.name}  |  Metadaten: {meta_path.name}")
 
     def _export_combined_image(
-        self, curve_widget: pg.PlotWidget, suggested_name: str, metadata_fn, curve_title: str
+        self,
+        export_dialog: GraphicExportDialog,
+        curve_widget: pg.PlotWidget,
+        suggested_name: str,
+        metadata_fn,
+        curve_title: str,
     ) -> None:
         """Speichert Thermobild (mit Position der Messbereiche, optional auch
         des Cursors -- siehe GraphicExportDialog.export_cursor_position(),
         Standard aus) und den zugehörigen Temperaturverlauf -- wahlweise
-        kombiniert als eine Grafik oder getrennt als zwei Dateien (Punkt 5)."""
-        if self.recording is None:
-            QtWidgets.QMessageBox.information(self, "Keine Daten", "Bitte zuerst eine Messreihe laden.")
-            return
-
-        export_dialog = GraphicExportDialog(
-            self, self._settings, default_dpi=150,
-            colormaps=COLORMAPS,
-            current_colormap_index=self.combo_cmap.currentIndex(),
-            current_invert=self.chk_cmap_invert.isChecked(),
-            current_level_mode=self._level_mode(),
-            current_min=self.spin_level_min.value(),
-            current_max=self.spin_level_max.value(),
-            current_time_axis_mode=self._time_display_mode,
-        )
-        if export_dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
-            return
+        kombiniert als eine Grafik oder getrennt als zwei Dateien (Punkt 5).
+        export_dialog ist bereits ausgefuellt/bestaetigt (siehe _export_graphic
+        -- dort wird VOR dem Aufruf entschieden, welcher curve_widget/
+        metadata_fn/curve_title ueberhaupt zum Einsatz kommt)."""
         dpi = export_dialog.dpi()
         separate = export_dialog.separate()
         include_cursor = export_dialog.export_cursor_position()
@@ -4399,14 +4681,18 @@ class MainWindow(QtWidgets.QMainWindow):
             f"Grafik gespeichert: {', '.join(p.name for p in saved_paths)}  |  Metadaten: {meta_path.name}"
         )
 
-    def _export_roi_csv(self) -> None:
+    def _export_csv(self) -> None:
         if self.recording is None:
             QtWidgets.QMessageBox.information(self, "Keine Daten", "Bitte zuerst eine Messreihe laden.")
             return
         placed_entries = [e for e in self.roi_entries if e.placed]
-        if not placed_entries:
+        live_available = self._hover_row is not None and self._hover_col is not None
+        if not placed_entries and not live_available:
             QtWidgets.QMessageBox.information(
-                self, "Keine Messbereiche", "Es ist kein Messbereich platziert."
+                self,
+                "Keine Daten",
+                "Es ist weder ein Messbereich platziert noch ein Live-Cursor-Pixel gewählt "
+                "(Maus über das Bild bewegen oder eine Stelle fixieren).",
             )
             return
 
@@ -4421,15 +4707,30 @@ class MainWindow(QtWidgets.QMainWindow):
                 "width_mm": w_mm,
                 "height_mm": h_mm,
             })
+        # Nur noch EIN CSV-Export-Fenster (statt getrennter "Zeitverlauf-"/
+        # "Live-Werte"-Menüpunkte, Nutzerwunsch): der Live-Cursor-Verlauf ist
+        # -- sofern gerade verfuegbar -- als zusaetzliche, waehlbare Spalte
+        # immer mit dabei, damit sich ROI- und Live-Daten in EINER Datei
+        # exportieren lassen, statt zwingend zwei separate Exporte zu
+        # benoetigen.
+        if live_available:
+            k = float(self._live_cursor_kernel_size)
+            k_mm = k * self._px_to_mm if self._px_to_mm is not None else None
+            dialog_entries.append({
+                "name": "Live (Cursor)",
+                "width_px": k,
+                "height_px": k,
+                "width_mm": k_mm,
+                "height_mm": k_mm,
+            })
         column_dialog = CsvColumnDialog(self, dialog_entries)
         if column_dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
         included = column_dialog.included()
-        column_names = [name for name, inc in zip(column_dialog.column_names(), included) if inc]
-        export_entries = [entry for entry, inc in zip(placed_entries, included) if inc]
+        names = column_dialog.column_names()
 
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "ROI-Werte speichern", "ROI-Werte.csv", "CSV-Datei (*.csv)"
+            self, "Werte speichern", "Werte.csv", "CSV-Datei (*.csv)"
         )
         if not path:
             return
@@ -4437,8 +4738,28 @@ class MainWindow(QtWidgets.QMainWindow):
             path += ".csv"
 
         t0 = self.recording.timestamps[0]
-        curves = [entry.curve.getData() for entry in export_entries]
-        header = ["Zeitstempel", "Laufzeit (HH:MM:SS)"] + column_names
+        # dialog_entries/names/included sind alle in derselben Reihenfolge
+        # aufgebaut (echte Messbereiche zuerst, optional gefolgt von der
+        # synthetischen Live-Cursor-Zeile) -- Index i identifiziert daher
+        # eindeutig, ob Spalte i aus einem echten ROI oder dem Live-Cursor
+        # stammt. Fuer den Live-Cursor kommen zusaetzlich seine (ueber die
+        # gesamte Aufnahme konstante) Pixel-Koordinaten als eigene Spalten
+        # dazu -- frueher nur im separaten "Live-Werte als CSV"-Export
+        # enthalten, jetzt Teil desselben einen CSV-Fensters.
+        header = ["Zeitstempel", "Laufzeit (HH:MM:SS)"]
+        value_arrays: list[tuple[int, object]] = []
+        for i, (name, inc) in enumerate(zip(names, included)):
+            if not inc:
+                continue
+            is_live = i >= len(placed_entries)
+            if is_live:
+                header.extend(["Live X-Achse", "Live Y-Achse"])
+            header.append(name)
+            if is_live:
+                y = self._live_cursor_series(self._hover_row, self._hover_col)
+            else:
+                _, y = placed_entries[i].curve.getData()
+            value_arrays.append((i, y))
 
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f, delimiter=";")
@@ -4446,47 +4767,13 @@ class MainWindow(QtWidgets.QMainWindow):
             for i, ts in enumerate(self.recording.timestamps):
                 runtime = self._format_relative_runtime((ts - t0).total_seconds())
                 row = [ts.strftime("%Y-%m-%d %H:%M:%S"), runtime]
-                for _, y in curves:
+                for entry_idx, y in value_arrays:
+                    if entry_idx >= len(placed_entries):
+                        row.extend([self._hover_col, self._hover_row])
                     row.append(self._format_csv_number(float(y[i])))
                 writer.writerow(row)
 
-        self.statusBar().showMessage(f"ROI-Werte gespeichert: {path}")
-
-    def _export_live_csv(self) -> None:
-        if self.recording is None:
-            QtWidgets.QMessageBox.information(self, "Keine Daten", "Bitte zuerst eine Messreihe laden.")
-            return
-        if self._hover_row is None or self._hover_col is None:
-            QtWidgets.QMessageBox.information(
-                self,
-                "Kein Cursor-Pixel",
-                "Bitte zuerst mit der Maus über das Bild fahren (oder eine Stelle per "
-                "Linksklick fixieren), um ein Pixel für den Live-Verlauf auszuwählen.",
-            )
-            return
-
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Live-Werte speichern", "Live-Werte.csv", "CSV-Datei (*.csv)"
-        )
-        if not path:
-            return
-        if not Path(path).suffix:
-            path += ".csv"
-
-        row, col = self._hover_row, self._hover_col
-        t0 = self.recording.timestamps[0]
-        values = self._live_cursor_series(row, col)
-
-        with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.writer(f, delimiter=";")
-            writer.writerow(["Zeitstempel", "Laufzeit (HH:MM:SS)", "Zeile", "Spalte", "Temperatur (°C)"])
-            for i, ts in enumerate(self.recording.timestamps):
-                runtime = self._format_relative_runtime((ts - t0).total_seconds())
-                writer.writerow(
-                    [ts.strftime("%Y-%m-%d %H:%M:%S"), runtime, row, col, self._format_csv_number(float(values[i]))]
-                )
-
-        self.statusBar().showMessage(f"Live-Werte gespeichert: {path}")
+        self.statusBar().showMessage(f"Werte gespeichert: {path}")
 
     def _capture_level_widgets_state(self) -> dict:
         """Schnappschuss von Farbverlauf/Skalierung, um ihn nach einem
@@ -4543,16 +4830,18 @@ class MainWindow(QtWidgets.QMainWindow):
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
 
-        try:
-            import imageio.v2 as imageio
-        except ImportError:
-            QtWidgets.QMessageBox.critical(
-                self,
-                "Fehlende Abhängigkeit",
-                "Für den Video-Export wird das Paket 'imageio' (mit 'imageio-ffmpeg') benötigt, "
-                "das in dieser Installation nicht verfügbar ist.",
-            )
-            return
+        output_mode = dialog.output_mode()
+        if output_mode == "video":
+            try:
+                import imageio.v2 as imageio
+            except ImportError:
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Fehlende Abhängigkeit",
+                    "Für den Video-Export wird das Paket 'imageio' (mit 'imageio-ffmpeg') benötigt, "
+                    "das in dieser Installation nicht verfügbar ist.",
+                )
+                return
 
         start_idx, end_idx = dialog.frame_range()
         fps = dialog.fps()
@@ -4566,13 +4855,37 @@ class MainWindow(QtWidgets.QMainWindow):
             graph_widget = self.timeseries_plot if dialog.graph_source() == "timeseries" else self.live_plot
             graph_position = dialog.graph_position()
 
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Video speichern", "Thermo-Video.mp4", "MP4-Video (*.mp4)"
-        )
-        if not path:
-            return
-        if not Path(path).suffix:
-            path += ".mp4"
+        if output_mode == "video":
+            video_filters = {
+                "MP4-Video (*.mp4)": ".mp4",
+                "AVI-Video (*.avi)": ".avi",
+                "WebM-Video (*.webm)": ".webm",
+            }
+            path, selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+                self, "Video speichern", "Thermo-Video.mp4", ";;".join(video_filters.keys())
+            )
+            if not path:
+                return
+            if not Path(path).suffix:
+                path += video_filters.get(selected_filter, ".mp4")
+
+            # WebM erlaubt (anders als MP4/AVI) keinen H.264-Videostream --
+            # imageio/ffmpeg wuerden sonst mit dem Default-Codec "libx264"
+            # scheitern. VP9 ist im mitgelieferten ffmpeg-Binary enthalten und
+            # produziert ein regelkonformes WebM.
+            video_writer_kwargs = {"fps": fps}
+            if Path(path).suffix.lower() == ".webm":
+                video_writer_kwargs["codec"] = "libvpx-vp9"
+        else:
+            folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Ordner für Bildstapel wählen")
+            if not folder:
+                return
+            image_ext = dialog.image_format()
+            # Freies Textfeld (anders als sonstige Dateinamen, die aus einem
+            # nativen Speichern-Dialog kommen) -- Zeichen entfernen, die unter
+            # Windows/macOS/Linux in Dateinamen ungueltig sind bzw. (bei "/"
+            # oder "\") ungewollt Unterordner erzeugen wuerden.
+            image_prefix = re.sub(r'[\\/:*?"<>|]', "_", dialog.image_prefix()).strip() or "Frame"
 
         # Aktuellen Anzeigezustand sichern, um ihn nach dem Export wiederherzustellen.
         prev_index = self.current_index
@@ -4596,13 +4909,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.histogram.setVisible(show_legend)
 
         frame_indices = list(range(start_idx, end_idx + 1))
-        progress = QtWidgets.QProgressDialog("Video wird erstellt…", "Abbrechen", 0, len(frame_indices), self)
+        progress_label = "Video wird erstellt…" if output_mode == "video" else "Bildstapel wird erstellt…"
+        progress = QtWidgets.QProgressDialog(progress_label, "Abbrechen", 0, len(frame_indices), self)
         progress.setWindowModality(QtCore.Qt.WindowModal)
         progress.setMinimumDuration(300)
 
         bg = QtGui.QColor(self._graph_bg)
-        scale = 2.0  # feste, ordentliche Aufloesung fuer Video-Frames
+        scale = 2.0  # feste, ordentliche Aufloesung fuer Video-/Bildstapel-Frames
         unix = self.recording.unix_seconds()
+        # Fuer den Bildstapel schon geschriebene Dateien, um sie bei
+        # Abbruch/Fehler wieder zu entfernen (analog zum einzelnen
+        # Video-Pfad) -- sonst bliebe ein unvollstaendiger, verwirrender
+        # Rest-Bildstapel im Zielordner liegen.
+        written_paths: list[Path] = []
         cancelled = False
         error_message: str | None = None
         try:
@@ -4624,7 +4943,22 @@ class MainWindow(QtWidgets.QMainWindow):
                 # automatischer Farbskalierung).
                 self._show_frame(frame_indices[0])
                 segments = self._tight_glw_segments()
-                with imageio.get_writer(path, fps=fps) as writer:
+                if output_mode == "video":
+                    with imageio.get_writer(path, **video_writer_kwargs) as writer:
+                        for n, idx in enumerate(frame_indices):
+                            if progress.wasCanceled():
+                                cancelled = True
+                                break
+                            self._show_frame(idx)
+                            image = self._render_video_frame(
+                                scale, bg, overlay_mode, idx, frame_indices, unix, segments,
+                                graph_widget, graph_position,
+                            )
+                            writer.append_data(self._qimage_to_rgb_array(image))
+                            progress.setValue(n + 1)
+                            QtWidgets.QApplication.processEvents()
+                else:
+                    digits = len(str(len(frame_indices)))
                     for n, idx in enumerate(frame_indices):
                         if progress.wasCanceled():
                             cancelled = True
@@ -4634,7 +4968,10 @@ class MainWindow(QtWidgets.QMainWindow):
                             scale, bg, overlay_mode, idx, frame_indices, unix, segments,
                             graph_widget, graph_position,
                         )
-                        writer.append_data(self._qimage_to_rgb_array(image))
+                        frame_path = Path(folder) / f"{image_prefix}_{n + 1:0{digits}d}{image_ext}"
+                        if not image.save(str(frame_path)):
+                            raise OSError(f"Konnte Bild nicht speichern: {frame_path}")
+                        written_paths.append(frame_path)
                         progress.setValue(n + 1)
                         QtWidgets.QApplication.processEvents()
         except (OSError, RuntimeError, ValueError) as exc:
@@ -4649,15 +4986,28 @@ class MainWindow(QtWidgets.QMainWindow):
             self._show_frame(prev_index)
 
         if error_message is not None:
-            Path(path).unlink(missing_ok=True)
-            QtWidgets.QMessageBox.critical(self, "Fehler", f"Video konnte nicht gespeichert werden:\n{error_message}")
+            if output_mode == "video":
+                Path(path).unlink(missing_ok=True)
+            else:
+                for p in written_paths:
+                    p.unlink(missing_ok=True)
+            what = "Video" if output_mode == "video" else "Bildstapel"
+            QtWidgets.QMessageBox.critical(self, "Fehler", f"{what} konnte nicht gespeichert werden:\n{error_message}")
             return
         if cancelled:
-            Path(path).unlink(missing_ok=True)
-            self.statusBar().showMessage("Video-Export abgebrochen.")
+            if output_mode == "video":
+                Path(path).unlink(missing_ok=True)
+            else:
+                for p in written_paths:
+                    p.unlink(missing_ok=True)
+            what = "Video-Export" if output_mode == "video" else "Bildstapel-Export"
+            self.statusBar().showMessage(f"{what} abgebrochen.")
             return
 
-        self.statusBar().showMessage(f"Video gespeichert: {path}")
+        if output_mode == "video":
+            self.statusBar().showMessage(f"Video gespeichert: {path}")
+        else:
+            self.statusBar().showMessage(f"Bildstapel gespeichert: {len(written_paths)} Bilder in {folder}")
 
     def _timeseries_metadata(self) -> dict:
         rows, cols = self.recording.shape

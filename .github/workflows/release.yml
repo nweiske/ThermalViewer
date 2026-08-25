@@ -45,10 +45,19 @@ jobs:
         run: uv run python -c "import thermal_viewer.main_window"
 
       - name: Windows-exe bauen
+        # --collect-all imageio_ffmpeg/imageio: PyInstaller erkennt die von
+        # imageio-ffmpeg zur Laufzeit nachgeladene ffmpeg.exe (und imageios
+        # eigene Plugin-Registrierung) nicht automatisch, da main_window.py
+        # das Paket bewusst nur lazy innerhalb der Video-Export-Funktion
+        # importiert (siehe requirements-win7.txt). Ohne dieses Bundling
+        # startete der Video-Export auf einem frischen Rechner ohne lokal
+        # installiertes imageio mit einer Fehlermeldung, obwohl das Paket in
+        # pyproject.toml als Abhaengigkeit gelistet ist (Bugreport).
         run: >
           uv run pyinstaller --noconfirm --clean --windowed --onefile
           --name ThermalViewer --icon thermal_viewer/resources/icon.ico
-          --add-data "thermal_viewer/resources/icon.ico;resources" run.py
+          --add-data "thermal_viewer/resources/icon.ico;resources"
+          --collect-all imageio_ffmpeg --collect-all imageio run.py
 
       - name: Release-Archiv schnüren
         shell: pwsh
@@ -135,10 +144,14 @@ jobs:
         run: uv run python -c "import thermal_viewer.main_window"
 
       - name: Linux-Binärdatei bauen
+        # --collect-all imageio_ffmpeg/imageio: siehe Kommentar im
+        # Windows-Build-Schritt oben -- betrifft den PyInstaller-Onefile-Bau
+        # gleichermaßen.
         run: >
           uv run pyinstaller --noconfirm --clean --onefile
           --name ThermalViewer
-          --add-data "thermal_viewer/resources/icon.ico:resources" run.py
+          --add-data "thermal_viewer/resources/icon.ico:resources"
+          --collect-all imageio_ffmpeg --collect-all imageio run.py
 
       - name: Release-Archiv schnüren
         run: |

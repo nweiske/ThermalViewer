@@ -8,6 +8,7 @@ from pathlib import Path
 from qtpy import QtCore, QtWidgets
 
 from .data import compile_filename_template, validate_filename_template
+from .widgets import LocaleTolerantDoubleSpinBox
 
 
 def _build_color_scale_override(
@@ -52,11 +53,11 @@ def _build_color_scale_override(
     combo_level_mode.setCurrentIndex(max(0, idx))
     form.addRow("Skalierung:", combo_level_mode)
 
-    spin_min = QtWidgets.QDoubleSpinBox()
+    spin_min = LocaleTolerantDoubleSpinBox()
     spin_min.setRange(-100.0, 2000.0)
     spin_min.setDecimals(1)
     spin_min.setValue(current_min)
-    spin_max = QtWidgets.QDoubleSpinBox()
+    spin_max = LocaleTolerantDoubleSpinBox()
     spin_max.setRange(-100.0, 2000.0)
     spin_max.setDecimals(1)
     spin_max.setValue(current_max)
@@ -145,6 +146,8 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         current_min: float = 0.0,
         current_max: float = 50.0,
         current_time_axis_mode: str = "clock",
+        show_graph_source_choice: bool = False,
+        live_available: bool = False,
     ):
         super().__init__(parent)
         self.setWindowTitle("Grafik exportieren")
@@ -152,6 +155,32 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._show_mode_choice = show_mode_choice
 
         layout = QtWidgets.QVBoxLayout(self)
+
+        # Nur noch EIN Grafik-Export-Fenster statt getrennter "Zeitverlauf-"/
+        # "Live-Grafik"-Menüpunkte (Nutzerwunsch): hier wird gewählt, welche
+        # Kurve(n) tatsächlich mit exportiert werden sollen.
+        self.chk_include_timeseries = None
+        self.chk_include_live = None
+        if show_graph_source_choice:
+            source_box = QtWidgets.QGroupBox("Graph-Inhalt")
+            source_layout = QtWidgets.QVBoxLayout(source_box)
+            self.chk_include_timeseries = QtWidgets.QCheckBox("Zeitverlauf (Messbereiche)")
+            self.chk_include_timeseries.setChecked(True)
+            self.chk_include_timeseries.setToolTip(
+                "Temperaturverlauf aller platzierten Messbereiche."
+            )
+            source_layout.addWidget(self.chk_include_timeseries)
+            self.chk_include_live = QtWidgets.QCheckBox("Live-Cursor-Kurve")
+            self.chk_include_live.setChecked(live_available)
+            self.chk_include_live.setEnabled(live_available)
+            self.chk_include_live.setToolTip(
+                "Temperaturverlauf des fixierten/zuletzt mit der Maus gezeigten Cursor-Pixels."
+                if live_available else
+                "Kein Live-Cursor-Pixel gewählt (Maus über das Bild bewegen oder eine Stelle "
+                "fixieren, um diese Option zu aktivieren)."
+            )
+            source_layout.addWidget(self.chk_include_live)
+            layout.addWidget(source_box)
 
         form = QtWidgets.QFormLayout()
         self.spin_dpi = QtWidgets.QSpinBox()
@@ -215,10 +244,22 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         _disable_enter_auto_accept(buttons)
         layout.addWidget(buttons)
+
+    def _on_accept(self) -> None:
+        if (
+            self.chk_include_timeseries is not None
+            and not self.chk_include_timeseries.isChecked()
+            and not self.chk_include_live.isChecked()
+        ):
+            QtWidgets.QMessageBox.information(
+                self, "Keine Auswahl", "Bitte mindestens eine Kurve (Zeitverlauf und/oder Live-Cursor) auswählen."
+            )
+            return
+        self.accept()
 
     def dpi(self) -> int:
         return self.spin_dpi.value()
@@ -229,6 +270,12 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         value = self.radio_separate.isChecked()
         self._settings.setValue("export/separate_images", value)
         return value
+
+    def include_timeseries(self) -> bool:
+        return self.chk_include_timeseries is None or self.chk_include_timeseries.isChecked()
+
+    def include_live(self) -> bool:
+        return self.chk_include_live is not None and self.chk_include_live.isChecked()
 
     def export_cursor_position(self) -> bool:
         return self.chk_cursor_position.isChecked()
@@ -275,9 +322,42 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         default_end_frame: int | None = None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Video exportieren")
+        self.setWindowTitle("Video / Bildstapel exportieren")
 
         layout = QtWidgets.QVBoxLayout(self)
+
+        # Bildstapel (Punkt: "neben einem Video auch einen Bilderstapel
+        # exportieren") nutzt exakt dieselbe Frame-Bereich-/Farbskalen-/
+        # Zeitachsen-/Graph-Konfiguration wie der Video-Export -- nur die
+        # FPS (kein Video-Zeitverhalten) und das Ziel (Ordner + eine Datei
+        # pro Frame statt einer einzelnen Video-Datei) unterscheiden sich.
+        output_box = QtWidgets.QGroupBox("Ausgabeform")
+        output_layout = QtWidgets.QVBoxLayout(output_box)
+        self.radio_output_video = QtWidgets.QRadioButton("Video-Datei (MP4/AVI/WebM)")
+        self.radio_output_images = QtWidgets.QRadioButton("Bildstapel (eine Bilddatei pro Frame)")
+        self.radio_output_video.setChecked(True)
+        output_layout.addWidget(self.radio_output_video)
+        output_layout.addWidget(self.radio_output_images)
+
+        image_form = QtWidgets.QFormLayout()
+        self.combo_image_format = QtWidgets.QComboBox()
+        for label, ext in (
+            ("PNG-Bild (*.png)", ".png"),
+            ("JPEG-Bild (*.jpg)", ".jpg"),
+            ("Bitmap (*.bmp)", ".bmp"),
+            ("TIFF-Bild (*.tiff)", ".tiff"),
+            ("WebP-Bild (*.webp)", ".webp"),
+        ):
+            self.combo_image_format.addItem(label, ext)
+        self.edit_image_prefix = QtWidgets.QLineEdit("Frame")
+        self.edit_image_prefix.setToolTip(
+            "Gemeinsamer Dateiname-Anfang für alle Bilder, z.B. „Frame“ -> Frame_0001.png, "
+            "Frame_0002.png, …"
+        )
+        image_form.addRow("Bildformat:", self.combo_image_format)
+        image_form.addRow("Dateiname-Präfix:", self.edit_image_prefix)
+        output_layout.addLayout(image_form)
+        layout.addWidget(output_box)
 
         range_box = QtWidgets.QGroupBox("Frame-Bereich")
         range_layout = QtWidgets.QFormLayout(range_box)
@@ -300,15 +380,25 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         layout.addWidget(range_box)
 
         fps_form = QtWidgets.QFormLayout()
-        self.spin_fps = QtWidgets.QDoubleSpinBox()
+        self.spin_fps = LocaleTolerantDoubleSpinBox()
         self.spin_fps.setRange(0.5, 60.0)
         self.spin_fps.setValue(current_fps)
         fps_form.addRow("Wiedergabe-FPS im Video:", self.spin_fps)
         layout.addLayout(fps_form)
 
+        def _update_output_mode_enabled() -> None:
+            is_video = self.radio_output_video.isChecked()
+            self.spin_fps.setEnabled(is_video)
+            self.combo_image_format.setEnabled(not is_video)
+            self.edit_image_prefix.setEnabled(not is_video)
+
+        self.radio_output_video.toggled.connect(_update_output_mode_enabled)
+        self.radio_output_images.toggled.connect(_update_output_mode_enabled)
+        _update_output_mode_enabled()
+
         legend_box = QtWidgets.QGroupBox("Farbskala / Legende")
         legend_layout = QtWidgets.QVBoxLayout(legend_box)
-        self.chk_legend = QtWidgets.QCheckBox("Farbskala (Legende) im Video einblenden")
+        self.chk_legend = QtWidgets.QCheckBox("Farbskala (Legende) einblenden")
         self.chk_legend.setChecked(True)
         legend_layout.addWidget(self.chk_legend)
 
@@ -336,11 +426,11 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.combo_level_mode.setCurrentIndex(max(0, idx))
         custom_form.addRow("Skalierung:", self.combo_level_mode)
 
-        self.spin_min = QtWidgets.QDoubleSpinBox()
+        self.spin_min = LocaleTolerantDoubleSpinBox()
         self.spin_min.setRange(-100.0, 2000.0)
         self.spin_min.setDecimals(1)
         self.spin_min.setValue(current_min)
-        self.spin_max = QtWidgets.QDoubleSpinBox()
+        self.spin_max = LocaleTolerantDoubleSpinBox()
         self.spin_max.setRange(-100.0, 2000.0)
         self.spin_max.setDecimals(1)
         self.spin_max.setValue(current_max)
@@ -362,7 +452,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.radio_custom_settings.toggled.connect(_update_enabled)
         _update_enabled()
 
-        # Graph (Temperaturverlauf) zusaetzlich zum Thermobild im Video --
+        # Graph (Temperaturverlauf) zusaetzlich zum Thermobild im Export --
         # mit der ohnehin schon vorhandenen wandernden Markierungslinie
         # (frame_marker/live_frame_marker), genau wie im Hauptfenster
         # (Bugreport: "genauso wie in der UI").
@@ -371,7 +461,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.chk_show_graph = QtWidgets.QCheckBox("Graph mit anzeigen")
         self.chk_show_graph.setToolTip(
             "Zeigt den gewählten Kurven-Graphen (mit der wandernden Zeit-Markierung, "
-            "genau wie im Hauptfenster) zusätzlich im Video an."
+            "genau wie im Hauptfenster) zusätzlich im Export an."
         )
         graph_layout.addWidget(self.chk_show_graph)
         self.combo_graph_source = QtWidgets.QComboBox()
@@ -399,34 +489,34 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.chk_cursor_position.setToolTip(
             "Blendet das Fadenkreuz samt Temperaturanzeige am (fixierten oder\n"
             "zuletzt mit der Maus angezeigten) Cursor-Pixel im exportierten\n"
-            "Video mit ein. Standardmäßig aus, damit das Video nicht ungewollt\n"
-            "eine Maus-/Debug-Markierung enthält."
+            "Video/Bildstapel mit ein. Standardmäßig aus, damit der Export nicht\n"
+            "ungewollt eine Maus-/Debug-Markierung enthält."
         )
         graph_layout.addWidget(self.chk_cursor_position)
         layout.addWidget(graph_box)
 
-        # Namen bewusst konsistent mit dem Rest der App: "Zeitleiste" ist
-        # dieselbe Bezeichnung wie fuer den Frame-Regler unterhalb des
-        # Thermobilds, "Zeitstempel" wie das Feld daneben, das das reale
-        # Datum/Uhrzeit anzeigt. Zusaetzliche Tooltips erklaeren, was genau
-        # jede Option im Video einblendet (Bugreport: unklar, wie die
-        # jeweilige Anzeige am Ende aussieht).
-        overlay_box = QtWidgets.QGroupBox("Laufzeit")
+        # Bereich einheitlich "Zeitachse" genannt (wie beim Bild-Export, siehe
+        # GraphicExportDialog) -- die einzelne Option darin heisst "Laufzeit"
+        # (Fortschrittsbalken mit verstrichener Zeit), um sie klar vom
+        # "Zeitstempel" (reales Datum/Uhrzeit) zu unterscheiden. Zusaetzliche
+        # Tooltips erklaeren, was genau jede Option im Export einblendet
+        # (Bugreport: unklar, wie die jeweilige Anzeige am Ende aussieht).
+        overlay_box = QtWidgets.QGroupBox("Zeitachse")
         overlay_grid = QtWidgets.QGridLayout(overlay_box)
-        self.radio_overlay_timeline = QtWidgets.QRadioButton("Zeitleiste")
+        self.radio_overlay_timeline = QtWidgets.QRadioButton("Laufzeit")
         self.radio_overlay_timeline.setToolTip(
-            "Fortschrittsbalken unten im Video mit der seit Aufnahmebeginn "
+            "Fortschrittsbalken unten im Bild mit der seit Aufnahmebeginn "
             "verstrichenen Zeit (HH:MM:SS) -- wie der Frame-Regler im Hauptfenster."
         )
         self.radio_overlay_none = QtWidgets.QRadioButton("Keine")
-        self.radio_overlay_none.setToolTip("Kein zusätzlicher Zeit-Balken im Video.")
+        self.radio_overlay_none.setToolTip("Kein zusätzlicher Zeit-Balken im Export.")
         self.radio_overlay_timestamp = QtWidgets.QRadioButton("Zeitstempel")
         self.radio_overlay_timestamp.setToolTip(
             "Reales Aufnahmedatum/-uhrzeit (JJJJ-MM-TT HH:MM:SS) des jeweiligen Frames "
-            "als Text unten im Video."
+            "als Text unten im Bild."
         )
         self.radio_overlay_both = QtWidgets.QRadioButton("Beides")
-        self.radio_overlay_both.setToolTip("Zeitleiste UND Zeitstempel gemeinsam unten im Video.")
+        self.radio_overlay_both.setToolTip("Laufzeit UND Zeitstempel gemeinsam unten im Bild.")
         self.radio_overlay_both.setChecked(True)
         overlay_grid.addWidget(self.radio_overlay_timeline, 0, 0)
         overlay_grid.addWidget(self.radio_overlay_none, 0, 1)
@@ -453,6 +543,15 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     def frame_range(self) -> tuple[int, int]:
         # UI ist 1-basiert (siehe oben), Rueckgabe als 0-basierte Frame-Indizes.
         return self.spin_start.value() - 1, self.spin_end.value() - 1
+
+    def output_mode(self) -> str:
+        return "video" if self.radio_output_video.isChecked() else "images"
+
+    def image_format(self) -> str:
+        return self.combo_image_format.currentData()
+
+    def image_prefix(self) -> str:
+        return self.edit_image_prefix.text().strip() or "Frame"
 
     def fps(self) -> float:
         return self.spin_fps.value()
@@ -497,6 +596,38 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         return "none"
 
 
+class RulerLengthDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
+    """Fragt die reale Länge (in mm) der Maßstab-Referenzlinie ab -- sowohl
+    beim erstmaligen Festlegen als auch beim späteren Nachbearbeiten per
+    Doppelklick auf die Linie/Beschriftung (Punkt 11), damit nicht jedes Mal
+    der komplette Maßstab gelöscht und neu gezeichnet werden muss."""
+
+    def __init__(self, parent, current_mm: float = 10.0):
+        super().__init__(parent)
+        self.setWindowTitle("Maßstab")
+
+        layout = QtWidgets.QVBoxLayout(self)
+        form = QtWidgets.QFormLayout()
+        self.spin_mm = LocaleTolerantDoubleSpinBox()
+        self.spin_mm.setDecimals(3)
+        self.spin_mm.setRange(0.001, 1_000_000.0)
+        self.spin_mm.setValue(current_mm)
+        self.spin_mm.setSuffix(" mm")
+        form.addRow("Länge dieser Linie:", self.spin_mm)
+        layout.addLayout(form)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        _disable_enter_auto_accept(buttons)
+        layout.addWidget(buttons)
+
+    def mm_value(self) -> float:
+        return self.spin_mm.value()
+
+
 class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     """Export-Auswahl fuer die CSV-Werte: welche Messbereiche ueberhaupt
     exportiert werden (Standard: alle) und mit welcher Spaltenueberschrift."""
@@ -504,13 +635,17 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     def __init__(self, parent, entries: list[dict]):
         # entries: [{"name": str, "width_px": float, "height_px": float,
         #            "width_mm": float | None, "height_mm": float | None}, ...]
+        # Kann neben echten Messbereichen (Punkt 5) auch eine synthetische
+        # "Live (Cursor)"-Zeile enthalten (width_px/height_px = Kantenlaenge
+        # des Live-Cursor-Mittelungsfensters) -- fuer diese Zeile gilt exakt
+        # dieselbe Auswahl-/Autofill-Logik wie fuer echte Messbereiche.
         super().__init__(parent)
         self.setWindowTitle("CSV-Export")
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(QtWidgets.QLabel(
-            "Messbereiche für den Export auswählen und Spaltenüberschriften anpassen "
-            "(per Hand oder per Autofill):"
+            "Spalten (Messbereiche und/oder Live-Cursor) für den Export auswählen und "
+            "Spaltenüberschriften anpassen (per Hand oder per Autofill):"
         ))
 
         select_row = QtWidgets.QHBoxLayout()
@@ -590,7 +725,7 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     def _on_accept(self) -> None:
         if not any(chk.isChecked() for chk in self._checks):
             QtWidgets.QMessageBox.information(
-                self, "Keine Auswahl", "Bitte mindestens einen Messbereich für den Export auswählen."
+                self, "Keine Auswahl", "Bitte mindestens eine Spalte für den Export auswählen."
             )
             return
         self.accept()
@@ -656,10 +791,10 @@ class FilenameTemplateDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
         help_label = QtWidgets.QLabel(
             "Platzhalter (Groß-/Kleinschreibung beachten!): YYYY = Jahr (4-stellig), "
-            "MM = Monat, DD = Tag, HH = Stunde, mm = Minute, ss = Sekunde (jeweils "
+            "MM = Monat, DD = Tag, hh = Stunde, mm = Minute, ss = Sekunde (jeweils "
             "2-stellig). Alle anderen Zeichen (z.B. „Record_“, „-“, „_“) müssen genau "
             "so im Dateinamen stehen.\n"
-            "Beispiel: „Record_YYYY-MM-DD_HH-mm-ss“ passt zu "
+            "Beispiel: „Record_YYYY-MM-DD_hh-mm-ss“ passt zu "
             "„Record_2026-08-24_14-30-00.csv“ -- auch feste Textteile, die "
             "zufällig wie ein Platzhalter aussehen (z.B. das „ss“ in "
             "„Messung_“), werden korrekt als normaler Text erkannt, solange "

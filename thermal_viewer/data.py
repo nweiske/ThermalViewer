@@ -3,7 +3,7 @@
 Dateiformat: eine Zeile pro Bildzeile, Werte per ';' getrennt, Dezimalkomma
 (deutsches Format), z.B. "28,6;28,7;...;". Jede Datei ist ein einzelner
 Frame; der Zeitstempel steckt standardmaessig im Dateinamen
-(Record_YYYY-MM-DD_HH-MM-SS.csv) -- ueber ein Namens-Template (siehe
+(Record_YYYY-MM-DD_hh-mm-ss.csv) -- ueber ein Namens-Template (siehe
 compile_filename_template) auch fuer andere Namensschemata anpassbar.
 """
 from __future__ import annotations
@@ -24,21 +24,21 @@ FILENAME_TEMPLATE_TOKENS: dict[str, tuple[str, str]] = {
     "YYYY": (r"\d{4}", "%Y"),
     "MM": (r"\d{2}", "%m"),
     "DD": (r"\d{2}", "%d"),
-    "HH": (r"\d{2}", "%H"),
+    "hh": (r"\d{2}", "%H"),
     "mm": (r"\d{2}", "%M"),
     "ss": (r"\d{2}", "%S"),
 }
-DEFAULT_FILENAME_TEMPLATE = "Record_YYYY-MM-DD_HH-mm-ss"
+DEFAULT_FILENAME_TEMPLATE = "Record_YYYY-MM-DD_hh-mm-ss"
 
 
-_FILENAME_TOKEN_CHARS = frozenset("YMDHms")
+_FILENAME_TOKEN_CHARS = frozenset("YMDhms")
 
 
 def _decompose_token_run(run: str) -> list[str] | None:
     """Zerlegt einen Lauf aus reinen Platzhalter-Buchstaben (Y/M/D/H/m/s)
     per Backtracking (laengste Tokens zuerst probiert) VOLLSTAENDIG in eine
     Folge gueltiger Platzhalter, z.B. "YYYYMMDD" -> ["YYYY","MM","DD"] oder
-    "HHmmss" -> ["HH","mm","ss"]. Gibt None zurueck, wenn der Lauf sich
+    "hhmmss" -> ["hh","mm","ss"]. Gibt None zurueck, wenn der Lauf sich
     nicht restlos zerlegen laesst (z.B. "MMM" oder "MD")."""
     tokens_longest_first = sorted(FILENAME_TEMPLATE_TOKENS, key=len, reverse=True)
     memo: dict[int, list[str] | None] = {}
@@ -73,7 +73,7 @@ def _tokenize_filename_template(template: str) -> list[tuple[str, str]]:
     "Messung_" enthaelt zufaellig "ss" und wurde bisher faelschlich als
     Sekunden-Platzhalter gelesen). Bedingung (b) wird auf Ebene des
     GESAMTEN zusammenhaengenden Laufs geprueft, nicht pro Einzel-Token --
-    direkt aneinandergereihte Platzhalter wie "YYYYMMDD" oder "HHmmss"
+    direkt aneinandergereihte Platzhalter wie "YYYYMMDD" oder "hhmmss"
     (deren Tokens sich gegenseitig beruehren) bleiben dadurch weiterhin
     korrekt erkennbar."""
     pieces: list[tuple[str, str]] = []
@@ -110,7 +110,7 @@ def _tokenize_filename_template(template: str) -> list[tuple[str, str]]:
 
 
 def compile_filename_template(template: str) -> tuple[re.Pattern, str]:
-    """Uebersetzt ein Namensschema-Template (z.B. "Record_YYYY-MM-DD_HH-mm-ss")
+    """Uebersetzt ein Namensschema-Template (z.B. "Record_YYYY-MM-DD_hh-mm-ss")
     in (a) ein Regex-Muster mit GENAU EINER Erfassungsgruppe, die den
     zeitstempel-relevanten Teilstring liefert, und (b) den passenden
     strptime()-Formatstring dafuer -- gemeinsam genutzt von parse_timestamp()
@@ -271,7 +271,7 @@ def load_paths(
     RecordingError geworfen.
 
     pattern/strptime_fmt: siehe compile_filename_template() -- erlaubt ein
-    vom Standard ("Record_YYYY-MM-DD_HH-mm-ss") abweichendes Namensschema
+    vom Standard ("Record_YYYY-MM-DD_hh-mm-ss") abweichendes Namensschema
     (MainWindow._filename_pattern/_filename_strptime_fmt, siehe
     FilenameTemplateDialog).
     """

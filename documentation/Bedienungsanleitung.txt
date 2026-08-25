@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-08-24
+Stand: 2026-08-25
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
@@ -19,7 +19,7 @@ INHALT
  7. Legende / Farbskala
  8. Zeitverlauf-Graph und Live-Graph
  9. Grafik und CSV exportieren
-10. Video exportieren
+10. Video / Bildstapel exportieren
 11. Maßstab (Lineal) und reale Größen in mm
 12. Projekt speichern und laden
 13. Fenster/Panels anordnen
@@ -105,18 +105,18 @@ und die restliche (gueltige) Messreihe wird ganz normal geladen.
 
 NAMENSSCHEMA NICHT ERKANNT: Passt beim "Ordner öffnen..." KEINE der
 ".csv"-Dateien im gewaehlten Ordner zum erwarteten Namensschema
-(Standard: "Record_JJJJ-MM-TT_SS-mm-ss", siehe Abschnitt 15), erscheint
+(Standard: "Record_YYYY-MM-DD_hh-mm-ss", siehe Abschnitt 15), erscheint
 eine Rueckfrage mit drei Möglichkeiten:
 
   - "Neuen Ordner wählen"      -> oeffnet erneut die Ordnerauswahl.
   - "Namenstemplate anpassen…" -> oeffnet ein Fenster, in dem das
                                    tatsaechliche Namensschema eingegeben
                                    werden kann, z.B. "IMG_YYYY-MM-DD_
-                                   HH-mm-ss" fuer Dateien wie
+                                   hh-mm-ss" fuer Dateien wie
                                    "IMG_2026-08-24_14-30-00.csv".
                                    Platzhalter (Groß-/Kleinschreibung
                                    beachten): YYYY=Jahr, MM=Monat,
-                                   DD=Tag, HH=Stunde, mm=Minute,
+                                   DD=Tag, hh=Stunde, mm=Minute,
                                    ss=Sekunde (jeweils 2-stellig, YYYY
                                    4-stellig) -- alle anderen Zeichen
                                    muessen genau so im Dateinamen stehen.
@@ -178,15 +178,11 @@ Wiedergabe (auch ohne die Maus zu bewegen) - so laesst sich die
 Temperatur an einer fixierten Stelle live waehrend des Abspielens
 mitverfolgen.
 
-Ueber "Ansicht > Design" laesst sich zwischen hellem und dunklem
-Farbschema wechseln (fuer die Oberflaeche). Die Wahl wird gespeichert
-und beim naechsten Start automatisch wieder eingestellt.
-
-Die Darstellung von Bild und Graphen (Hintergrund hell/dunkel, Schrift
-schwarz/weiss) laesst sich ueber "Ansicht > Grafik-Darstellung"
-UNABHAENGIG vom App-Design waehlen ("Wie App-Design" / "Hell" /
-"Dunkel") - nuetzlich z.B. um Grafiken fuer einen Ausdruck hell zu
-halten, waehrend die restliche Oberflaeche dunkel bleibt.
+Ueber "Ansicht > Dunkelmodus" (ein einzelner an-/abwaehlbarer Menuepunkt)
+laesst sich zwischen hellem und dunklem Erscheinungsbild wechseln -
+gilt einheitlich fuer die gesamte Oberflaeche INKLUSIVE Thermobild und
+Kurven-Graphen. Die Wahl wird gespeichert und beim naechsten Start
+automatisch wieder eingestellt.
 
 
 ================================================================
@@ -302,6 +298,11 @@ Die Detailansicht des ausgewaehlten Messbereichs enthaelt (Farbe +
                                  Liste ausblenden ODER den Knopf
                                  "Messbereich entfernen" verwenden, siehe
                                  oben.)
+
+Die Beschriftung eines platzierten Messbereichs direkt im Thermobild
+zeigt unter dem Namen zusaetzlich die aktuell gemittelte Temperatur
+dieses Messbereichs an -- sie aktualisiert sich automatisch mit jedem
+Frame-Wechsel.
 
 Ein bereits platzierter Messbereich laesst sich auch direkt im Bild mit
 der Maus verschieben und in der Groesse aendern. Dabei gibt es ZWEI
@@ -439,6 +440,16 @@ umschaltbar, oder als eigenes Fenster abtrennbar - siehe Abschnitt 13):
                        senkrechte Linie markiert den aktuell
                        angezeigten Frame.
 
+                       Checkbox "Live-Cursor-Kurve zusätzlich anzeigen"
+                       (Standard: AUS) blendet zusaetzlich die Live-
+                       Cursor-Kurve (siehe unten) direkt in DIESEM
+                       Graphen mit ein -- nuetzlich, um Messbereiche
+                       und eine frei gewaehlte Cursor-Stelle gemeinsam
+                       zu vergleichen. Unabhaengig von dieser Checkbox
+                       ist die Live-Cursor-Kurve beim Export dieses
+                       Graphen (Abschnitt 9) automatisch mit dabei,
+                       sofern gerade eine verfuegbar ist.
+
   - "Live (Cursor)" -> solange die Maus ueber das Bild bewegt wird,
                        zeigt dieser Graph den Temperaturverlauf GENAU
                        DES PIXELS unter dem Mauszeiger, ueber alle
@@ -457,8 +468,8 @@ umschaltbar, oder als eigenes Fenster abtrennbar - siehe Abschnitt 13):
 Standardmaessig wertet der Live-Graph genau EIN Pixel aus. Ueber
 "Werkzeuge > Live-Cursor-Bereichsgroesse" in der Menueleiste laesst
 sich stattdessen ein quadratischer Bereich um das Cursor-Pixel
-(3x3, 5x5 oder 7x7 Pixel) waehlen, dessen Mittelwert angezeigt und
-exportiert wird - nuetzlich bei verrauschten Einzelpixeln. Die Wahl
+(3x3, 5x5, 7x7 oder 10x10 Pixel) waehlen, dessen Mittelwert angezeigt
+und exportiert wird - nuetzlich bei verrauschten Einzelpixeln. Die Wahl
 wird gemerkt und liegt bewusst NICHT im rechten Panel, sondern als
 eigenes Menue oben.
 
@@ -472,21 +483,29 @@ zwischen "Uhrzeit" (echtes Datum/Uhrzeit, Standard) und "Laufzeit"
 Umschalter sind miteinander synchronisiert (beide Graphen zeigen immer
 denselben Modus), da sie dieselbe Zeitachse abbilden.
 
+Daneben (links vom Dropdown) befindet sich der Knopf "Achsen
+zuruecksetzen" -- setzt Zoom/Verschieben GENAU dieses Graphen wieder auf
+den kompletten Datenbereich zurueck, falls per Maus (Ziehen/Mausrad)
+verzoomt oder verschoben wurde.
+
 
 ================================================================
 9. GRAFIK UND CSV EXPORTIEREN
 ================================================================
 
 Alle Export-Funktionen sind zentral im Menue "Export" oben in der
-Menueleiste erreichbar (je zwei Eintraege fuer Zeitverlauf und Live-
-Graph: Grafik bzw. Werte als CSV). Ein Rechtsklick direkt auf den
-Zeitverlauf- oder Live-Graphen bietet zusaetzlich den Eintrag "Grafik
-speichern..." als Abkuerzung fuer GENAU denselben Export wie der
-jeweilige Menue-Punkt (identisches Fenster, identisches Ergebnis inkl.
-Thermobild) - nur der Umweg ueber die Menueleiste entfaellt. Ein
-Rechtsklick direkt auf das Thermobild exportiert (da es dafuer keine
-eigene Menue-Entsprechung gibt) weiterhin nur dieses eine Bild allein,
-mit demselben Fenster, aber ohne die Kombiniert/Getrennt-Auswahl.
+Menueleiste erreichbar - je EIN Eintrag fuer "Grafik exportieren..."
+und "Werte als CSV exportieren...": beide Dialoge fragen selbst ab,
+welche Kurve(n) (Zeitverlauf/Messbereiche und/oder Live-Cursor)
+tatsaechlich mit hinein sollen, statt getrennter Menuepunkte pro Kurve.
+Ein Rechtsklick direkt auf den Zeitverlauf- oder Live-Graphen bietet
+zusaetzlich den Eintrag "Grafik speichern..." als Abkuerzung fuer GENAU
+denselben Export wie "Export > Grafik exportieren..." (identisches
+Fenster, identisches Ergebnis inkl. Thermobild) - nur der Umweg ueber
+die Menueleiste entfaellt. Ein Rechtsklick direkt auf das Thermobild
+exportiert (da es dafuer keine eigene Menue-Entsprechung gibt)
+weiterhin nur dieses eine Bild allein, mit demselben Fenster, aber ohne
+die Kombiniert/Getrennt-Auswahl.
 
 GRAFIK SPEICHERN (Thermobild + Kurve):
 Die exportierte Grafik zeigt das Thermobild mit der Position der
@@ -494,32 +513,40 @@ Messbereiche zusammen mit dem zugehoerigen Temperaturverlauf, damit auf
 einen Blick nachvollziehbar ist, WO im Bild gemessen wurde und WIE sich
 die Temperatur dort entwickelt hat.
 
-  1. Aufloesung in DPI eingeben (z.B. 150 fuer Bildschirm, 300-600 fuer
+  1. "Graph-Inhalt" -> per Checkbox waehlen, welche Kurve(n) exportiert
+     werden: "Zeitverlauf (Messbereiche)" und/oder "Live-Cursor-Kurve"
+     (Letztere nur anwaehlbar, wenn gerade ein Live-Cursor-Pixel
+     verfuegbar ist, siehe Abschnitt 8). Ist der Zeitverlauf mit dabei,
+     erscheint die Live-Cursor-Kurve als ZUSAETZLICHE Kurve IM SELBEN
+     Graphen; ist NUR die Live-Cursor-Kurve angehakt, wird stattdessen
+     der eigenstaendige Live-Graph exportiert. Mindestens eine der
+     beiden Checkboxen muss angehakt sein.
+  2. Aufloesung in DPI eingeben (z.B. 150 fuer Bildschirm, 300-600 fuer
      Druck/Berichte).
-  2. Waehlen, ob Bild und Kurve KOMBINIERT (eine Grafik, Bild oben/Kurve
+  3. Waehlen, ob Bild und Kurve KOMBINIERT (eine Grafik, Bild oben/Kurve
      unten) oder GETRENNT (zwei einzelne Dateien "..._Bild" und
      "..._Kurve") gespeichert werden sollen. Die Wahl wird gemerkt.
-  3. "Farbdarstellung" -> dieselbe Freiheit wie im Hauptfenster: entweder
+  4. "Farbdarstellung" -> dieselbe Freiheit wie im Hauptfenster: entweder
      "Aktuelle Anzeige-Einstellungen uebernehmen" (Standard) oder "Eigene
      Einstellungen fuer diesen Export" mit eigenem Farbverlauf,
      Invertierung, Skalierungsmodus (Abschnitt 7) und Min/Max NUR fuer
      diese eine Grafik -- die Anzeige im Hauptfenster bleibt danach
      unveraendert.
-  4. "Zeitachse:" (nur bei Export mit Kurve) -> "Uhrzeit", "Laufzeit" oder
+  5. "Zeitachse:" (nur bei Export mit Kurve) -> "Uhrzeit", "Laufzeit" oder
      "Beide" -- vorbelegt mit dem gerade im Hauptfenster aktiven
      Umschalter (Abschnitt 8), unabhaengig davon aber frei aenderbar.
      "Beide" fuegt eine ZWEITE Achse oben am Graphen hinzu, sodass Uhrzeit
      UND Laufzeit gleichzeitig in EINER Grafik zu sehen sind (statt wie
      sonst nur eine der beiden).
-  5. "Cursor-Position mit exportieren" (Standard: AUS) -- blendet das
+  6. "Cursor-Position mit exportieren" (Standard: AUS) -- blendet das
      Fadenkreuz samt Temperaturanzeige am fixierten/zuletzt angefahrenen
      Cursor-Pixel (siehe Abschnitt 8, betrifft vor allem den Live-Graph)
      im Thermobild mit ein. Bleibt der Haken leer, enthaelt die Grafik
      unabhaengig vom aktuellen Bildschirmzustand KEINE Maus-Markierung.
-  6. Dateiname und -format waehlen: PNG, JPEG, BMP, TIFF, WebP oder SVG
+  7. Dateiname und -format waehlen: PNG, JPEG, BMP, TIFF, WebP oder SVG
      (Vektorgrafik - die Kurve bleibt darin als editierbarer Vektorpfad
      erhalten, das Thermobild selbst ist naturgemaess ein Rasterbild).
-  7. Zusaetzlich entsteht eine gleichnamige ".json"-Datei mit
+  8. Zusaetzlich entsteht eine gleichnamige ".json"-Datei mit
      Metadaten: Koordinaten, Groesse (px und, falls ein Massstab
      definiert ist, auch mm), Name und Farbe jedes Messbereichs,
      Quellordner, Anzahl der Frames, alle Zeitstempel und verwendete
@@ -533,16 +560,22 @@ zwischen Bild und Farbskala (durch das feste Bild-Seitenverhaeltnis bei
 und Farbskala schliessen direkt am Thermobild an.
 
 WERTE ALS CSV:
-Fuer die reinen Zahlen zur Weiterverarbeitung (z.B. Excel, Python).
+Fuer die reinen Zahlen zur Weiterverarbeitung (z.B. Excel, Python). Nur
+EIN Export-Fenster fuer Messbereichs- UND Live-Cursor-Werte (statt
+frueher getrennter Exporte):
 
-  - Beim Zeitverlauf-Graph erscheint zuerst ein Auswahl-Dialog ("Export
-    Manager"): links eine Checkbox je platziertem Messbereich, mit der er
-    vom Export ausgeschlossen werden kann (Standard: ALLE ausgewaehlt,
-    ueber "Alle auswaehlen"/"Keine auswaehlen" auch auf einen Schlag
-    umschaltbar) - nuetzlich, wenn z.B. bei "beliebig vielen" angelegten
-    Messbereichen nur ein Teil davon in die Datei soll. Daneben laesst
-    sich die Spaltenueberschrift jedes (ausgewaehlten) Messbereichs frei
-    anpassen (voreingestellt ist der ROI-Name). Je Messbereich gibt es
+  - Zuerst erscheint ein Auswahl-Dialog ("Export Manager"): links eine
+    Checkbox je platziertem Messbereich, mit der er vom Export
+    ausgeschlossen werden kann (Standard: ALLE ausgewaehlt, ueber "Alle
+    auswaehlen"/"Keine auswaehlen" auch auf einen Schlag umschaltbar) -
+    nuetzlich, wenn z.B. bei "beliebig vielen" angelegten Messbereichen
+    nur ein Teil davon in die Datei soll. Ist gerade ein Live-Cursor-
+    Pixel verfuegbar (Maus ueber dem Bild bewegt oder eine Stelle
+    fixiert, siehe Abschnitt 8), erscheint zusaetzlich eine Zeile "Live
+    (Cursor)" in derselben Liste -- so landen Messbereichs- UND Live-
+    Cursor-Werte auf Wunsch in EINER gemeinsamen Datei. Daneben laesst
+    sich die Spaltenueberschrift jedes (ausgewaehlten) Eintrags frei
+    anpassen (voreingestellt ist der jeweilige Name). Je Eintrag gibt es
     zwei ankreuzbare Einheiten ("px"/"mm", mm nur verfuegbar wenn ein
     Massstab definiert ist, siehe Abschnitt 11): ein Klick auf "px" oder
     "mm" traegt die angehakten Einheiten SOFORT gemeinsam in den
@@ -552,11 +585,11 @@ Fuer die reinen Zahlen zur Weiterverarbeitung (z.B. Excel, Python).
   - Die CSV-Datei enthaelt genau ZWEI Zeitspalten - "Zeitstempel" (echtes
     Datum/Uhrzeit aus dem Dateinamen) und "Laufzeit (HH:MM:SS)" (relative
     Aufnahmedauer, beginnend bei 00:00:00) - gefolgt von einer Spalte je
-    AUSGEWAEHLTEM Messbereich (bei allen 5 Standard-Messbereichen ohne
-    Abwahl also 7 Spalten insgesamt).
-  - Beim Live-Graph: "Zeitstempel", "Laufzeit (HH:MM:SS)", Zeile, Spalte
-    und Temperatur des aktuellen bzw. fixierten Cursor-Pixels, eine Zeile
-    pro Frame.
+    AUSGEWAEHLTEM Eintrag (bei allen 5 Standard-Messbereichen plus Live-
+    Cursor ohne Abwahl also 8 Spalten insgesamt). Ist die Zeile "Live
+    (Cursor)" mit dabei, stehen davor zusaetzlich zwei feste Spalten
+    "Live X-Achse"/"Live Y-Achse" mit der (ueber die gesamte Aufnahme
+    konstanten) Pixel-Position des Cursors.
 
 Die CSV-Datei ist wie die Rohdaten ';'-getrennt mit Dezimalkomma, damit
 sie sich in einem deutsch lokalisierten Excel ohne Nacharbeit oeffnen
@@ -564,57 +597,83 @@ laesst.
 
 
 ================================================================
-10. VIDEO EXPORTIEREN
+10. VIDEO / BILDSTAPEL EXPORTIEREN
 ================================================================
 
-Ueber "Export > Video exportieren..." laesst sich die geladene Serie
-als MP4-Video speichern:
+Ueber "Export > Video / Bildstapel exportieren..." laesst sich die
+geladene Serie entweder als MP4-, AVI- oder WebM-Video ODER als
+Bildstapel (eine einzelne Bilddatei pro Frame im gewaehlten Ordner)
+speichern - ganz oben im Dialog per "Ausgabeform" waehlbar:
+
+  - "Video-Datei (MP4/AVI/WebM)" (Standard) -> Dateiformat wird beim
+    anschliessenden Speichern-Dialog ueber die Endung/den Dateityp-
+    Filter gewaehlt.
+  - "Bildstapel (eine Bilddatei pro Frame)" -> zusaetzlich waehlbar:
+    Bildformat (PNG, JPEG, BMP, TIFF oder WebP) und ein gemeinsamer
+    Dateiname-Praefix (Standard "Frame", ergibt z.B. bei 50 exportierten
+    Frames Frame_01.png, Frame_02.png, ... Frame_50.png - die Anzahl der
+    Ziffern richtet sich nach der Gesamtzahl der exportierten Frames).
+    Statt einer einzelnen Datei wird anschliessend ein ZIELORDNER
+    gewaehlt, in den alle Bilder geschrieben werden. Die
+    "Wiedergabe-FPS" hat fuer den Bildstapel keine Bedeutung (Feld bleibt
+    ausgegraut) - alle uebrigen Einstellungen (Frame-Bereich,
+    Farbskala/Legende, Zeitachse, Temperaturverlauf-Graph) gelten
+    identisch fuer beide Ausgabeformen.
+
+Alle uebrigen Einstellungen im Dialog:
 
   - Von-Frame / Bis-Frame  -> nur ein Ausschnitt der Serie exportieren
                                (z.B. nur Frame 40 bis 100), vorbelegt mit
                                dem aktuell im Hauptfenster gesetzten
                                Auswertungsstart/-ende (Abschnitt 4).
-  - Wiedergabe-FPS          -> Abspielgeschwindigkeit im fertigen Video.
-  - "Farbskala (Legende) im Video einblenden" -> ein-/ausschaltbar.
-    Falls eingeblendet, zusaetzlich waehlbar:
+  - Wiedergabe-FPS          -> Abspielgeschwindigkeit im fertigen Video
+                               (ohne Bedeutung/ausgegraut beim Bildstapel).
+  - "Farbskala (Legende) einblenden" -> ein-/ausschaltbar. Falls
+    eingeblendet, zusaetzlich waehlbar:
       * "Aktuelle Anzeige-Einstellungen uebernehmen" -> verwendet
         Farbverlauf und Skalierungsmodus (Abschnitt 7) genau so, wie
         sie gerade im Hauptfenster eingestellt sind.
       * "Eigene Einstellungen fuer dieses Video" -> Farbverlauf,
         Invertierung, Skalierungsmodus und Min/Max werden nur fuer
-        diesen einen Video-Export separat festgelegt, die Anzeige im
+        diesen einen Export separat festgelegt, die Anzeige im
         Hauptfenster bleibt danach unveraendert.
   - "Temperaturverlauf-Graph" -> "Graph mit anzeigen" (Standard: AUS)
     blendet zusaetzlich den gewaehlten Kurven-Graphen ("Zeitverlauf
-    (Messbereiche)" oder "Live (Cursor-Pixel)") im Video ein -- mit
-    derselben wandernden Zeit-Markierungslinie, die auch im Hauptfenster
-    den aktuellen Frame auf der Kurve anzeigt, also genau wie in der
+    (Messbereiche)" oder "Live (Cursor-Pixel)") mit ein -- mit derselben
+    wandernden Zeit-Markierungslinie, die auch im Hauptfenster den
+    aktuellen Frame auf der Kurve anzeigt, also genau wie in der
     Anwendung selbst. "Position:" legt fest, WO der Graph relativ zum
     Thermobild sitzt: Unter/Über/Links/Rechts vom Bild (frei waehlbar).
     Hier befindet sich auch "Cursor-Position mit exportieren" (Standard:
     AUS) -- wie beim Bild-Export (Abschnitt 9): blendet das Fadenkreuz
     samt Temperaturanzeige am fixierten/zuletzt angefahrenen Cursor-Pixel
-    im Video mit ein. Bleibt der Haken leer, enthaelt das Video KEINE
+    mit ein. Bleibt der Haken leer, enthaelt der Export KEINE
     Maus-Markierung.
-  - "Laufzeit" -> blendet unten im Video einen Streifen ein, waehlbar
+  - "Zeitachse" -> blendet unten im Bild einen Streifen ein, waehlbar
     als 2x2-Auswahl (Namen bewusst wie im uebrigen Programm, mit
-    Tooltip bei Zeitleiste/Zeitstempel; Standard: "Beides"):
-      * "Zeitleiste" -> Fortschrittsbalken mit gruener/roter Markierung
+    Tooltip bei Laufzeit/Zeitstempel; Standard: "Beides"):
+      * "Laufzeit" -> Fortschrittsbalken mit gruener/roter Markierung
         an der TATSAECHLICHEN Position von Start/Ende des exportierten
         Bereichs INNERHALB DER GESAMTEN Aufnahme (nicht an den Rand der
         Leiste geklemmt), ein blauer Punkt wandert dazwischen mit dem
         aktuellen Frame mit, plus verstrichene/gesamte Laufzeit
-        (HH:MM:SS) relativ zum Aufnahmebeginn. Der Video-INHALT selbst
-        bleibt dabei unveraendert auf den gewaehlten Von-/Bis-Frame
-        beschraenkt -- die Leiste zeigt nur zusaetzlich dessen
-        Einbettung in die Gesamtaufnahme.
+        (HH:MM:SS) relativ zum Aufnahmebeginn. Der Video-/Bildstapel-
+        INHALT selbst bleibt dabei unveraendert auf den gewaehlten
+        Von-/Bis-Frame beschraenkt -- die Leiste zeigt nur zusaetzlich
+        dessen Einbettung in die Gesamtaufnahme.
       * "Keine" -> kein Streifen.
       * "Zeitstempel" -> reales Datum/Uhrzeit des jeweiligen Bilds.
       * "Beides" (Standard) -> Fortschrittsbalken UND Zeitstempel
         gemeinsam.
 
-Wie beim Bild-Export ist das Thermobild im Video eng zugeschnitten
-(kein unnoetiger Leerraum links/rechts zwischen Bild und Achse bzw.
+  Hinweis: Der Video-Export (nicht der Bildstapel-Export) benoetigt
+  intern das Paket "imageio" (mit "imageio-ffmpeg"). In den fertigen
+  exe-/Binaerdateien (siehe Abschnitt 2) ist das bereits enthalten; bei
+  einem Start aus dem Quellcode installiert "uv run python run.py" es
+  automatisch mit.
+
+Wie beim Bild-Export ist das Thermobild eng zugeschnitten (kein
+unnoetiger Leerraum links/rechts zwischen Bild und Achse bzw.
 Farbskala, siehe Abschnitt 9).
 
 Der Export laeuft mit Fortschrittsanzeige (abbrechbar). Waehrend des
@@ -649,6 +708,17 @@ Klammern). Die Handhabung der Messbereiche selbst bleibt weiterhin in
 Pixeln - der mm-Wert ist nur eine zusaetzliche Anzeige. Ueber den Knopf
 "Entfernen" im Massstab-Panel laesst sich die Umrechnung samt der
 eingezeichneten Referenzlinie wieder loeschen.
+
+Die fertige Referenzlinie muss NICHT geloescht und neu gezeichnet
+werden, um sie nachtraeglich anzupassen:
+
+  - Beide Endpunkte lassen sich einzeln per Maus verschieben (kleine
+    Ziehpunkte an Start/Ende) -- die reale Laenge in mm bleibt dabei
+    unveraendert, nur der Umrechnungsfaktor (px zu mm) wird automatisch
+    aus der neuen Pixel-Distanz neu berechnet.
+  - Ein DOPPELKLICK auf die Linie oder ihre mm-Beschriftung oeffnet
+    erneut den Laengen-Dialog, um die reale Laenge selbst zu aendern --
+    hier bleiben umgekehrt die aktuellen Endpunkte unangetastet.
 
 Das kleine Farbfeld neben "Entfernen" oeffnet die Farbauswahl fuer die
 Referenzlinie -- nuetzlich, falls die Standardfarbe bei einem bestimmten

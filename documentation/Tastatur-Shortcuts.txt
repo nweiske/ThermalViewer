@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - TASTATUR-SHORTCUTS (KURZREFERENZ)
 ================================================================
 
-Stand: 2026-08-19
+Stand: 2026-08-25
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
@@ -59,3 +59,11 @@ Bedienungsanleitung.txt, Abschnitt 11) gilt stattdessen kurzzeitig:
 
   Linksklick ins Bild   -> setzt Start- bzw. Endpunkt der Referenzlinie.
   Rechtsklick ins Bild  -> bricht das Maßstab-Werkzeug ab.
+
+Ist bereits ein Maßstab gesetzt (Werkzeug nicht mehr aktiv):
+
+  Ziehen an einem Endpunkt   -> verschiebt genau diesen Punkt (die
+                                reale Länge in mm bleibt dabei fest).
+  Doppelklick auf die Linie
+  oder ihre mm-Beschriftung  -> öffnet den Dialog zum Ändern der realen
+                                Länge (die Endpunkte bleiben dabei fest).

@@ -649,9 +649,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # einen Graphen beschraenkten Dialog. Fuer das Thermobild selbst
         # gibt es keinen direkten Menü-Eintrag -- bleibt daher beim
         # bisherigen, auf dieses eine Widget beschraenkten Einzel-Export.
-        self._bind_native_export(self.glw, "Thermobild.png")
-        self._bind_native_export(self.timeseries_plot, "Zeitverlauf.png", self._export_graphic)
-        self._bind_native_export(self.live_plot, "Live-Verlauf.png", self._export_graphic)
+        self._bind_native_export(self.glw, suggested_name="Thermobild.png")
+        self._bind_native_export(self.timeseries_plot, self._export_graphic)
+        self._bind_native_export(self.live_plot, self._export_graphic)
 
         # _build_image_canvas() setzt vorlaeufig die rohe, unkorrigierte
         # Farbpalette (kein combo_cmap/chk_cmap_invert existierte zu dem
@@ -4537,10 +4537,18 @@ class MainWindow(QtWidgets.QMainWindow):
             )
 
     def _bind_native_export(
-        self, widget: QtWidgets.QWidget, suggested_name: str, combined_export_fn=None
+        self, widget: QtWidgets.QWidget, combined_export_fn=None, suggested_name: str | None = None
     ) -> None:
         """Ersetzt den Rechtsklick-Menüeintrag "Export…" von pyqtgraph durch
         unseren eigenen Grafik-Export.
+
+        suggested_name ist NUR im Einzelexport-Fall (combined_export_fn=None)
+        relevant und dort auch Pflicht -- vorher wurde er als dritter,
+        eigentlich fuer combined_export_fn=None gedachter Parameter an ALLEN
+        drei Aufrufstellen mitgegeben, blieb bei den beiden combined_export_fn-
+        Aufrufen (Zeitverlauf-/Live-Graph) aber vollstaendig wirkungslos --
+        totes, irrefuehrendes Argument (Bugreport: unklar, warum "Live-
+        Verlauf.png" nirgendwo tatsaechlich als Dateiname auftaucht).
 
         Zwei Gruende: (1) einheitliches Erscheinungsbild -- ein Rechtsklick
         soll zum selben Dialog/DPI-Feld fuehren wie der Export-Menüpunkt,
@@ -4566,6 +4574,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if combined_export_fn is not None:
             action.triggered.connect(combined_export_fn)
         else:
+            assert suggested_name is not None, "suggested_name ist im Einzelexport-Fall Pflicht"
             action.triggered.connect(partial(self._export_single_graph, widget, suggested_name))
 
     def _export_single_graph(self, widget: QtWidgets.QWidget, suggested_name: str) -> None:

@@ -70,24 +70,29 @@ wählbare Farbe (Klick auf das Farbfeld).
 abfragt, was konkret exportiert werden soll:
 
 - **„Grafik exportieren…“** – Thermobild (mit Position der Messbereiche/
-  des Cursors) zusammen mit dem Temperaturverlauf, wahlweise Zeitverlauf
-  und/oder Live-Cursor-Kurve, kombiniert oder getrennt als
+  des Cursors) zusammen mit dem Temperaturverlauf, wahlweise einzelne
+  Messbereiche (per Ankreuzliste, Standard: alle) und/oder Live-Cursor-Kurve
+  gemeinsam in EINEM Graphen, kombiniert oder getrennt als
   PNG/JPEG/BMP/TIFF/WebP/SVG mit wählbarer DPI, eng zugeschnitten ohne
   Leerraum zwischen Bild und Achse/Farbskala, optional mit eigenem
   Farbverlauf/eigener Skalierung nur für diesen Export, eigener Zeitachse
   (Uhrzeit/Laufzeit/Beide gleichzeitig als Doppelachse) und
-  Cursor-Position im Bild (Standard: aus). Ein Rechtsklick direkt auf den
-  Zeitverlauf- oder Live-Graphen bietet "Grafik speichern…" als Abkürzung
-  für exakt denselben Export; ein Rechtsklick auf das Thermobild selbst
-  exportiert (ohne Menü-Entsprechung) nur dieses eine Bild. Es entsteht
-  zusätzlich eine gleichnamige `.json`-Datei mit Metadaten (ROI-Koordinaten,
-  Farben, Zeitstempel aller Frames, Quellordner, DPI, Bildgröße).
+  Cursor-Position im Bild (Standard: aus, unabhängig von der Live-Cursor-
+  Kurve einzeln schaltbar – die Kurve setzt diese Option allerdings
+  voraus). Ein Rechtsklick direkt auf den Zeitverlauf- oder Live-Graphen
+  bietet "Grafik speichern…" als Abkürzung für exakt denselben Export; ein
+  Rechtsklick auf das Thermobild selbst exportiert (ohne Menü-Entsprechung)
+  nur dieses eine Bild. Es entsteht zusätzlich eine gleichnamige
+  `.json`-Datei mit Metadaten (ROI-Koordinaten, Farben, Zeitstempel aller
+  Frames, Quellordner, DPI, Bildgröße).
 - **„Werte exportieren…“** – die reinen Messwerte als CSV (';'-getrennt),
   JSON oder Text (Tab-getrennt) -- wahlweise Messbereiche und/oder
   Live-Cursor in EINER Datei, mit Spaltennamen frei editierbar und mit
-  Pixel- UND/ODER mm-Größe befüllbar (live beim Anklicken von „px“/„mm“);
-  ist der Live-Cursor mit dabei, stehen dessen (über die Aufnahme
-  konstante) Pixel-Koordinaten als eigene Spalten mit in der Datei.
+  Pixel- UND/ODER mm-Größe befüllbar (live beim Anklicken von „px“/„mm“,
+  „ALLE px“/„ALLE mm“ schalten die jeweilige Einheit für alle Zeilen auf
+  einmal um); ist der Live-Cursor mit dabei, stehen dessen (über die
+  Aufnahme konstante) Pixel-Koordinaten als eigene Spalten mit in der
+  Datei.
 - **„Video / Bildstapel exportieren…“** – ein wählbarer Frame-Bereich
   (vorbelegt mit Auswertungsstart/-ende) entweder als MP4-, AVI- oder
   WebM-Video, oder als Bildstapel (eine Bilddatei pro Frame in einem
@@ -99,7 +104,8 @@ abfragt, was konkret exportiert werden soll:
   `Frame_2026-01-01_12-00-01_2.png`, … (der Frame-Index folgt dabei ohne
   automatisches Trennzeichen direkt auf den Präfix – ein „_“ davor tippt
   man selbst mit ein). Beide Ausgabeformen unterstützen optional denselben
-  Kurven-Graphen samt wandernder Zeit-Markierung wie im Hauptfenster (frei
+  Kurven-Graphen (gleiche Messbereichs-/Live-Cursor-Auswahl wie beim
+  Grafik-Export) samt wandernder Zeit-Markierung wie im Hauptfenster (frei
   positionierbar über/unter/links/rechts vom Thermobild), Cursor-Position
   und eine einblendbare Zeitachse unten im Bild: Laufzeit (mit
   tatsächlicher Position des Ausschnitts innerhalb der Gesamtaufnahme)/
@@ -126,8 +132,9 @@ zu sein. Native Qt-Dialogtexte (z.B. „Abbrechen“/„OK“) werden beim Start
 Über „Ansicht > Dunkelmodus“ (ein einzelner an-/abwählbarer Menüpunkt)
 lässt sich zwischen hellem und dunklem Erscheinungsbild wechseln – gilt
 einheitlich für die gesamte Oberfläche inklusive Thermobild und
-Kurven-Graphen; die Wahl wird gespeichert und beim nächsten Start
-wiederhergestellt.
+Kurven-Graphen und ist unabhängig vom Windows-Systemdesign fest definiert
+(auch bei aktiviertem Windows-Dunkelmodus bleibt „Hell“ tatsächlich hell);
+die Wahl wird gespeichert und beim nächsten Start wiederhergestellt.
 
 Über „Datei > Projekt speichern…/laden…“ lassen sich Messbereiche,
 Farbverlauf, Legenden-Limits und der Quellordner der Messreihe in einer
@@ -173,6 +180,16 @@ läuft automatisch vor jedem exe-Build – lokal über
 GitHub-Actions-Jobs (siehe unten) – und muss vollständig durchlaufen,
 bevor PyInstaller überhaupt gestartet wird. Schlägt (egal wo) auch nur
 ein Test fehl, bricht der Build an dieser Stelle ab: keine neue exe.
+
+Daneben liegt in [tests/smoke_test.py](tests/smoke_test.py) ein
+eigenständiger, headless End-to-End-Smoke-Test (kein pytest nötig, läuft
+über `QT_QPA_PLATFORM=offscreen`, ist bewusst NICHT Teil des obigen
+Build-Gates und erzeugt sein Test-Datenset selbst in einem temporären
+Ordner):
+
+```
+uv run python tests/smoke_test.py
+```
 
 ## Lokal die exe bauen (ohne Release)
 

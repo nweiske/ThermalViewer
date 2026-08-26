@@ -242,8 +242,9 @@ def test_export_graphic_requires_at_least_one_curve_selected(loaded_main_window,
         colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
         current_level_mode="global", current_min=0.0, current_max=50.0,
         current_time_axis_mode="clock", show_graph_source_choice=True, live_available=False,
+        roi_entries=[(1, "ROI 1")],
     )
-    dlg.chk_include_timeseries.setChecked(False)
+    dlg._content_widgets["checks"][1].setChecked(False)
     dlg._on_accept()
     assert dlg.result() != QtWidgets.QDialog.DialogCode.Accepted
     dlg.close()

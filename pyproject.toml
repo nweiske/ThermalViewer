@@ -32,4 +32,10 @@ pythonpath = ["."]
 # QT_QPA_PLATFORM=offscreen -- Tests bauen dabei echte QApplication-/
 # MainWindow-Instanzen auf, oeffnen aber nie ein sichtbares Fenster (lokal
 # wie in CI, unter Windows und Linux gleichermassen).
-addopts = "-ra"
+# tests/smoke_test.py ist ein eigenstaendiges Skript (siehe README, Abschnitt
+# "App-Icon"/"Tests" -- Aufruf per "uv run python tests/smoke_test.py"), kein
+# pytest-Modul: es fuehrt seine Checks beim Import auf Modulebene direkt aus
+# und beendet den Prozess per sys.exit(). Der Dateiname passt zufaellig auf
+# pytest's Standard-Suchmuster "*_test.py" -- ohne diesen Ausschluss wuerde
+# pytest es einzusammeln versuchen und an dessen sys.exit() abstuerzen.
+addopts = "-ra --ignore=tests/smoke_test.py"

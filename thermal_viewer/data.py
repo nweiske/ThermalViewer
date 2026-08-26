@@ -136,6 +136,27 @@ def compile_filename_template(template: str) -> tuple[re.Pattern, str]:
     return pattern, "".join(fmt)
 
 
+def render_filename_template(template: str, timestamp: datetime) -> str:
+    """Setzt die Platzhalter (siehe FILENAME_TEMPLATE_TOKENS) in template mit
+    den tatsaechlichen Werten von timestamp ein -- quasi die Umkehrung von
+    compile_filename_template() (das einen BESTEHENDEN Dateinamen parst,
+    dies hier ERZEUGT stattdessen einen neuen Namen). Fuer den Bildstapel-
+    Export: ein frei eingegebener Dateiname-Praefix wie
+    "Frame_YYYY-MM-DD_hh-mm-ss_" wird damit pro Frame mit dessen echtem
+    Zeitstempel gefuellt, statt nur ein fester Text vor dem Frame-Index zu
+    sein. Literale Zeichen (alles ausser erkannten Platzhaltern) bleiben
+    unveraendert -- dieselbe Tokenisierung wie beim Parsen, daher IMMER
+    konsistent mit compile_filename_template()."""
+    parts: list[str] = []
+    for kind, value in _tokenize_filename_template(template):
+        if kind == "literal":
+            parts.append(value)
+        else:
+            _digit_pattern, directive = FILENAME_TEMPLATE_TOKENS[value]
+            parts.append(timestamp.strftime(directive))
+    return "".join(parts)
+
+
 def validate_filename_template(template: str) -> str | None:
     """Prueft, ob template alle sechs Zeitbestandteile GENAU EINMAL enthaelt
     (eine vollstaendige Zeitstempel-Aufloesung ist Voraussetzung fuer eine

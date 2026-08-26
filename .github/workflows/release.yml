@@ -13,6 +13,11 @@ name: Release
 #                          (gebaut/getestet auf Ubuntu; benötigt auf dem
 #                          Zielsystem die üblichen Qt-Laufzeitbibliotheken,
 #                          siehe README).
+#
+# Build-Freigabe-Gate: jeder Job führt VOR dem eigentlichen PyInstaller-Build
+# die Test-Suite (tests/, per pytest) aus -- schlägt auch nur ein Test fehl,
+# bricht der Job an dieser Stelle ab (kein PyInstaller-Aufruf, kein Archiv,
+# kein Upload). Lokal dasselbe Gate: scripts/build_local.ps1.
 on:
   push:
     tags:
@@ -43,6 +48,12 @@ jobs:
 
       - name: Import-Sanity-Check
         run: uv run python -c "import thermal_viewer.main_window"
+
+      - name: Tests ausführen (Build-Freigabe-Gate, siehe tests/)
+        # Bricht diesen Job bei jedem fehlgeschlagenen Test sofort ab --
+        # die nachfolgenden Schritte (PyInstaller-Build, Release-Archiv,
+        # Upload) laufen dann NICHT mehr, es entsteht also keine neue exe.
+        run: uv run pytest
 
       - name: Windows-exe bauen
         # --collect-all imageio_ffmpeg/imageio: PyInstaller erkennt die von
@@ -91,6 +102,9 @@ jobs:
 
       - name: Import-Sanity-Check
         run: python -c "import thermal_viewer.main_window"
+
+      - name: Tests ausführen (Build-Freigabe-Gate, siehe tests/)
+        run: python -m pytest
 
       - name: Windows-7-exe bauen
         run: >
@@ -142,6 +156,9 @@ jobs:
 
       - name: Import-Sanity-Check
         run: uv run python -c "import thermal_viewer.main_window"
+
+      - name: Tests ausführen (Build-Freigabe-Gate, siehe tests/)
+        run: uv run pytest
 
       - name: Linux-Binärdatei bauen
         # --collect-all imageio_ffmpeg/imageio: siehe Kommentar im

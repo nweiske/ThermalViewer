@@ -349,10 +349,14 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             ("WebP-Bild (*.webp)", ".webp"),
         ):
             self.combo_image_format.addItem(label, ext)
-        self.edit_image_prefix = QtWidgets.QLineEdit("Frame")
+        self.edit_image_prefix = QtWidgets.QLineEdit("Frame_")
         self.edit_image_prefix.setToolTip(
-            "Gemeinsamer Dateiname-Anfang für alle Bilder, z.B. „Frame“ -> Frame_0001.png, "
-            "Frame_0002.png, …"
+            "Gemeinsamer Dateiname-Anfang für alle Bilder -- direkt gefolgt vom Frame-Index "
+            "(ein Trennzeichen wie „_“ davor bitte selbst mit eintippen). Unterstützt dieselben "
+            "Zeitstempel-Platzhalter wie das Namensschema beim Laden (YYYY/MM/DD/hh/mm/ss), die "
+            "mit dem echten Zeitstempel jedes Frames gefüllt werden, z.B. "
+            "„Frame_YYYY-MM-DD_hh-mm-ss_“ -> Frame_2026-01-01_12-00-00_1.png, "
+            "Frame_2026-01-01_12-00-01_2.png, …"
         )
         image_form.addRow("Bildformat:", self.combo_image_format)
         image_form.addRow("Dateiname-Präfix:", self.edit_image_prefix)
@@ -551,7 +555,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         return self.combo_image_format.currentData()
 
     def image_prefix(self) -> str:
-        return self.edit_image_prefix.text().strip() or "Frame"
+        return self.edit_image_prefix.text().strip() or "Frame_"
 
     def fps(self) -> float:
         return self.spin_fps.value()
@@ -628,6 +632,153 @@ class RulerLengthDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         return self.spin_mm.value()
 
 
+class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
+    """Manueller Wertebereich (X/Y) und manuelle Y-Schrittweite fuer EINEN
+    Kurven-Graphen -- Ersatz fuer das schwer auffindbare "X/Y axis"-
+    Untermenue im pyqtgraph-Standard-Rechtsklickmenue (Nutzerwunsch: "die
+    Achsen ... nach belieben einstellen ... mehr Entscheidungsfreiheit").
+
+    Bewusst OHNE X-Achsen-Schrittweite: die Zeitachse ist eine
+    DateAxisItem, die ihre Tick-Intervalle automatisch anhand
+    kalendertypischer, gut lesbarer Abstaende waehlt (z.B. alle 5/15/30
+    Minuten) -- ein frei waehlbarer Sekundenwert wuerde dort in der Praxis
+    zu haesslichen, nicht-runden Intervallen fuehren (siehe Hinweistext
+    unten im Dialog)."""
+
+    def __init__(
+        self,
+        parent,
+        current_x_min: float,
+        current_x_max: float,
+        current_y_min: float,
+        current_y_max: float,
+        x_manual: bool = False,
+        y_manual_range: bool = False,
+        y_spacing: float | None = None,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("Achsen einstellen")
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        x_box = QtWidgets.QGroupBox("X-Achse (Zeit)")
+        x_layout = QtWidgets.QVBoxLayout(x_box)
+        self.chk_x_manual = QtWidgets.QCheckBox("Wertebereich manuell festlegen")
+        x_layout.addWidget(self.chk_x_manual)
+        x_form = QtWidgets.QFormLayout()
+        self.spin_x_min = LocaleTolerantDoubleSpinBox()
+        self.spin_x_min.setRange(-1e12, 1e12)
+        self.spin_x_min.setDecimals(1)
+        self.spin_x_min.setSuffix(" s")
+        self.spin_x_min.setValue(current_x_min)
+        self.spin_x_max = LocaleTolerantDoubleSpinBox()
+        self.spin_x_max.setRange(-1e12, 1e12)
+        self.spin_x_max.setDecimals(1)
+        self.spin_x_max.setSuffix(" s")
+        self.spin_x_max.setValue(current_x_max)
+        x_form.addRow("Von (Sekunden seit Aufnahmebeginn):", self.spin_x_min)
+        x_form.addRow("Bis (Sekunden seit Aufnahmebeginn):", self.spin_x_max)
+        x_layout.addLayout(x_form)
+        x_note = QtWidgets.QLabel(
+            "Hinweis: Eine feste Schrittweite ist für die Zeitachse nicht wählbar -- "
+            "sie wählt automatisch gut lesbare Kalenderabstände (z.B. alle 5/15/30 "
+            "Minuten), abhängig vom sichtbaren Zeitraum."
+        )
+        x_note.setWordWrap(True)
+        x_layout.addWidget(x_note)
+        layout.addWidget(x_box)
+
+        y_box = QtWidgets.QGroupBox("Y-Achse (Temperatur)")
+        y_layout = QtWidgets.QVBoxLayout(y_box)
+        self.chk_y_manual_range = QtWidgets.QCheckBox("Wertebereich manuell festlegen")
+        y_layout.addWidget(self.chk_y_manual_range)
+        y_range_form = QtWidgets.QFormLayout()
+        self.spin_y_min = LocaleTolerantDoubleSpinBox()
+        self.spin_y_min.setRange(-273.15, 10000.0)
+        self.spin_y_min.setDecimals(1)
+        self.spin_y_min.setSuffix(" °C")
+        self.spin_y_min.setValue(current_y_min)
+        self.spin_y_max = LocaleTolerantDoubleSpinBox()
+        self.spin_y_max.setRange(-273.15, 10000.0)
+        self.spin_y_max.setDecimals(1)
+        self.spin_y_max.setSuffix(" °C")
+        self.spin_y_max.setValue(current_y_max)
+        y_range_form.addRow("Min:", self.spin_y_min)
+        y_range_form.addRow("Max:", self.spin_y_max)
+        y_layout.addLayout(y_range_form)
+
+        self.chk_y_manual_spacing = QtWidgets.QCheckBox("Schrittweite (Hauptintervall) manuell festlegen")
+        y_layout.addWidget(self.chk_y_manual_spacing)
+        y_spacing_form = QtWidgets.QFormLayout()
+        self.spin_y_spacing = LocaleTolerantDoubleSpinBox()
+        self.spin_y_spacing.setRange(0.01, 1000.0)
+        self.spin_y_spacing.setDecimals(2)
+        self.spin_y_spacing.setSuffix(" °C")
+        self.spin_y_spacing.setValue(y_spacing if y_spacing is not None else max(0.01, (current_y_max - current_y_min) / 5))
+        y_spacing_form.addRow("Hauptintervall:", self.spin_y_spacing)
+        y_layout.addLayout(y_spacing_form)
+        layout.addWidget(y_box)
+
+        def _update_enabled() -> None:
+            self.spin_x_min.setEnabled(self.chk_x_manual.isChecked())
+            self.spin_x_max.setEnabled(self.chk_x_manual.isChecked())
+            self.spin_y_min.setEnabled(self.chk_y_manual_range.isChecked())
+            self.spin_y_max.setEnabled(self.chk_y_manual_range.isChecked())
+            self.spin_y_spacing.setEnabled(self.chk_y_manual_spacing.isChecked())
+
+        self.chk_x_manual.toggled.connect(_update_enabled)
+        self.chk_y_manual_range.toggled.connect(_update_enabled)
+        self.chk_y_manual_spacing.toggled.connect(_update_enabled)
+        # Checkboxen spiegeln den TATSAECHLICH gerade aktiven Achsen-Zustand
+        # wider (statt beim erneuten Oeffnen immer wieder bei "Automatisch"
+        # zu starten) -- sonst wirkte ein zuvor gesetzter manueller Bereich
+        # beim Wiederoeffnen faelschlich so, als waere er nie angewendet
+        # worden.
+        self.chk_x_manual.setChecked(x_manual)
+        self.chk_y_manual_range.setChecked(y_manual_range)
+        self.chk_y_manual_spacing.setChecked(y_spacing is not None)
+        _update_enabled()
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        _disable_enter_auto_accept(buttons)
+        layout.addWidget(buttons)
+
+    def _on_accept(self) -> None:
+        if self.chk_x_manual.isChecked() and self.spin_x_max.value() <= self.spin_x_min.value():
+            QtWidgets.QMessageBox.warning(
+                self, "Ungültiger Bereich", "Bei der X-Achse muss „Bis“ größer als „Von“ sein."
+            )
+            return
+        if self.chk_y_manual_range.isChecked() and self.spin_y_max.value() <= self.spin_y_min.value():
+            QtWidgets.QMessageBox.warning(
+                self, "Ungültiger Bereich", "Bei der Y-Achse muss „Max“ größer als „Min“ sein."
+            )
+            return
+        self.accept()
+
+    def x_manual(self) -> bool:
+        return self.chk_x_manual.isChecked()
+
+    def x_range(self) -> tuple[float, float]:
+        return self.spin_x_min.value(), self.spin_x_max.value()
+
+    def y_manual_range(self) -> bool:
+        return self.chk_y_manual_range.isChecked()
+
+    def y_range(self) -> tuple[float, float]:
+        return self.spin_y_min.value(), self.spin_y_max.value()
+
+    def y_manual_spacing(self) -> bool:
+        return self.chk_y_manual_spacing.isChecked()
+
+    def y_spacing(self) -> float:
+        return self.spin_y_spacing.value()
+
+
 class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     """Export-Auswahl fuer die CSV-Werte: welche Messbereiche ueberhaupt
     exportiert werden (Standard: alle) und mit welcher Spaltenueberschrift."""
@@ -640,9 +791,23 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # des Live-Cursor-Mittelungsfensters) -- fuer diese Zeile gilt exakt
         # dieselbe Auswahl-/Autofill-Logik wie fuer echte Messbereiche.
         super().__init__(parent)
-        self.setWindowTitle("CSV-Export")
+        self.setWindowTitle("Werte exportieren")
 
         layout = QtWidgets.QVBoxLayout(self)
+
+        format_form = QtWidgets.QFormLayout()
+        self.combo_format = QtWidgets.QComboBox()
+        self.combo_format.addItem("CSV (';'-getrennt, Dezimalkomma)", "csv")
+        self.combo_format.addItem("JSON", "json")
+        self.combo_format.addItem("Text (Tab-getrennt, Dezimalkomma)", "text")
+        self.combo_format.setToolTip(
+            "CSV/Text unterscheiden sich nur im Trennzeichen (';' bzw. Tabulator) -- beide "
+            "nutzen wie die Rohdaten Dezimalkomma. JSON nutzt echte Zahlen mit Dezimalpunkt "
+            "(Standard-Zahlenformat in JSON, unabhängig vom Locale)."
+        )
+        format_form.addRow("Format:", self.combo_format)
+        layout.addLayout(format_form)
+
         layout.addWidget(QtWidgets.QLabel(
             "Spalten (Messbereiche und/oder Live-Cursor) für den Export auswählen und "
             "Spaltenüberschriften anpassen (per Hand oder per Autofill):"
@@ -759,6 +924,9 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
     def column_names(self) -> list[str]:
         return [edit.text().strip() or "Messwert" for edit in self._edits]
+
+    def format(self) -> str:
+        return self.combo_format.currentData()
 
 
 class FilenameTemplateDialog(_NoEnterAutoAccept, QtWidgets.QDialog):

@@ -18,4 +18,18 @@ system-certs = true
 [dependency-groups]
 dev = [
     "pyinstaller>=6.22.0",
+    "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Das Projekt ist bewusst kein installierbares Package (kein [build-system],
+# siehe run.py, das genauso auf das Projektverzeichnis in sys.path setzt) --
+# "." macht thermal_viewer waehrend der Tests trotzdem importierbar, ohne
+# extra "pip install -e .".
+pythonpath = ["."]
+# Bevor irgendein Testmodul Qt importiert, setzt tests/conftest.py
+# QT_QPA_PLATFORM=offscreen -- Tests bauen dabei echte QApplication-/
+# MainWindow-Instanzen auf, oeffnen aber nie ein sichtbares Fenster (lokal
+# wie in CI, unter Windows und Linux gleichermassen).
+addopts = "-ra"

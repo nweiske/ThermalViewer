@@ -2,10 +2,14 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-08-25
+Stand: 2026-08-26
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
+
+Die jeweils NEUESTE Version dieser App (inkl. aktueller Releases zum
+Download) ist immer hier verfuegbar:
+https://github.com/nweiske/ThermalViewer.git
 
 
 INHALT
@@ -18,7 +22,7 @@ INHALT
  6. Messbereiche (ROI) anlegen und bearbeiten
  7. Legende / Farbskala
  8. Zeitverlauf-Graph und Live-Graph
- 9. Grafik und CSV exportieren
+ 9. Grafik und Werte exportieren
 10. Video / Bildstapel exportieren
 11. Maßstab (Lineal) und reale Größen in mm
 12. Projekt speichern und laden
@@ -83,8 +87,6 @@ Es gibt zwei Varianten:
 
   - "Ordner öffnen..."   -> laedt ALLE *.csv-Dateien aus einem Ordner
                             als zeitliche Abfolge (Video).
-  - "Dateien öffnen..."  -> gezielt einzelne CSV-Dateien auswaehlen
-                            (auch nur eine einzelne Datei moeglich).
 
 Die Reihenfolge der Frames ergibt sich automatisch aus dem Zeitstempel
 im Dateinamen (siehe Abschnitt 15). Nach dem Laden erscheint der erste
@@ -135,11 +137,6 @@ eine Rueckfrage mit drei Möglichkeiten:
                                    wird.
   - "Abbrechen"                -> bricht den Ladevorgang ab.
 
-Betrifft nur "Ordner öffnen…" (Punkt 5 der Anfrage bezog sich explizit
-auf den Ausgabe-Ordner) -- bei "Dateien öffnen…" werden Dateien einzeln
-per Hand ausgewaehlt, ein nicht erkanntes Namensschema faellt dort
-weiterhin automatisch auf das Datei-Änderungsdatum zurueck.
-
 LIVE-ORDNER UEBERWACHEN: Nach "Ordner öffnen..." laeuft automatisch im
 Hintergrund eine Live-Ueberwachung dieses Ordners, damit die App
 parallel zu einer noch laufenden Messung genutzt werden kann -- ohne
@@ -152,9 +149,7 @@ automatisch zum jeweils neuesten Frame mit; wurde zuvor ein frueherer
 Frame betrachtet, bleibt die Position unveraendert. Das feste
 10-Sekunden-Intervall (statt sofortiger Reaktion auf jede neue Datei)
 verhindert, dass die App bei sehr haeufig abgelegten Dateien (z.B. alle
-500 ms) durch staendiges Nachladen unbenutzbar wird. Nur nach "Ordner
-öffnen..." aktiv, nicht nach "Dateien öffnen..." (dort fehlt ein
-eindeutiger gemeinsamer Ordner).
+500 ms) durch staendiges Nachladen unbenutzbar wird.
 
 
 ================================================================
@@ -300,8 +295,9 @@ Die Detailansicht des ausgewaehlten Messbereichs enthaelt (Farbe +
                                  oben.)
 
 Die Beschriftung eines platzierten Messbereichs direkt im Thermobild
-zeigt unter dem Namen zusaetzlich die aktuell gemittelte Temperatur
-dieses Messbereichs an -- sie aktualisiert sich automatisch mit jedem
+zeigt rechts neben dem Namen (durch Doppelpunkt getrennt, z.B.
+"ROI 1: 24,5 °C") zusaetzlich die aktuell gemittelte Temperatur dieses
+Messbereichs an -- sie aktualisiert sich automatisch mit jedem
 Frame-Wechsel.
 
 Ein bereits platzierter Messbereich laesst sich auch direkt im Bild mit
@@ -483,19 +479,54 @@ zwischen "Uhrzeit" (echtes Datum/Uhrzeit, Standard) und "Laufzeit"
 Umschalter sind miteinander synchronisiert (beide Graphen zeigen immer
 denselben Modus), da sie dieselbe Zeitachse abbilden.
 
-Daneben (links vom Dropdown) befindet sich der Knopf "Achsen
-zuruecksetzen" -- setzt Zoom/Verschieben GENAU dieses Graphen wieder auf
-den kompletten Datenbereich zurueck, falls per Maus (Ziehen/Mausrad)
-verzoomt oder verschoben wurde.
+Daneben (links vom Dropdown) befinden sich zwei weitere Knoepfe:
+
+  - "Achsen zuruecksetzen" -- setzt Zoom/Verschieben GENAU dieses
+    Graphen wieder auf den kompletten Datenbereich zurueck, falls per
+    Maus (Ziehen/Mausrad) verzoomt oder verschoben wurde.
+  - "Achsen einstellen..." -- oeffnet einen Dialog fuer GENAU diesen
+    Graphen mit voller Kontrolle ueber:
+      * X-Achse (Zeit): wahlweise automatisch oder ein manuell
+        eingegebener Wertebereich (in Sekunden seit Aufnahmebeginn).
+        Eine feste Schrittweite ist fuer die Zeitachse absichtlich NICHT
+        waehlbar -- sie waehlt automatisch gut lesbare Kalenderabstaende
+        (z.B. alle 5/15/30 Minuten statt krummer Sekundenwerte).
+      * Y-Achse (Temperatur): wahlweise automatisch oder ein manueller
+        Wertebereich (Min/Max in °C) UND unabhaengig davon wahlweise
+        automatisch oder eine manuelle Schrittweite (Hauptintervall in
+        °C) fuer die Beschriftung.
+    Alle vier Einstellungen (X-Bereich, Y-Bereich, Y-Schrittweite) lassen
+    sich unabhaengig voneinander auf Automatisch zurueckstellen.
+
+Per Rechtsklick direkt auf einen der beiden Graphen bietet pyqtgraph
+selbst zusaetzlich ein Kontextmenue (unabhaengig von der App) mit u.a.:
+
+  - "View All" -- wie "Achsen zuruecksetzen" oben, nur an anderer Stelle.
+  - "X axis"/"Y axis" -- je ein Untermenue mit "Auto"/"Manual"-Wahl fuer
+    den Wertebereich UND einem "Link Axis"-Dropdown: verknuepft die
+    X- bzw. Y-Achse DIESES Graphen mit der eines ANDEREN, gerade
+    sichtbaren Graphen-Fensters, sodass beide beim Zoomen/Verschieben
+    synchron bleiben -- nur relevant, falls mehrere eigene
+    pyqtgraph-Fenster nebeneinander geoeffnet sind; fuer die normale
+    Bedienung dieser App ohne Nutzen (in der App selbst empfiehlt sich
+    stattdessen "Achsen einstellen..." oben).
+  - "Mouse Mode" -- wechselt zwischen "3 button" (Standard: Ziehen mit
+    der linken Maustaste verschiebt den sichtbaren Ausschnitt) und
+    "1 button" (Ziehen zieht stattdessen ein Zoom-Rechteck auf). Reine
+    Geschmackssache/Bedienvorliebe.
+  - Weitere, fuer eine einfache Temperatur-ueber-Zeit-Kurve nicht
+    hilfreiche Punkte ("Transforms", "Downsample", "Average", "Alpha",
+    "Points") sind in dieser App ausgeblendet; "Grid" (Gitternetz
+    ein-/ausblenden) bleibt verfuegbar.
 
 
 ================================================================
-9. GRAFIK UND CSV EXPORTIEREN
+9. GRAFIK UND WERTE EXPORTIEREN
 ================================================================
 
 Alle Export-Funktionen sind zentral im Menue "Export" oben in der
 Menueleiste erreichbar - je EIN Eintrag fuer "Grafik exportieren..."
-und "Werte als CSV exportieren...": beide Dialoge fragen selbst ab,
+und "Werte exportieren...": beide Dialoge fragen selbst ab,
 welche Kurve(n) (Zeitverlauf/Messbereiche und/oder Live-Cursor)
 tatsaechlich mit hinein sollen, statt getrennter Menuepunkte pro Kurve.
 Ein Rechtsklick direkt auf den Zeitverlauf- oder Live-Graphen bietet
@@ -559,12 +590,22 @@ zwischen Bild und Farbskala (durch das feste Bild-Seitenverhaeltnis bei
 "krummen" Bildschirm-/Exportgroessen) wird automatisch entfernt, Achse
 und Farbskala schliessen direkt am Thermobild an.
 
-WERTE ALS CSV:
+WERTE EXPORTIEREN ("Export > Werte exportieren..."):
 Fuer die reinen Zahlen zur Weiterverarbeitung (z.B. Excel, Python). Nur
 EIN Export-Fenster fuer Messbereichs- UND Live-Cursor-Werte (statt
 frueher getrennter Exporte):
 
-  - Zuerst erscheint ein Auswahl-Dialog ("Export Manager"): links eine
+  - Ganz oben im Dialog waehlt "Format:" zwischen drei Dateiformaten:
+      * CSV (Standard) -- ';'-getrennt mit Dezimalkomma, wie die
+        Rohdaten, damit sie sich in einem deutsch lokalisierten Excel
+        ohne Nacharbeit oeffnen laesst.
+      * Text -- inhaltlich identisch zu CSV, nur Tabulator- statt
+        ';'-getrennt (z.B. zum Einfuegen in Word/Notepad).
+      * JSON -- eine Liste von Datensaetzen (ein Objekt pro Frame,
+        Spaltennamen als Schluessel), mit echten Zahlen im JSON-
+        ueblichen Dezimalpunkt-Format statt Text mit Dezimalkomma --
+        zur Weiterverarbeitung in Skripten/Programmiersprachen.
+  - Danach erscheint ein Auswahl-Dialog ("Export Manager"): links eine
     Checkbox je platziertem Messbereich, mit der er vom Export
     ausgeschlossen werden kann (Standard: ALLE ausgewaehlt, ueber "Alle
     auswaehlen"/"Keine auswaehlen" auch auf einen Schlag umschaltbar) -
@@ -582,18 +623,15 @@ frueher getrennter Exporte):
     Spaltennamen ein (z.B. bei px+mm beides angehakt:
     "ROI 1 (30x30 px, 10,0x10,0 mm)") -- kein separater Knopf noetig. Der
     Text laesst sich danach auch komplett von Hand ueberschreiben.
-  - Die CSV-Datei enthaelt genau ZWEI Zeitspalten - "Zeitstempel" (echtes
-    Datum/Uhrzeit aus dem Dateinamen) und "Laufzeit (HH:MM:SS)" (relative
-    Aufnahmedauer, beginnend bei 00:00:00) - gefolgt von einer Spalte je
-    AUSGEWAEHLTEM Eintrag (bei allen 5 Standard-Messbereichen plus Live-
-    Cursor ohne Abwahl also 8 Spalten insgesamt). Ist die Zeile "Live
-    (Cursor)" mit dabei, stehen davor zusaetzlich zwei feste Spalten
-    "Live X-Achse"/"Live Y-Achse" mit der (ueber die gesamte Aufnahme
-    konstanten) Pixel-Position des Cursors.
-
-Die CSV-Datei ist wie die Rohdaten ';'-getrennt mit Dezimalkomma, damit
-sie sich in einem deutsch lokalisierten Excel ohne Nacharbeit oeffnen
-laesst.
+  - Unabhaengig vom gewaehlten Format enthaelt die Datei genau ZWEI
+    Zeitspalten - "Zeitstempel" (echtes Datum/Uhrzeit aus dem Dateinamen)
+    und "Laufzeit (HH:MM:SS)" (relative Aufnahmedauer, beginnend bei
+    00:00:00) - gefolgt von einer Spalte je AUSGEWAEHLTEM Eintrag (bei
+    allen 5 Standard-Messbereichen plus Live-Cursor ohne Abwahl also
+    8 Spalten insgesamt). Ist die Zeile "Live (Cursor)" mit dabei, stehen
+    davor zusaetzlich zwei feste Spalten "Live X-Achse"/"Live Y-Achse"
+    mit der (ueber die gesamte Aufnahme konstanten) Pixel-Position des
+    Cursors.
 
 
 ================================================================
@@ -610,11 +648,20 @@ speichern - ganz oben im Dialog per "Ausgabeform" waehlbar:
     Filter gewaehlt.
   - "Bildstapel (eine Bilddatei pro Frame)" -> zusaetzlich waehlbar:
     Bildformat (PNG, JPEG, BMP, TIFF oder WebP) und ein gemeinsamer
-    Dateiname-Praefix (Standard "Frame", ergibt z.B. bei 50 exportierten
-    Frames Frame_01.png, Frame_02.png, ... Frame_50.png - die Anzahl der
-    Ziffern richtet sich nach der Gesamtzahl der exportierten Frames).
-    Statt einer einzelnen Datei wird anschliessend ein ZIELORDNER
-    gewaehlt, in den alle Bilder geschrieben werden. Die
+    Dateiname-Praefix (Standard "Frame_"), der DIREKT (ohne automatisch
+    eingefuegtes Trennzeichen) vom fortlaufenden Frame-Index gefolgt wird
+    -- ein Trennzeichen wie "_" ans Ende des Praefix selbst mit eintippen.
+    Der Praefix versteht dieselben Zeitstempel-Platzhalter wie das
+    Namensschema beim Laden (YYYY/MM/DD/hh/mm/ss, siehe Abschnitt 3),
+    die mit dem ECHTEN Zeitstempel jedes einzelnen Frames gefuellt werden
+    (sofern die Original-Daten diese Information enthalten). Beispiel bei
+    3 exportierten Frames mit Praefix "Frame_YYYY-MM-DD_hh-mm-ss_":
+      Frame_2026-01-01_12-00-00_1.png
+      Frame_2026-01-01_12-00-01_2.png
+      Frame_2026-01-01_12-00-02_3.png
+    (die Anzahl der Index-Ziffern richtet sich nach der Gesamtzahl der
+    exportierten Frames). Statt einer einzelnen Datei wird anschliessend
+    ein ZIELORDNER gewaehlt, in den alle Bilder geschrieben werden. Die
     "Wiedergabe-FPS" hat fuer den Bildstapel keine Bedeutung (Feld bleibt
     ausgegraut) - alle uebrigen Einstellungen (Frame-Bereich,
     Farbskala/Legende, Zeitachse, Temperaturverlauf-Graph) gelten
@@ -735,18 +782,28 @@ Spaltennamen nutzen (Abschnitt 9).
 ================================================================
 
 Ueber das Menue "Datei" lassen sich die Einstellungen einer Sitzung
-(NICHT die Messdaten selbst) in einer kleinen Projektdatei sichern:
+(NICHT die Messdaten selbst) in einer kleinen Projektdatei sichern -- wie
+z.B. ein Auswertungs-Speicherstand in Origin, den man spaeter zusammen
+mit den Rohdaten wieder oeffnet:
 
   - "Projekt speichern..." -> schreibt Position, Groesse, Name, Farbe
                               und Sichtbarkeit aller Messbereiche sowie
                               Farbverlauf, Legenden-Limits, Massstab
-                              (inkl. Referenzlinien-Farbe), Grafik-
-                              Darstellung und Auswertungsende in eine
-                              Datei mit Endung ".tvproj".
+                              (inkl. Referenzlinien-Farbe), Auswertungs-
+                              start/-ende UND den Quellordner der
+                              Messreihe in eine Datei mit Endung
+                              ".tvproj".
   - "Projekt laden..."     -> wendet eine zuvor gespeicherte
-                              ".tvproj"-Datei auf die AKTUELL geladene
-                              Messreihe an. Es muss also zuerst eine
-                              Messreihe geladen sein.
+                              ".tvproj"-Datei an.
+
+Ist beim Laden bereits eine Messreihe geoeffnet, wird das Projekt direkt
+darauf angewendet. Ist NOCH KEINE Messreihe geladen (z.B. frischer
+Programmstart, direkt "Projekt laden..." angeklickt), laedt die App
+automatisch den beim Speichern hinterlegten Quellordner mit nach --
+KEIN vorheriges manuelles "Ordner öffnen..." mehr noetig. Nur falls
+dieser Ordner nicht mehr existiert (z.B. verschoben/umbenannt/auf einem
+anderen Rechner geoeffnet), fragt die App EINMALIG nach dem passenden
+Ordner.
 
 Nuetzlich, um bei wiederkehrenden Messungen (z.B. derselbe Pruefstand)
 nicht jedes Mal alle Messbereiche neu platzieren zu muessen. Wird ein
@@ -769,6 +826,13 @@ Die drei rechten Panels ("ROI & Legende", "Zeitverlauf",
     "Ansicht" wieder einblenden
   - als eigenes, frei verschiebbares Fenster abdocken (Titel packen
     und aus dem Hauptfenster herausziehen)
+
+Das Menue "Ansicht" bleibt (anders als sonst in Qt-Menues ueblich) nach
+dem Anklicken einer Checkbox (Panel-Sichtbarkeit, Dunkelmodus) GEOEFFNET,
+statt sich sofort zu schliessen -- so lassen sich mehrere Haekchen
+nacheinander setzen, ohne das Menue jedes Mal neu aufklappen zu muessen.
+Es schliesst sich erst bei einem Klick ausserhalb des Menues oder auf
+einen nicht-ankreuzbaren Eintrag.
 
 
 ================================================================

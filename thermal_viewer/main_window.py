@@ -27,9 +27,11 @@ from .data import (
     compile_filename_template,
     files_matching_template,
     load_paths,
+    render_filename_template,
     validate_filename_template,
 )
 from .dialogs import (
+    AxisSettingsDialog,
     CsvColumnDialog,
     FilenameTemplateDialog,
     GraphicExportDialog,
@@ -274,10 +276,12 @@ class RoiEntry:
         self._refresh_label_text()
 
     def _refresh_label_text(self) -> None:
+        # Punkt: Live-Temperatur RECHTS NEBEN dem Namen (statt einer eigenen
+        # Zeile darunter) -- kompaktere Beschriftung im Bild.
         if self._last_temperature is None:
             self.label.setText(self.name)
         else:
-            self.label.setText(f"{self.name}\n{self._last_temperature:.1f} °C")
+            self.label.setText(f"{self.name}: {self._last_temperature:.1f} °C")
 
     def update_temperature_label(self, temperature: float) -> None:
         """Aktualisiert die im Bild angezeigte Beschriftung um die aktuell
@@ -534,6 +538,23 @@ class TimelineSlider(QtWidgets.QSlider):
         painter.end()
 
 
+class _StaysOpenMenu(QtWidgets.QMenu):
+    """QMenu, das nach dem Anklicken eines ANKREUZBAREN Eintrags NICHT
+    schliesst (Standard-Qt-Verhalten schliesst jedes Menue nach jedem
+    Klick, auch bei Checkboxen) -- fuer Menues mit mehreren unabhaengigen
+    Checkboxen wie "Ansicht" (Bugreport: "möchte nicht jedes Mal das Menü
+    erneut ausklappen müssen"). Schliesst weiterhin normal bei Klick auf
+    einen NICHT-ankreuzbaren Eintrag oder ausserhalb des Menues."""
+
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
+        action = self.activeAction()
+        if action is not None and action.isCheckable() and action.isEnabled():
+            action.trigger()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
 class MainWindow(QtWidgets.QMainWindow):
     # Reduzierter Stiftbreiten-Skalierungsfaktor NUR fuer den SVG-Export
     # (siehe _scaled_export_visuals) -- Vektor-Linien wirken bei identischer
@@ -617,14 +638,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._play_clamped = False
         # Live-Ordner-Ueberwachung (Programm soll parallel zu einer laufenden
         # Messung nutzbar sein): laeuft immer automatisch im Hintergrund,
-        # sobald ein Ordner geladen ist (_open_folder) -- keine separate
-        # Einstellung dafuer, da es keinen Nachteil hat, wenn gerade nichts
-        # Neues dazukommt (_check_for_new_files kehrt dann sofort zurueck).
-        # _watched_folder ist nur bei "Ordner öffnen…" gesetzt (nicht bei
-        # "Dateien öffnen…", da dort keine eindeutige Quelle vorliegt). Ein
-        # einfacher 10s-Timer statt eines Dateisystem-Watchers, damit auch
-        # sehr haeufig neu abgelegte Dateien (z.B. alle 500ms) die App nicht
-        # durch staendiges Nachladen bremsen.
+        # sobald ein Ordner geladen ist (_open_folder/_load_folder) -- keine
+        # separate Einstellung dafuer, da es keinen Nachteil hat, wenn gerade
+        # nichts Neues dazukommt (_check_for_new_files kehrt dann sofort
+        # zurueck). Ein einfacher 10s-Timer statt eines Dateisystem-
+        # Watchers, damit auch sehr haeufig neu abgelegte Dateien (z.B. alle
+        # 500ms) die App nicht durch staendiges Nachladen bremsen.
         self._watched_folder: Path | None = None
         self._live_watch_timer = QtCore.QTimer(self)
         self._live_watch_timer.setInterval(10_000)
@@ -840,9 +859,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _build_time_display_row(
         self, plot_widget: pg.PlotWidget
     ) -> tuple[QtWidgets.QHBoxLayout, QtWidgets.QComboBox]:
-        """Zeile mit Achsen-Reset-Knopf und rechtsbuendigem Uhrzeit/Laufzeit-
-        Umschalter, unterhalb eines Kurven-Graphen platziert (also unten
-        rechts an diesem Graphen, Punkt 9/Punkt 5)."""
+        """Zeile mit Achsen-Reset-/Achsen-Einstellen-Knoepfen und
+        rechtsbuendigem Uhrzeit/Laufzeit-Umschalter, unterhalb eines
+        Kurven-Graphen platziert (also unten rechts an diesem Graphen,
+        Punkt 9/Punkt 5)."""
         row = QtWidgets.QHBoxLayout()
         btn_reset_view = QtWidgets.QPushButton("Achsen zurücksetzen")
         btn_reset_view.setToolTip(
@@ -851,6 +871,16 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         btn_reset_view.clicked.connect(partial(self._reset_plot_view, plot_widget))
         row.addWidget(btn_reset_view)
+
+        btn_axis_settings = QtWidgets.QPushButton("Achsen einstellen…")
+        btn_axis_settings.setToolTip(
+            "Y-Achse (Temperatur): Wertebereich und/oder Schrittweite manuell festlegen. "
+            "X-Achse (Zeit): Wertebereich manuell festlegen (eine feste Schrittweite ist dort "
+            "nicht wählbar, siehe Dialog) -- Alternative zum pyqtgraph-eigenen, schwerer "
+            "auffindbaren Rechtsklick-Menü „X/Y axis“."
+        )
+        btn_axis_settings.clicked.connect(partial(self._open_axis_settings, plot_widget))
+        row.addWidget(btn_axis_settings)
         row.addStretch(1)
         row.addWidget(QtWidgets.QLabel("Zeitachse:"))
         combo = QtWidgets.QComboBox()
@@ -859,6 +889,18 @@ class MainWindow(QtWidgets.QMainWindow):
         combo.setToolTip("Zeigt die x-Achse als echte Uhrzeit oder als Laufzeit seit Aufnahmebeginn (HH:MM:SS)")
         row.addWidget(combo)
         return row, combo
+
+    @staticmethod
+    def _trim_plot_context_menu(plot_widget: pg.PlotWidget) -> None:
+        """Blendet die pyqtgraph-Standard-Menüpunkte "Transforms", "Downsample",
+        "Average", "Alpha" und "Points" im Rechtsklick-Menü aus -- fuer eine
+        einfache Temperatur-ueber-Zeit-Kurve ohne praktischen Nutzen und nur
+        Ablenkung (Nutzerwunsch: "Schmeiße unnötige Optionen raus"). "Grid"
+        bleibt (nuetzlich), ebenso das eigentliche ViewBox-Menü ("View All",
+        "X/Y axis", "Mouse Mode" -- siehe Bedienungsanleitung, Abschnitt 8)."""
+        plot_item = plot_widget.getPlotItem()
+        for name in ("Transforms", "Downsample", "Average", "Alpha", "Points"):
+            plot_item.setContextMenuActionVisible(name, False)
 
     @staticmethod
     def _reset_plot_view(plot_widget: pg.PlotWidget) -> None:
@@ -874,6 +916,55 @@ class MainWindow(QtWidgets.QMainWindow):
         # bis der Nutzer erneut manuell zoomt/verschiebt oder den Knopf
         # wieder anklickt.
         plot_widget.getPlotItem().autoRange()
+
+    def _open_axis_settings(self, plot_widget: pg.PlotWidget) -> None:
+        """Oeffnet den "Achsen einstellen…"-Dialog fuer GENAU diesen Graphen
+        (Nutzerwunsch: Schrittweite/Wertebereich frei waehlbar statt nur
+        ueber das pyqtgraph-eigene, schwer auffindbare Rechtsklick-Menü)."""
+        plot_item = plot_widget.getPlotItem()
+        vb = plot_item.getViewBox()
+        (x0, x1), (y0, y1) = vb.viewRange()
+        t0 = (
+            self.recording.unix_seconds()[0]
+            if self.recording is not None and self.recording.n_frames
+            else 0.0
+        )
+        x_auto, y_auto = vb.autoRangeEnabled()
+        y_axis_item = plot_item.getAxis("left")
+        # _tickSpacing ist ein privates pyqtgraph-Attribut (keine oeffentliche
+        # Abfragemethode vorhanden) -- getattr(..., None) faengt ab, falls
+        # sich das in einer kuenftigen pyqtgraph-Version aendert/entfaellt.
+        tick_spacing = getattr(y_axis_item, "_tickSpacing", None)
+        current_y_spacing = tick_spacing[0][0] if tick_spacing else None
+
+        dialog = AxisSettingsDialog(
+            self,
+            current_x_min=x0 - t0, current_x_max=x1 - t0,
+            current_y_min=y0, current_y_max=y1,
+            x_manual=not x_auto, y_manual_range=not y_auto, y_spacing=current_y_spacing,
+        )
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+
+        if dialog.x_manual():
+            xmin, xmax = dialog.x_range()
+            plot_item.setXRange(t0 + xmin, t0 + xmax, padding=0)
+        else:
+            plot_item.enableAutoRange(x=True)
+
+        if dialog.y_manual_range():
+            ymin, ymax = dialog.y_range()
+            plot_item.setYRange(ymin, ymax, padding=0)
+        else:
+            plot_item.enableAutoRange(y=True)
+
+        if dialog.y_manual_spacing():
+            spacing = dialog.y_spacing()
+            y_axis_item.setTickSpacing(major=spacing, minor=spacing / 5)
+        else:
+            y_axis_item.setTickSpacing()
+
+        self.statusBar().showMessage("Achsen-Einstellungen übernommen.")
 
     def _build_plots(self) -> None:
         self.axis_timeseries_bottom = TimeAxisItem()
@@ -911,8 +1002,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Export-Buttons hier bewusst entfernt (siehe Menü „Export“ und das
         # native Rechtsklick-Kontextmenü auf dem Graphen selbst) -- doppelte,
-        # unklar benannte Buttons ("Grafik speichern…"/"Werte als CSV…", ohne
-        # erkennbaren Bezug zum jeweiligen Graphen) sorgten für Verwirrung.
+        # unklar benannte Buttons ("Grafik speichern…"/"Werte exportieren…",
+        # ohne erkennbaren Bezug zum jeweiligen Graphen) sorgten für Verwirrung.
         self.timeseries_widget = QtWidgets.QWidget()
         timeseries_layout = QtWidgets.QVBoxLayout(self.timeseries_widget)
         timeseries_layout.setContentsMargins(4, 4, 4, 4)
@@ -969,6 +1060,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._time_display_combos = [self.combo_time_display_timeseries, self.combo_time_display_live]
         for combo in self._time_display_combos:
             combo.currentIndexChanged.connect(self._on_time_display_changed)
+
+        self._trim_plot_context_menu(self.timeseries_plot)
+        self._trim_plot_context_menu(self.live_plot)
 
     def _build_roi_entries(self) -> None:
         # Startbestand: die urspruengliche feste Anzahl (Farbpalettengroesse).
@@ -1441,8 +1535,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         act_open_folder = toolbar.addAction("Ordner öffnen…")
         act_open_folder.triggered.connect(self._open_folder)
-        act_open_files = toolbar.addAction("Dateien öffnen…")
-        act_open_files.triggered.connect(self._open_files)
 
     def _build_docks(self) -> None:
         self.setDockOptions(
@@ -1507,8 +1599,6 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = self.menuBar().addMenu("&Datei")
         act_open_folder = file_menu.addAction("Ordner öffnen…")
         act_open_folder.triggered.connect(self._open_folder)
-        act_open_files = file_menu.addAction("Dateien öffnen…")
-        act_open_files.triggered.connect(self._open_files)
         file_menu.addSeparator()
         act_save_project = file_menu.addAction("Projekt speichern…")
         act_save_project.setToolTip(
@@ -1518,7 +1608,8 @@ class MainWindow(QtWidgets.QMainWindow):
         act_save_project.triggered.connect(self._save_project)
         act_load_project = file_menu.addAction("Projekt laden…")
         act_load_project.setToolTip(
-            "Wendet eine zuvor gespeicherte Projektdatei auf die aktuell geladene Messreihe an."
+            "Wendet eine gespeicherte Projektdatei an -- ist noch keine Messreihe geladen, wird "
+            "deren gespeicherter Quellordner automatisch mitgeladen (falls noch vorhanden)."
         )
         act_load_project.triggered.connect(self._load_project)
         file_menu.addSeparator()
@@ -1526,7 +1617,12 @@ class MainWindow(QtWidgets.QMainWindow):
         act_quit.triggered.connect(self.close)
         self._requires_recording_actions.append(act_save_project)
 
-        view_menu = self.menuBar().addMenu("&Ansicht")
+        # _StaysOpenMenu (statt einer per addMenu(str) erzeugten normalen
+        # QMenu): dieses Menue enthaelt mehrere unabhaengige Checkboxen
+        # (Panel-Sichtbarkeit, Dunkelmodus) -- bleibt nach jedem Ankreuzen
+        # offen, statt sich wie ein Standard-QMenu sofort zu schliessen.
+        view_menu = _StaysOpenMenu("&Ansicht", self)
+        self.menuBar().addMenu(view_menu)
         view_menu.addAction(self.control_dock.toggleViewAction())
         view_menu.addAction(self.timeseries_dock.toggleViewAction())
         view_menu.addAction(self.live_dock.toggleViewAction())
@@ -1590,10 +1686,10 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         act_export_graphic.triggered.connect(self._export_graphic)
         export_menu.addSeparator()
-        act_export_csv = export_menu.addAction("Werte als CSV exportieren…")
+        act_export_csv = export_menu.addAction("Werte exportieren…")
         act_export_csv.setToolTip(
             "Speichert die Temperaturwerte aller platzierten Messbereiche und/oder des "
-            "Live-Cursor-Pixels wählbar über die Zeit als eine gemeinsame CSV-Datei."
+            "Live-Cursor-Pixels wählbar über die Zeit als CSV-, JSON- oder Text-Datei."
         )
         act_export_csv.triggered.connect(self._export_csv)
         self._requires_recording_actions.extend([
@@ -1777,22 +1873,31 @@ class MainWindow(QtWidgets.QMainWindow):
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Ordner mit CSV-Messreihe wählen")
         if not folder:
             return
-        result = self._resolve_folder_and_pattern(Path(folder))
+        self._load_folder(Path(folder))
+
+    def _load_folder(self, folder: Path) -> bool:
+        """Laedt eine komplette Messreihe aus folder (Namensschema-Abgleich,
+        Live-Ueberwachung) -- gemeinsame Grundlage fuer "Ordner öffnen…" UND
+        das automatische Nachladen des im Projekt gespeicherten Quellordners
+        beim Laden eines Projekts ohne bereits geladene Messreihe (siehe
+        _load_project). Gibt zurueck, ob das Laden erfolgreich war."""
+        result = self._resolve_folder_and_pattern(folder)
         if result is None:
-            return
+            return False
         folder_path, pattern, strptime_fmt = result
         paths = sorted(folder_path.glob("*.csv"))
         if not self._load_paths(paths, pattern=pattern, strptime_fmt=strptime_fmt):
             # Laden fehlgeschlagen (z.B. defekte CSVs) -- eine evtl. bereits
             # laufende Live-Ueberwachung eines ANDEREN Ordners darf dadurch
             # nicht auf diesen (nicht geladenen) Ordner umgehaengt werden.
-            return
+            return False
         # Laeuft ab hier automatisch dauerhaft im Hintergrund weiter (kein
         # manuelles Ein-/Ausschalten mehr noetig) -- damit die App parallel
         # zu einer noch laufenden Messung genutzt werden kann, ohne dass
         # dafuer eine extra Einstellung gesetzt werden muss.
         self._watched_folder = folder_path
         self._live_watch_timer.start()
+        return True
 
     def _resolve_folder_and_pattern(self, folder: Path) -> tuple[Path, re.Pattern, str] | None:
         """Stellt sicher, dass mindestens eine ".csv"-Datei in folder zum
@@ -1863,22 +1968,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._filename_template = template
         self._filename_pattern, self._filename_strptime_fmt = compile_filename_template(template)
         self._settings.setValue("filename_template", template)
-
-    def _open_files(self) -> None:
-        files, _ = QtWidgets.QFileDialog.getOpenFileNames(
-            self, "CSV-Dateien wählen", filter="CSV-Dateien (*.csv)"
-        )
-        if not files:
-            return
-        self._load_paths([Path(f) for f in files])
-        # "Dateien öffnen…" waehlt beliebige Einzeldateien ohne eindeutigen
-        # gemeinsamen Ordner -- Live-Ueberwachung ergibt hier keinen Sinn.
-        # Auch OHNE Namensschema-Rueckfrage (Punkt 5 betrifft explizit den
-        # Ordner-basierten Weg): einzeln gewaehlte Dateien laufen bei
-        # abweichendem Namen ohnehin ueber den bestehenden Datei-
-        # Aenderungszeit-Fallback (siehe data.parse_timestamp).
-        self._watched_folder = None
-        self._live_watch_timer.stop()
 
     def _check_for_new_files(self) -> None:
         """Wird alle 10s vom Live-Watch-Timer aufgerufen (siehe __init__):
@@ -2084,11 +2173,39 @@ class MainWindow(QtWidgets.QMainWindow):
         except (OSError, json.JSONDecodeError) as exc:
             QtWidgets.QMessageBox.critical(self, "Fehler", f"Projekt konnte nicht geladen werden:\n{exc}")
             return
+
         if self.recording is None:
-            QtWidgets.QMessageBox.information(
-                self, "Keine Daten", "Bitte zuerst eine Messreihe laden, dann das Projekt anwenden."
-            )
-            return
+            # Moeglichst wenige Klicks, um ein Projekt OHNE bereits geladene
+            # Messreihe zu oeffnen (Bugreport: "Keine Daten"-Fehler zwang
+            # dazu, ERST manuell den Ordner zu laden): der im Projekt
+            # gespeicherte Quellordner (siehe _save_project) wird dafuer
+            # automatisch nachgeladen, sofern er noch existiert -- nur wenn
+            # das nicht klappt, muss der Ordner einmalig manuell gewaehlt
+            # werden.
+            saved_folder = data.get("quellordner")
+            saved_folder_exists = isinstance(saved_folder, str) and Path(saved_folder).is_dir()
+            loaded = saved_folder_exists and self._load_folder(Path(saved_folder))
+            if not loaded:
+                # Zwei unterschiedliche Gruende sauber unterscheiden --
+                # sonst behauptet die Meldung faelschlich "nicht gefunden",
+                # obwohl der Ordner existiert, aber z.B. keine zum
+                # Namensschema passenden Dateien enthaelt oder der
+                # Namensschema-Abgleich abgebrochen wurde.
+                if saved_folder and not saved_folder_exists:
+                    hint = f" (gespeicherter Ordner „{saved_folder}“ nicht gefunden)"
+                elif saved_folder:
+                    hint = f" (Laden von „{saved_folder}“ nicht erfolgreich)"
+                else:
+                    hint = ""
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Messreihe wählen",
+                    f"Für dieses Projekt ist noch keine Messreihe geladen{hint}. "
+                    "Bitte jetzt den passenden Ordner auswählen.",
+                )
+                folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Ordner mit CSV-Messreihe wählen")
+                if not folder or not self._load_folder(Path(folder)):
+                    return
 
         saved_folder = data.get("quellordner")
         current_folder = str(self.recording.paths[0].parent) if self.recording.paths else None
@@ -2325,8 +2442,8 @@ class MainWindow(QtWidgets.QMainWindow):
     ) -> bool:
         """pattern/strptime_fmt: optionales, nur fuer DIESEN Ladevorgang
         geltendes Namensschema (siehe _resolve_folder_and_pattern) -- ohne
-        Angabe (z.B. beim Weg über "Dateien öffnen…") gilt das aktive
-        Standard-Namensschema (self._filename_pattern/_filename_strptime_fmt).
+        Angabe gilt das aktive Standard-Namensschema
+        (self._filename_pattern/_filename_strptime_fmt).
 
         Gibt zurueck, ob das Laden erfolgreich war -- Aufrufer, die danach
         noch Folgezustand setzen (z.B. _open_folder mit der Live-Ordner-
@@ -4728,14 +4845,20 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         included = column_dialog.included()
         names = column_dialog.column_names()
+        export_format = column_dialog.format()
 
+        # Format wird SCHON im Dialog gewaehlt (statt z.B. ueber den
+        # Dateityp-Filter im Speichern-Dialog), damit Vorschlagsname/-endung
+        # direkt dazu passen (Nutzerwunsch: CSV/JSON/Text statt nur CSV).
+        format_info = {"csv": ("CSV-Datei (*.csv)", ".csv"), "json": ("JSON-Datei (*.json)", ".json"), "text": ("Text-Datei (*.txt)", ".txt")}
+        filter_str, default_ext = format_info[export_format]
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Werte speichern", "Werte.csv", "CSV-Datei (*.csv)"
+            self, "Werte speichern", f"Werte{default_ext}", filter_str
         )
         if not path:
             return
         if not Path(path).suffix:
-            path += ".csv"
+            path += default_ext
 
         t0 = self.recording.timestamps[0]
         # dialog_entries/names/included sind alle in derselben Reihenfolge
@@ -4745,7 +4868,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # stammt. Fuer den Live-Cursor kommen zusaetzlich seine (ueber die
         # gesamte Aufnahme konstante) Pixel-Koordinaten als eigene Spalten
         # dazu -- frueher nur im separaten "Live-Werte als CSV"-Export
-        # enthalten, jetzt Teil desselben einen CSV-Fensters.
+        # enthalten, jetzt Teil desselben einen Export-Fensters.
         header = ["Zeitstempel", "Laufzeit (HH:MM:SS)"]
         value_arrays: list[tuple[int, object]] = []
         for i, (name, inc) in enumerate(zip(names, included)):
@@ -4761,17 +4884,42 @@ class MainWindow(QtWidgets.QMainWindow):
                 _, y = placed_entries[i].curve.getData()
             value_arrays.append((i, y))
 
-        with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.writer(f, delimiter=";")
-            writer.writerow(header)
-            for i, ts in enumerate(self.recording.timestamps):
-                runtime = self._format_relative_runtime((ts - t0).total_seconds())
-                row = [ts.strftime("%Y-%m-%d %H:%M:%S"), runtime]
-                for entry_idx, y in value_arrays:
-                    if entry_idx >= len(placed_entries):
-                        row.extend([self._hover_col, self._hover_row])
-                    row.append(self._format_csv_number(float(y[i])))
-                writer.writerow(row)
+        # Rohwerte EINMAL aufbauen (Zeitstempel/Laufzeit als Text, Live-
+        # Position als Ganzzahl, Messwert als float) -- CSV/JSON/Text
+        # unterscheiden sich danach nur noch in Trennzeichen bzw.
+        # Zahlenformatierung, nicht in der Datenaufbereitung selbst. Bereits
+        # hier auf 3 Nachkommastellen gerundet (wie _format_csv_number es
+        # fuer CSV/Text ohnehin tut) -- sonst wuerde der JSON-Export (der
+        # NICHT durch _format_csv_number laeuft) das Rundungsrauschen der
+        # float32-Rohdaten ungerundet mit ausgeben (z.B. 20.200000762939453
+        # statt 20.2).
+        rows: list[list] = []
+        for i, ts in enumerate(self.recording.timestamps):
+            runtime = self._format_relative_runtime((ts - t0).total_seconds())
+            row: list = [ts.strftime("%Y-%m-%d %H:%M:%S"), runtime]
+            for entry_idx, y in value_arrays:
+                if entry_idx >= len(placed_entries):
+                    row.extend([self._hover_col, self._hover_row])
+                row.append(round(float(y[i]), 3))
+            rows.append(row)
+
+        if export_format == "json":
+            # Echte Zahlen mit Dezimalpunkt (JSON-Standard, locale-
+            # unabhaengig) statt der komma-formatierten Text-Darstellung von
+            # CSV/Text -- konsistent von jedem JSON-Parser lesbar.
+            records = [dict(zip(header, row)) for row in rows]
+            Path(path).write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
+        else:
+            # CSV (';') und Text (Tabulator) unterscheiden sich nur im
+            # Trennzeichen -- beide nutzen wie die Rohdaten Dezimalkomma.
+            delimiter = ";" if export_format == "csv" else "\t"
+            with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.writer(f, delimiter=delimiter)
+                writer.writerow(header)
+                for row in rows:
+                    writer.writerow(
+                        [self._format_csv_number(v) if isinstance(v, float) else v for v in row]
+                    )
 
         self.statusBar().showMessage(f"Werte gespeichert: {path}")
 
@@ -4885,7 +5033,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # nativen Speichern-Dialog kommen) -- Zeichen entfernen, die unter
             # Windows/macOS/Linux in Dateinamen ungueltig sind bzw. (bei "/"
             # oder "\") ungewollt Unterordner erzeugen wuerden.
-            image_prefix = re.sub(r'[\\/:*?"<>|]', "_", dialog.image_prefix()).strip() or "Frame"
+            image_prefix = re.sub(r'[\\/:*?"<>|]', "_", dialog.image_prefix()).strip() or "Frame_"
 
         # Aktuellen Anzeigezustand sichern, um ihn nach dem Export wiederherzustellen.
         prev_index = self.current_index
@@ -4968,7 +5116,14 @@ class MainWindow(QtWidgets.QMainWindow):
                             scale, bg, overlay_mode, idx, frame_indices, unix, segments,
                             graph_widget, graph_position,
                         )
-                        frame_path = Path(folder) / f"{image_prefix}_{n + 1:0{digits}d}{image_ext}"
+                        # Zeitstempel-Platzhalter (YYYY/MM/DD/hh/mm/ss) im
+                        # Praefix werden mit dem ECHTEN Zeitstempel dieses
+                        # Frames gefuellt (Nutzerwunsch); der Frame-Index
+                        # wird OHNE automatischen Trenner direkt angehaengt
+                        # -- ein gewuenschtes "_" davor tippt der Nutzer
+                        # selbst ans Ende des Praefix (z.B. "Frame_hh-mm-ss_").
+                        rendered_prefix = render_filename_template(image_prefix, self.recording.timestamps[idx])
+                        frame_path = Path(folder) / f"{rendered_prefix}{n + 1:0{digits}d}{image_ext}"
                         if not image.save(str(frame_path)):
                             raise OSError(f"Konnte Bild nicht speichern: {frame_path}")
                         written_paths.append(frame_path)

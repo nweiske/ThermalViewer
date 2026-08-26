@@ -2,10 +2,14 @@
   THERMO-SEQUENZ-VIEWER - TASTATUR-SHORTCUTS (KURZREFERENZ)
 ================================================================
 
-Stand: 2026-08-25
+Stand: 2026-08-26
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
+
+Die jeweils NEUESTE Version dieser App (inkl. aktueller Releases zum
+Download) ist immer hier verfuegbar:
+https://github.com/nweiske/ThermalViewer.git
 
 Ausfuehrliche Erklaerungen zu allen Funktionen: siehe
 Bedienungsanleitung.txt, Abschnitt 5 (Frame-Navigation und

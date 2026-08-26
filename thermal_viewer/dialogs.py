@@ -1155,6 +1155,13 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             chk_mm.toggled.connect(partial(self._sync_all_checkbox, self.chk_mm_all, self._mm_checks))
         layout.addLayout(grid)
 
+        # Ohne gesetzten Massstab ist "mm" fuer JEDE Zeile deaktiviert -- die
+        # Sammel-Checkbox waere dann klickbar, haette aber nie irgendeine
+        # Wirkung. Von Anfang an deaktivieren statt eines wirkungslosen Hakens.
+        if not any(entry.get("width_mm") is not None for entry in entries):
+            self.chk_mm_all.setEnabled(False)
+            self.chk_mm_all.setToolTip("Kein Maßstab gesetzt -- reale Größe in mm nicht verfügbar.")
+
         self.chk_px_all.toggled.connect(partial(self._bulk_set_checked, self._px_checks))
         self.chk_mm_all.toggled.connect(partial(self._bulk_set_checked, self._mm_checks))
 

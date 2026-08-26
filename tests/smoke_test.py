@@ -1843,6 +1843,8 @@ def test_video_overlay_marker_true_position_relative_to_full_recording():
     n = win.recording.n_frames
     if n < 30:
         return  # Datensatz zu kurz, um einen aussagekraeftigen Bruchteil zu testen.
+    import numpy as np
+
     frame_indices = list(range(0, 5))
     unix = win.recording.unix_seconds()
     segments = win._tight_glw_segments()
@@ -3283,7 +3285,6 @@ check(
 
 
 def test_graphic_export_dual_time_axis_end_to_end():
-    from thermal_viewer.dialogs import GraphicExportDialog as RealGraphicExportDialog
     from thermal_viewer.main_window import GraphicExportDialog
 
     p = OUT / "dual_axis_check.png"

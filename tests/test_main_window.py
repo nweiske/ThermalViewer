@@ -161,7 +161,6 @@ def test_reopened_axis_settings_reflects_previously_applied_manual_state(loaded_
     # dadurch wirkte es so, als sei die vorherige Einstellung nie
     # angekommen.
     mw = loaded_main_window
-    plot_item = mw.timeseries_plot.getPlotItem()
 
     orig_dialog = mwmod.AxisSettingsDialog
 

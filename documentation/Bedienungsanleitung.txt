@@ -151,6 +151,45 @@ Frame betrachtet, bleibt die Position unveraendert. Das feste
 verhindert, dass die App bei sehr haeufig abgelegten Dateien (z.B. alle
 500 ms) durch staendiges Nachladen unbenutzbar wird.
 
+DATENIMPORT-MANAGER (ABWEICHENDES DATEIFORMAT): Das Namensschema oben
+betrifft nur den DATEINAMEN. Weicht stattdessen der INHALT der Dateien
+vom erwarteten Rohformat ab (Standard: ';'-getrennt, Dezimalkomma, keine
+Kopf-/Fusszeilen, keine zusaetzlichen Spalten) -- z.B. bei Messreihen aus
+einer anderen Quelle/einem anderen Geraet --, schlaegt das Laden fehl und
+es erscheint eine Rueckfrage "Daten konnten nicht gelesen werden" mit der
+Option "Datenimport anpassen...". Das oeffnet den DATENIMPORT-MANAGER:
+
+  - "Trennzeichen"            -> Semikolon, Komma, Tabulator, senkrechter
+                                  Strich oder beliebig viele Leerzeichen.
+  - "Dezimaltrennzeichen"     -> Komma oder Punkt.
+  - "Zeichenkodierung"        -> UTF-8 (Standard), Windows-1252/Latin-1
+                                  oder UTF-16.
+  - "Kopfzeilen überspringen" -> Anzahl der Zeilen am Dateianfang ohne
+                                  Messwerte (z.B. Geraete-/Datumsangaben).
+  - "Fußzeilen überspringen"  -> ebenso am Dateiende.
+  - "Erste/Letzte Spalte(n)
+     entfernen"                -> z.B. eine fuehrende Index-/Zeilennummer-
+                                  Spalte, die keine Messwerte enthaelt.
+
+Links zeigt eine Beispieldatei ("Andere Datei wählen..." erlaubt einen
+Wechsel) die rohen ersten Zeilen, rechts/darunter sofort das ERGEBNIS der
+aktuellen Einstellung: entweder die erkannte Zeilen-/Spaltenzahl mit
+einem Ausschnitt der geparsten Werte, oder eine Fehlermeldung, falls die
+Einstellung (noch) nicht passt. "OK" ist erst waehlbar, sobald die
+Beispieldatei erfolgreich gelesen werden konnte. Ein Haken "Als neue
+Standardeinstellung dauerhaft speichern" (Standard: AUS) legt fest, ob
+die Anpassung nur fuer diesen einen Ladevorgang gilt oder dauerhaft als
+neuer Standard uebernommen wird. Nach dem Bestaetigen versucht die App
+automatisch erneut zu laden; passt es immer noch nicht, erscheint dieselbe
+Rueckfrage erneut.
+
+Der Datenimport-Manager laesst sich auch VORAB -- unabhaengig von einem
+fehlgeschlagenen Ladevorgang -- über "Werkzeuge > Datenimport
+anpassen..." öffnen (z.B. um sich auf eine neue, noch unbekannte
+Messreihen-Quelle vorzubereiten, bevor ueberhaupt geladen wird). Ist
+bereits eine Messreihe geladen, dient deren erste Datei als Beispiel,
+sonst fragt eine Dateiauswahl danach.
+
 
 ================================================================
 4. DER BILDBEREICH (LINKS)

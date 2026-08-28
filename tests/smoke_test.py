@@ -38,6 +38,33 @@ QtWidgets.QMessageBox.information = staticmethod(lambda *a, **k: None)
 QtWidgets.QMessageBox.warning = staticmethod(lambda *a, **k: None)
 QtWidgets.QMessageBox.critical = staticmethod(lambda *a, **k: print("CRITICAL:", a[2] if len(a) > 2 else a))
 
+# MainWindow.__init__ konstruiert QSettings("ThermalViewer", "ThermalViewer")
+# -- OHNE Umleitung wuerde das auf die ECHTEN, systemweiten Einstellungen des
+# tatsaechlich lokal installierten Programms zugreifen (Windows-Registry bzw.
+# Nutzerprofil). Ein Test, der eine "dauerhaft speichern"-Option prueft (z.B.
+# ein per persist()-Checkbox gesetztes Namensschema/Datenimport-Format),
+# wuerde dadurch NICHT nur seinen eigenen Testlauf beeinflussen, sondern
+# dauerhaft die echten Einstellungen ueberschreiben, die die App beim naechsten
+# ECHTEN Start des Nutzers liest (Robustheitsbug: bei einer Testreihe mit
+# mehreren MainWindow()-Instanzen wurde so sogar der Import-Manager-Standard
+# klammheimlich fuer alle nachfolgenden Instanzen -- inkl. einer spaeteren,
+# eigentlich unabhaengigen echten Nutzung -- veraendert). Stattdessen: JEDE
+# QSettings("ThermalViewer", "ThermalViewer")-Instanziierung in diesem
+# Testlauf auf eine isolierte, im Scratch-Verzeichnis liegende INI-Datei
+# umleiten, die mit dem gesamten OUT-Verzeichnis am Ende automatisch
+# aufgeraeumt wird.
+_TEST_SETTINGS_PATH = str(Path(tempfile.mkdtemp(prefix="thermalviewer_settings_")) / "settings.ini")
+atexit.register(shutil.rmtree, str(Path(_TEST_SETTINGS_PATH).parent), True)
+_RealQSettings = QtCore.QSettings
+
+
+class _IsolatedQSettings(_RealQSettings):
+    def __init__(self, *args, **kwargs):
+        super().__init__(_TEST_SETTINGS_PATH, _RealQSettings.Format.IniFormat)
+
+
+QtCore.QSettings = _IsolatedQSettings
+
 from thermal_viewer.main_window import (  # noqa: E402
     MainWindow,
     COLORMAPS,
@@ -3647,6 +3674,237 @@ check(
     "graphic + image-stack export restore ROI-curve/live-curve visibility exactly, even for a partial selection",
     test_end_to_end_export_state_restoration_with_dynamic_roi_selection,
 )
+
+
+# ==================================================== Datenimport-Manager ==
+
+def test_import_settings_dict_roundtrip_and_compat():
+    from thermal_viewer.data import ImportSettings
+
+    s = ImportSettings(
+        delimiter="\t", decimal_separator=".", encoding="cp1252",
+        skip_header_lines=2, skip_footer_lines=1, skip_leading_columns=1, skip_trailing_columns=1,
+    )
+    assert ImportSettings.from_dict(s.to_dict()) == s
+    # Fehlende Schluessel (z.B. aeltere gespeicherte QSettings) -> Standardwerte.
+    assert ImportSettings.from_dict({}) == ImportSettings()
+    # Unbekannte Schluessel (z.B. neuere gespeicherte QSettings, alte App-Version)
+    # werden ignoriert statt einen Fehler zu werfen.
+    assert ImportSettings.from_dict({"delimiter": ",", "future_field": 123}) == ImportSettings(delimiter=",")
+
+
+check("ImportSettings.to_dict()/from_dict() round-trip + forward/backward compat", test_import_settings_dict_roundtrip_and_compat)
+
+
+def test_parse_frame_text_header_footer_columns_delimiter_decimal():
+    from thermal_viewer.data import ImportSettings, RecordingError, parse_frame_text
+
+    text = "Geraet: XYZ\nDatum: 2026-01-01\n0;28,6;28,7;28,8\n1;29,0;29,1;29,2\nEnde der Datei\n"
+    settings = ImportSettings(skip_header_lines=2, skip_footer_lines=1, skip_leading_columns=1)
+    arr = parse_frame_text(text, settings)
+    assert arr.shape == (2, 3), arr.shape
+    assert abs(float(arr[0, 0]) - 28.6) < 1e-4
+    assert abs(float(arr[1, 2]) - 29.2) < 1e-4
+
+    arr_tab = parse_frame_text("28.6\t28.7\n29.0\t29.1\n", ImportSettings(delimiter="\t", decimal_separator="."))
+    assert arr_tab.shape == (2, 2), arr_tab.shape
+
+    arr_ws = parse_frame_text("28.6   28.7\n29.0 29.1\n", ImportSettings(delimiter="", decimal_separator="."))
+    assert arr_ws.shape == (2, 2), arr_ws.shape
+
+    try:
+        parse_frame_text("28,6;28,7\n29,0\n", ImportSettings())
+        assert False, "haette wegen uneinheitlicher Spaltenzahl scheitern muessen"
+    except RecordingError as exc:
+        assert "Spaltenzahl" in str(exc), str(exc)
+
+    try:
+        parse_frame_text("nur Text, keine Werte\n", ImportSettings(skip_header_lines=5))
+        assert False, "haette wegen fehlender Datenzeilen scheitern muessen"
+    except RecordingError as exc:
+        assert "Datenzeilen" in str(exc), str(exc)
+
+
+check(
+    "parse_frame_text: header/footer/column skip, alt. delimiter (Tab/Leerzeichen), alt. decimal separator, clear errors",
+    test_parse_frame_text_header_footer_columns_delimiter_decimal,
+)
+
+
+def test_load_frame_uses_import_settings():
+    from thermal_viewer.data import ImportSettings, RecordingError, load_frame
+
+    tmp = OUT / "import_settings_load_frame_test.csv"
+    tmp.write_text("IDX;28,6;28,7\n0;29,0;29,1\n", encoding="utf-8")
+
+    try:
+        load_frame(tmp)
+        assert False, "Standard-Einstellungen haetten an 'IDX' scheitern muessen"
+    except RecordingError:
+        pass
+
+    arr = load_frame(tmp, ImportSettings(skip_header_lines=1, skip_leading_columns=1))
+    assert arr.shape == (1, 2), arr.shape
+    assert abs(float(arr[0, 0]) - 29.0) < 1e-4
+
+
+check("load_frame() applies ImportSettings (header/leading-column skip)", test_load_frame_uses_import_settings)
+
+
+def test_import_settings_dialog_live_preview_and_ok_gating():
+    from thermal_viewer.data import ImportSettings
+    from thermal_viewer.dialogs import ImportSettingsDialog
+
+    sample = OUT / "import_dialog_sample.csv"
+    sample.write_text("Kopf\n0;28,6;28,7\n1;29,0;29,1\n", encoding="utf-8")
+
+    dlg = ImportSettingsDialog(win, sample, ImportSettings())
+    try:
+        ok_button = dlg.buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Ok)
+        assert dlg.chk_persist.isChecked() is False, "Standard muss AUS sein (nur fuer diesen Ladevorgang)"
+        # "Kopf" als erste, nicht uebersprungene Zeile ist kein gueltiger
+        # Zahlenwert -> OK muss zunaechst deaktiviert sein.
+        assert ok_button.isEnabled() is False
+
+        dlg.spin_skip_header.setValue(1)
+        assert ok_button.isEnabled() is True
+        assert "2 Zeile(n)" in dlg.lbl_result_status.text() and "3 Spalte(n)" in dlg.lbl_result_status.text(), (
+            dlg.lbl_result_status.text()
+        )
+
+        dlg.spin_skip_leading.setValue(1)
+        assert "2 Spalte(n)" in dlg.lbl_result_status.text(), dlg.lbl_result_status.text()
+
+        s = dlg.settings()
+        assert s.skip_header_lines == 1 and s.skip_leading_columns == 1
+        assert s.delimiter == ";" and s.decimal_separator == ","
+    finally:
+        dlg.close()
+
+
+check(
+    "ImportSettingsDialog: live preview updates on setting change, OK gated on successful parse",
+    test_import_settings_dialog_live_preview_and_ok_gating,
+)
+
+
+def test_import_settings_dialog_pick_other_sample_file():
+    from thermal_viewer.data import ImportSettings
+    from thermal_viewer.dialogs import ImportSettingsDialog
+
+    sample1 = OUT / "import_pick_a.csv"
+    sample1.write_text("28,6;28,7\n29,0;29,1\n", encoding="utf-8")
+    sample2 = OUT / "import_pick_b.csv"
+    sample2.write_text("1,0;2,0;3,0\n4,0;5,0;6,0\n", encoding="utf-8")
+
+    dlg = ImportSettingsDialog(win, sample1, ImportSettings())
+    orig_get_open = QtWidgets.QFileDialog.getOpenFileName
+    try:
+        assert "2 Spalte(n)" in dlg.lbl_result_status.text(), dlg.lbl_result_status.text()
+        QtWidgets.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(sample2), ""))
+        dlg._pick_sample_file()
+        assert dlg._sample_path == sample2
+        assert "3 Spalte(n)" in dlg.lbl_result_status.text(), dlg.lbl_result_status.text()
+    finally:
+        QtWidgets.QFileDialog.getOpenFileName = orig_get_open
+        dlg.close()
+
+
+check("ImportSettingsDialog 'Andere Datei wählen…' re-reads and re-parses the newly picked file", test_import_settings_dialog_pick_other_sample_file)
+
+
+def test_load_paths_retry_flow_after_import_format_mismatch():
+    # End-to-End: eine Messreihe, deren Rohformat (Kopfzeile + fuehrende
+    # Index-Spalte) NICHT zu den Standard-ImportSettings passt, schlaegt
+    # zunaechst fehl -- _load_paths bietet daraufhin an, den Datenimport-
+    # Manager zu oeffnen; nach Anpassung UND Bestaetigen (mit "dauerhaft
+    # speichern") gelingt das Laden UND der neue Standard bleibt gesetzt.
+    # Eigenes, frisches MainWindow, damit der globale `win`-Zustand/dessen
+    # geladene Aufnahme unangetastet bleibt.
+    from thermal_viewer.data import ImportSettings
+    from thermal_viewer.dialogs import ImportSettingsDialog
+
+    fresh = MainWindow()
+    try:
+        folder = OUT / "import_retry_dataset"
+        folder.mkdir(exist_ok=True)
+        paths = []
+        for i in range(2):
+            p = folder / f"Record_2026-08-21_09-0{i}-00.csv"
+            p.write_text("Kopfzeile\n0;20,0;21,0\n1;22,0;23,0\n", encoding="utf-8")
+            paths.append(p)
+
+        assert fresh._import_settings == ImportSettings(), "frisches Fenster muss mit Standard-Import starten"
+
+        offer_calls = []
+
+        def fake_offer(sample_path, error_message):
+            offer_calls.append((sample_path, error_message))
+            return True
+
+        fresh._offer_import_settings_retry = fake_offer
+
+        def fill_and_accept(self):
+            self.spin_skip_header.setValue(1)
+            self.spin_skip_leading.setValue(1)
+            self.chk_persist.setChecked(True)
+            return (self.accept(), QtWidgets.QDialog.DialogCode.Accepted)[1]
+
+        with temp_dialog_exec(ImportSettingsDialog, fill_and_accept):
+            ok = fresh._load_paths(paths)
+
+        assert ok is True, "Laden haette nach angepasstem Datenimport erfolgreich sein muessen"
+        assert len(offer_calls) == 1, "Rueckfrage haette genau einmal erscheinen muessen"
+        assert fresh.recording.n_frames == 2
+        assert fresh.recording.shape == (2, 2), fresh.recording.shape
+        assert fresh._import_settings.skip_header_lines == 1, "persist=True haette neuen Standard setzen muessen"
+        assert fresh._import_settings.skip_leading_columns == 1
+        assert fresh._active_import_settings == fresh._import_settings
+
+        # Live-Ordner-Ueberwachung (_check_for_new_files) muss dasselbe,
+        # gerade erst festgestellte Format weiterverwenden.
+        p3 = folder / "Record_2026-08-21_09-02-00.csv"
+        p3.write_text("Kopfzeile\n2;24,0;25,0\n3;26,0;27,0\n", encoding="utf-8")
+        fresh._watched_folder = folder
+        fresh._check_for_new_files()
+        assert fresh.recording.n_frames == 3, "Live-Nachladen haette das gleiche Rohformat verwenden muessen"
+    finally:
+        fresh.close()
+
+
+check(
+    "_load_paths retries with adjusted ImportSettings after a format mismatch, persists as new default, live-watch reuses it",
+    test_load_paths_retry_flow_after_import_format_mismatch,
+)
+
+
+def test_load_paths_cancel_import_retry_shows_original_error():
+    # Lehnt der Nutzer die Rueckfrage/den Dialog ab, muss _load_paths mit
+    # False zurueckkehren und darf KEINE (Teil-)Aufnahme uebernehmen.
+    from thermal_viewer.data import ImportSettings
+
+    fresh = MainWindow()
+    try:
+        folder = OUT / "import_retry_cancel_dataset"
+        folder.mkdir(exist_ok=True)
+        p = folder / "Record_2026-08-22_09-00-00.csv"
+        p.write_text("Kopfzeile\n0;20,0;21,0\n", encoding="utf-8")
+
+        # Ausdruecklich auf den Standard zuruecksetzen -- ein vorheriger Test
+        # in diesem Lauf kann per persist=True bereits einen abweichenden
+        # Standard in der (fuer den gesamten Testlauf gemeinsamen, aber vom
+        # echten System isolierten) QSettings-Instanz hinterlassen haben.
+        fresh._import_settings = ImportSettings()
+        fresh._offer_import_settings_retry = lambda sample_path, error_message: False
+        ok = fresh._load_paths([p])
+        assert ok is False
+        assert fresh.recording is None
+        assert fresh._import_settings == ImportSettings(), "abgelehnte Rueckfrage darf den Standard nicht aendern"
+    finally:
+        fresh.close()
+
+
+check("_load_paths returns False and leaves state untouched when the import-settings retry is declined", test_load_paths_cancel_import_retry_shows_original_error)
 
 print()
 if failures:

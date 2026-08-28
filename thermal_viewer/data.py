@@ -8,6 +8,7 @@ compile_filename_template) auch fuer andere Namensschemata anpassbar.
 """
 from __future__ import annotations
 
+import dataclasses
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -186,6 +187,43 @@ class RecordingError(Exception):
     pass
 
 
+@dataclass
+class ImportSettings:
+    """Konfiguration, wie eine rohe Frame-Datei in ein 2D-Temperatur-Array
+    umgewandelt wird. Die Standardwerte entsprechen exakt dem bisherigen,
+    fest einprogrammierten Format (';'-getrennt, Dezimalkomma, UTF-8, keine
+    Kopf-/Fusszeilen, keine zu entfernenden Spalten) -- bestehende Aufrufer
+    ohne explizite ImportSettings verhalten sich dadurch unveraendert.
+
+    Ueber den Datenimport-Manager (siehe dialogs.ImportSettingsDialog)
+    anpassbar, falls kuenftige Messreihen aus anderen Quellen/Geraeten ein
+    abweichendes Rohformat mitbringen (z.B. zusaetzliche Kopfzeilen, eine
+    fuehrende Index-Spalte, Tabulator statt Semikolon, Dezimalpunkt statt
+    -komma)."""
+
+    delimiter: str = ";"  # "" bedeutet: beliebig viele Leerzeichen (str.split())
+    decimal_separator: str = ","
+    encoding: str = "utf-8-sig"
+    skip_header_lines: int = 0
+    skip_footer_lines: int = 0
+    skip_leading_columns: int = 0
+    skip_trailing_columns: int = 0
+
+    def to_dict(self) -> dict:
+        return dataclasses.asdict(self)
+
+    @staticmethod
+    def from_dict(data: dict) -> "ImportSettings":
+        """Baut aus einem (z.B. aus QSettings/JSON stammenden) dict eine
+        ImportSettings -- unbekannte/fehlende Schluessel fallen auf den
+        jeweiligen Standardwert zurueck, damit alte/neue Programmversionen
+        gespeicherte Einstellungen des jeweils anderen Stands nicht mit
+        einem Fehler ablehnen."""
+        defaults = ImportSettings()
+        kwargs = {f.name: data.get(f.name, getattr(defaults, f.name)) for f in dataclasses.fields(ImportSettings)}
+        return ImportSettings(**kwargs)
+
+
 def parse_timestamp(
     path: Path,
     pattern: re.Pattern = DEFAULT_FILENAME_PATTERN,
@@ -211,17 +249,73 @@ def files_matching_template(folder: Path, pattern: re.Pattern) -> list[Path]:
     )
 
 
-def load_frame(path: Path) -> np.ndarray:
-    text = path.read_text(encoding="utf-8-sig")
+def _select_data_lines(text: str, settings: ImportSettings) -> list[str]:
+    lines = text.splitlines()
+    if settings.skip_header_lines:
+        lines = lines[settings.skip_header_lines:]
+    if settings.skip_footer_lines:
+        lines = lines[: -settings.skip_footer_lines] if settings.skip_footer_lines < len(lines) else []
+    return lines
+
+
+def _parse_data_line(line: str, settings: ImportSettings) -> list[float]:
+    line = line.strip()
+    if settings.delimiter:
+        line = line.rstrip(settings.delimiter)
+    if not line:
+        return []
+    parts = line.split(settings.delimiter) if settings.delimiter else line.split()
+    if settings.skip_leading_columns:
+        parts = parts[settings.skip_leading_columns:]
+    if settings.skip_trailing_columns:
+        parts = parts[: -settings.skip_trailing_columns] if settings.skip_trailing_columns < len(parts) else []
+    sep = settings.decimal_separator
+    return [float(value.strip().replace(sep, ".") if sep and sep != "." else value.strip()) for value in parts]
+
+
+def parse_frame_text(text: str, settings: ImportSettings | None = None) -> np.ndarray:
+    """Wandelt den rohen Inhalt EINER Frame-Datei gemaess settings in ein
+    2D-Temperatur-Array um -- Kernlogik von load_frame() UND der
+    Live-Vorschau im Datenimport-Manager (dialogs.ImportSettingsDialog),
+    damit beide GARANTIERT dasselbe Ergebnis liefern.
+
+    Wirft RecordingError mit einer fuer Nutzer verstaendlichen Meldung bei
+    leerem Ergebnis, ungueltigen Zahlenwerten oder uneinheitlicher
+    Spaltenzahl je Zeile -- letzteres ergaebe sonst erst beim spaeteren
+    np.stack() der ganzen Serie einen kryptischen numpy-Fehler weit weg von
+    der eigentlichen Ursache."""
+    settings = settings or ImportSettings()
     rows: list[list[float]] = []
-    for line in text.splitlines():
-        line = line.strip().rstrip(";")
-        if not line:
-            continue
-        rows.append([float(value.replace(",", ".")) for value in line.split(";")])
+    for line in _select_data_lines(text, settings):
+        try:
+            values = _parse_data_line(line, settings)
+        except ValueError as exc:
+            raise RecordingError(f"Ungültiger Zahlenwert in Zeile „{line.strip()}“: {exc}") from exc
+        if values:
+            rows.append(values)
     if not rows:
-        raise RecordingError(f"Datei enthält keine Daten: {path}")
+        raise RecordingError(
+            "Keine verwertbaren Datenzeilen gefunden -- Kopf-/Fußzeilen, Trennzeichen und "
+            "Spalten-Einstellungen im Datenimport prüfen."
+        )
+    lengths = {len(row) for row in rows}
+    if len(lengths) > 1:
+        raise RecordingError(
+            f"Unterschiedliche Spaltenzahl je Zeile (gefunden: {sorted(lengths)}) -- Trennzeichen und "
+            f"Spalten-Einstellungen im Datenimport prüfen."
+        )
     return np.asarray(rows, dtype=np.float32)
+
+
+def load_frame(path: Path, import_settings: ImportSettings | None = None) -> np.ndarray:
+    settings = import_settings or ImportSettings()
+    try:
+        text = path.read_text(encoding=settings.encoding)
+    except LookupError as exc:
+        raise RecordingError(f"Unbekannte Zeichenkodierung „{settings.encoding}“: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise RecordingError(f"Datei lässt sich nicht mit Kodierung „{settings.encoding}“ lesen: {exc}") from exc
+    return parse_frame_text(text, settings)
 
 
 @dataclass
@@ -281,6 +375,7 @@ def load_paths(
     progress_cb=None,
     pattern: re.Pattern = DEFAULT_FILENAME_PATTERN,
     strptime_fmt: str = DEFAULT_FILENAME_STRPTIME_FMT,
+    import_settings: ImportSettings | None = None,
 ) -> Recording:
     """Laedt alle angegebenen Dateien zu einer Recording zusammen.
 
@@ -295,6 +390,12 @@ def load_paths(
     vom Standard ("Record_YYYY-MM-DD_hh-mm-ss") abweichendes Namensschema
     (MainWindow._filename_pattern/_filename_strptime_fmt, siehe
     FilenameTemplateDialog).
+
+    import_settings: siehe ImportSettings -- erlaubt ein vom Standard
+    (';'-getrennt, Dezimalkomma, keine Kopf-/Fusszeilen) abweichendes
+    Roh-Dateiformat (MainWindow._import_settings, siehe
+    dialogs.ImportSettingsDialog). Ohne Angabe gilt das bisherige feste
+    Format.
     """
     def _ts(p: Path) -> datetime:
         return parse_timestamp(p, pattern, strptime_fmt)
@@ -306,7 +407,7 @@ def load_paths(
 
     for i, p in enumerate(paths):
         try:
-            frame = load_frame(p)
+            frame = load_frame(p, import_settings)
         except (OSError, UnicodeDecodeError, ValueError, RecordingError) as exc:
             skipped.append((p, str(exc)))
         else:
@@ -361,6 +462,7 @@ def append_paths(
     progress_cb=None,
     pattern: re.Pattern = DEFAULT_FILENAME_PATTERN,
     strptime_fmt: str = DEFAULT_FILENAME_STRPTIME_FMT,
+    import_settings: ImportSettings | None = None,
 ) -> Recording:
     """Erweitert eine bestehende Recording um zusaetzliche, neu hinzugekommene
     Frames (Live-Ordner-Ueberwachung waehrend einer laufenden Messung, siehe
@@ -373,10 +475,10 @@ def append_paths(
     anschliessend nach Zeitstempel neu sortiert, fuer den Fall, dass neue
     Dateien nicht streng chronologisch nachgeliefert werden.
 
-    pattern/strptime_fmt: siehe load_paths() -- muss mit dem beim
-    urspruenglichen Laden dieser Recording verwendeten Namensschema
-    uebereinstimmen (MainWindow uebergibt dafuer konsistent
-    self._filename_pattern/_filename_strptime_fmt)."""
+    pattern/strptime_fmt/import_settings: siehe load_paths() -- muessen mit
+    dem beim urspruenglichen Laden dieser Recording verwendeten
+    Namensschema/Datenimport uebereinstimmen (MainWindow uebergibt dafuer
+    konsistent self._active_filename_pattern/-strptime_fmt/-import_settings)."""
     def _ts(p: Path) -> datetime:
         return parse_timestamp(p, pattern, strptime_fmt)
 
@@ -391,7 +493,7 @@ def append_paths(
 
     for i, p in enumerate(candidates):
         try:
-            frame = load_frame(p)
+            frame = load_frame(p, import_settings)
         except (OSError, UnicodeDecodeError, ValueError, RecordingError) as exc:
             skipped.append((p, str(exc)))
         else:
@@ -436,8 +538,11 @@ def load_folder(
     progress_cb=None,
     pattern: re.Pattern = DEFAULT_FILENAME_PATTERN,
     strptime_fmt: str = DEFAULT_FILENAME_STRPTIME_FMT,
+    import_settings: ImportSettings | None = None,
 ) -> Recording:
     paths = sorted(Path(folder).glob("*.csv"))
     if not paths:
         raise RecordingError(f"Keine CSV-Dateien in {folder} gefunden.")
-    return load_paths(paths, progress_cb=progress_cb, pattern=pattern, strptime_fmt=strptime_fmt)
+    return load_paths(
+        paths, progress_cb=progress_cb, pattern=pattern, strptime_fmt=strptime_fmt, import_settings=import_settings
+    )

@@ -21,6 +21,7 @@ from qtpy import QtCore, QtGui, QtSvg, QtWidgets
 from .assets import ICON_PATH
 from .data import (
     DEFAULT_FILENAME_TEMPLATE,
+    ImportSettings,
     Recording,
     RecordingError,
     append_paths,
@@ -35,6 +36,7 @@ from .dialogs import (
     CsvColumnDialog,
     FilenameTemplateDialog,
     GraphicExportDialog,
+    ImportSettingsDialog,
     RulerLengthDialog,
     VideoExportDialog,
 )
@@ -707,6 +709,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self._filename_pattern, self._filename_strptime_fmt = compile_filename_template(self._filename_template)
         self._active_filename_pattern = self._filename_pattern
         self._active_filename_strptime_fmt = self._filename_strptime_fmt
+
+        # Datenimport-Manager (Punkt: "Programm zeitnah auf andere Dateien
+        # erweitern ... Import-Manager, mit dem wir Dateien lesen und zum
+        # Einladen vorbereiten koennen"): analog zum Namensschema oben ein
+        # global per QSettings persistierbares Standard-Rohformat
+        # (Trennzeichen/Dezimaltrennzeichen/Kodierung/Kopf-Fusszeilen/
+        # Spalten), plus _active_import_settings fuer das Format, mit dem
+        # die AKTUELL geladene Aufnahme tatsaechlich geladen wurde (siehe
+        # _check_for_new_files -- Live-Ordner-Ueberwachung muss konsistent
+        # dasselbe Format weiterverwenden).
+        self._import_settings = self._load_import_settings()
+        self._active_import_settings = self._import_settings
 
         self.statusBar().showMessage("Bereit. Bitte Ordner oder Dateien laden (Datei-Menü oder Symbolleiste).")
 
@@ -1644,6 +1658,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.act_dark_mode.toggled.connect(self._on_dark_mode_toggled)
 
         tools_menu = self.menuBar().addMenu("&Werkzeuge")
+        act_import_settings = tools_menu.addAction("Datenimport anpassen…")
+        act_import_settings.setToolTip(
+            "Datenimport-Manager: bereitet Messdateien mit abweichendem Rohformat (z.B. "
+            "zusätzliche Kopfzeilen, eine führende Index-Spalte, anderes Trennzeichen) fürs "
+            "Einlesen vor -- mit Live-Vorschau gegen eine echte Beispieldatei. Nicht Teil des "
+            "Namensschemas (Dateinamen, siehe Datei-Menü) -- betrifft nur den INHALT der Dateien."
+        )
+        act_import_settings.triggered.connect(self._configure_import_settings)
+        tools_menu.addSeparator()
         act_ruler = tools_menu.addAction("Maßstab festlegen…")
         act_ruler.setToolTip(
             "Referenzlinie im Bild einzeichnen und ihre reale Länge in mm angeben, um Messbereich-"
@@ -2025,6 +2048,90 @@ class MainWindow(QtWidgets.QMainWindow):
         self._filename_pattern, self._filename_strptime_fmt = compile_filename_template(template)
         self._settings.setValue("filename_template", template)
 
+    def _load_import_settings(self) -> ImportSettings:
+        """Liest das global gespeicherte Datenimport-Standardformat aus
+        QSettings -- jeder Wert einzeln (statt als zusammengesetztes Objekt),
+        analog zu den uebrigen Einstellungen dieser App, mit Fallback auf den
+        jeweiligen ImportSettings-Standardwert, falls (z.B. bei einem noch
+        nie zuvor gespeicherten Wert oder einem Formatwechsel) ein Schluessel
+        fehlt oder ungueltig ist."""
+        s = self._settings
+        defaults = ImportSettings()
+        return ImportSettings(
+            delimiter=str(s.value("import/delimiter", defaults.delimiter)),
+            decimal_separator=str(s.value("import/decimal_separator", defaults.decimal_separator)),
+            encoding=str(s.value("import/encoding", defaults.encoding)),
+            skip_header_lines=int(s.value("import/skip_header_lines", defaults.skip_header_lines, type=int)),
+            skip_footer_lines=int(s.value("import/skip_footer_lines", defaults.skip_footer_lines, type=int)),
+            skip_leading_columns=int(
+                s.value("import/skip_leading_columns", defaults.skip_leading_columns, type=int)
+            ),
+            skip_trailing_columns=int(
+                s.value("import/skip_trailing_columns", defaults.skip_trailing_columns, type=int)
+            ),
+        )
+
+    def _set_import_settings(self, settings: ImportSettings, persist: bool) -> None:
+        """Uebernimmt settings fuer die aktuelle Sitzung -- bei persist=True
+        zusaetzlich dauerhaft in QSettings gespeichert (analog zu
+        _set_filename_template/ImportSettingsDialog.persist(): die Checkbox
+        im Dialog ist standardmaessig AUS, gilt also nur fuer den jeweils
+        aktuellen Ladevorgang, es sei denn der Nutzer haekt sie bewusst an)."""
+        self._import_settings = settings
+        if persist:
+            s = self._settings
+            s.setValue("import/delimiter", settings.delimiter)
+            s.setValue("import/decimal_separator", settings.decimal_separator)
+            s.setValue("import/encoding", settings.encoding)
+            s.setValue("import/skip_header_lines", settings.skip_header_lines)
+            s.setValue("import/skip_footer_lines", settings.skip_footer_lines)
+            s.setValue("import/skip_leading_columns", settings.skip_leading_columns)
+            s.setValue("import/skip_trailing_columns", settings.skip_trailing_columns)
+
+    def _configure_import_settings(self) -> None:
+        """Menüpunkt "Werkzeuge > Datenimport anpassen…": laesst den
+        Datenimport-Manager unabhaengig von einem (fehlgeschlagenen)
+        Ladevorgang oeffnen, z.B. um sich vorab auf eine kuenftige, noch
+        unbekannte Messreihen-Quelle mit abweichendem Rohformat
+        vorzubereiten. Braucht eine Beispieldatei zur Live-Vorschau --
+        nutzt die erste Datei der aktuell geladenen Aufnahme, falls
+        vorhanden, sonst fragt eine Dateiauswahl danach."""
+        sample_path: Path | None = None
+        if self.recording is not None and self.recording.paths:
+            sample_path = self.recording.paths[0]
+        else:
+            path, _filter = QtWidgets.QFileDialog.getOpenFileName(
+                self, "Beispieldatei für den Datenimport wählen", "", "CSV-Dateien (*.csv);;Alle Dateien (*)"
+            )
+            if not path:
+                return
+            sample_path = Path(path)
+
+        dlg = ImportSettingsDialog(self, sample_path, self._import_settings)
+        if dlg.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        self._set_import_settings(dlg.settings(), persist=dlg.persist())
+
+    def _offer_import_settings_retry(self, sample_path: Path, error_message: str) -> bool:
+        """Rueckfrage, wenn ein Ladevorgang komplett fehlgeschlagen ist
+        (RecordingError aus load_paths, siehe _load_paths) -- bietet an, den
+        Datenimport-Manager auf einer der betroffenen Dateien zu oeffnen und
+        das Laden mit angepassten Einstellungen erneut zu versuchen, statt
+        nur eine Fehlermeldung anzuzeigen. Analog zu _ask_filename_mismatch."""
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        box.setWindowTitle("Daten konnten nicht gelesen werden")
+        box.setText(
+            f"Die ausgewählten Dateien konnten nicht als Messreihe gelesen werden:\n\n{error_message}\n\n"
+            f"Möglicherweise weicht das Rohformat vom erwarteten Format ab (z.B. andere Kopfzeilen, "
+            f"anderes Trennzeichen). Datenimport anpassen und erneut versuchen?"
+        )
+        btn_adjust = box.addButton("Datenimport anpassen…", QtWidgets.QMessageBox.ButtonRole.ActionRole)
+        box.addButton("Abbrechen", QtWidgets.QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(btn_adjust)
+        box.exec()
+        return box.clickedButton() is btn_adjust
+
     def _check_for_new_files(self) -> None:
         """Wird alle 10s vom Live-Watch-Timer aufgerufen (siehe __init__):
         laedt neu im ueberwachten Ordner abgelegte CSV-Dateien nach, ohne die
@@ -2043,14 +2150,16 @@ class MainWindow(QtWidgets.QMainWindow):
         if not new_paths:
             return
         try:
-            # _active_filename_pattern/-strptime_fmt (nicht die evtl.
-            # abweichenden _filename_*-Standardwerte): muss zum Schema
-            # passen, mit dem DIESE Aufnahme urspruenglich geladen wurde
-            # (siehe _load_paths), sonst wuerden neu hinzukommende Dateien
-            # falsch/gar nicht einsortiert.
+            # _active_filename_pattern/-strptime_fmt/-import_settings (nicht
+            # die evtl. abweichenden _filename_*/-_import_settings-
+            # Standardwerte): muss zum Schema/Rohformat passen, mit dem DIESE
+            # Aufnahme urspruenglich geladen wurde (siehe _load_paths), sonst
+            # wuerden neu hinzukommende Dateien falsch/gar nicht bzw. gar
+            # nicht mehr eingelesen.
             updated = append_paths(
                 self.recording, new_paths,
                 pattern=self._active_filename_pattern, strptime_fmt=self._active_filename_strptime_fmt,
+                import_settings=self._active_import_settings,
             )
         except RecordingError:
             return
@@ -2511,29 +2620,53 @@ class MainWindow(QtWidgets.QMainWindow):
             return False
         pattern = self._filename_pattern if pattern is None else pattern
         strptime_fmt = self._filename_strptime_fmt if strptime_fmt is None else strptime_fmt
+        import_settings = self._import_settings
 
-        progress = QtWidgets.QProgressDialog("Lade Frames…", "Abbrechen", 0, len(paths), self)
-        progress.setWindowModality(QtCore.Qt.WindowModal)
-        progress.setMinimumDuration(300)
+        # Schleife statt Einzelversuch: schlaegt das Laden komplett fehl
+        # (z.B. weil das Rohformat vom erwarteten abweicht), bietet
+        # _offer_import_settings_retry an, den Datenimport-Manager zu
+        # oeffnen und mit angepassten Einstellungen erneut zu versuchen --
+        # analog zur Namensschema-Rueckfrage in _resolve_folder_and_pattern.
+        while True:
+            progress = QtWidgets.QProgressDialog("Lade Frames…", "Abbrechen", 0, len(paths), self)
+            progress.setWindowModality(QtCore.Qt.WindowModal)
+            progress.setMinimumDuration(300)
 
-        def _cb(done: int, total: int) -> None:
-            progress.setValue(done)
-            QtWidgets.QApplication.processEvents()
+            def _cb(done: int, total: int) -> None:
+                progress.setValue(done)
+                QtWidgets.QApplication.processEvents()
 
-        try:
-            recording = load_paths(paths, progress_cb=_cb, pattern=pattern, strptime_fmt=strptime_fmt)
-        except RecordingError as exc:
-            QtWidgets.QMessageBox.critical(self, "Fehler beim Laden", str(exc))
-            return False
-        finally:
+            try:
+                recording = load_paths(
+                    paths, progress_cb=_cb, pattern=pattern, strptime_fmt=strptime_fmt,
+                    import_settings=import_settings,
+                )
+                error: RecordingError | None = None
+            except RecordingError as exc:
+                recording = None
+                error = exc
             progress.close()
 
-        # Merken, mit welchem Schema DIESE Aufnahme tatsaechlich geladen
-        # wurde -- siehe _check_for_new_files (Live-Ordner-Ueberwachung muss
-        # konsistent dasselbe Schema weiterverwenden, auch wenn es vom
-        # aktuellen Standard abweicht).
+            if error is None:
+                break
+            if self._offer_import_settings_retry(paths[0], str(error)):
+                dlg = ImportSettingsDialog(self, paths[0], import_settings)
+                if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+                    new_settings = dlg.settings()
+                    if dlg.persist():
+                        self._set_import_settings(new_settings, persist=True)
+                    import_settings = new_settings
+                    continue
+            QtWidgets.QMessageBox.critical(self, "Fehler beim Laden", str(error))
+            return False
+
+        # Merken, mit welchem Namensschema/Datenimport-Format DIESE Aufnahme
+        # tatsaechlich geladen wurde -- siehe _check_for_new_files
+        # (Live-Ordner-Ueberwachung muss konsistent dasselbe Schema/Format
+        # weiterverwenden, auch wenn es vom aktuellen Standard abweicht).
         self._active_filename_pattern = pattern
         self._active_filename_strptime_fmt = strptime_fmt
+        self._active_import_settings = import_settings
         self._set_recording(recording)
         return True
 

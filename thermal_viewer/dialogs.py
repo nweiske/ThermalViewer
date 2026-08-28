@@ -1215,6 +1215,27 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 self, "Keine Auswahl", "Bitte mindestens eine Spalte für den Export auswählen."
             )
             return
+        # Spaltennamen sind frei editierbar (keine Eindeutigkeitspruefung wie
+        # bei ROI-Namen generell) -- zwei gleiche Namen unter den fuer den
+        # Export ausgewaehlten Spalten wuerden aber beim JSON-Export
+        # (dict(zip(header, row)) in MainWindow._export_csv) stillschweigend
+        # eine Spalte ueberschreiben und deren Werte verschwinden lassen.
+        # Denselben Fallback wie column_names() anwenden (leerer Text ->
+        # "Messwert"), sonst wuerden zwei leer gelassene Felder hier
+        # faelschlich als "verschieden" durchgehen, obwohl beide am Ende
+        # denselben Namen "Messwert" bekommen.
+        included_names = [
+            edit.text().strip() or "Messwert"
+            for chk, edit in zip(self._checks, self._edits) if chk.isChecked()
+        ]
+        duplicates = sorted({name for name in included_names if included_names.count(name) > 1})
+        if duplicates:
+            QtWidgets.QMessageBox.information(
+                self, "Doppelte Spaltennamen",
+                "Folgende Spaltenüberschriften sind mehrfach vergeben, müssen für den Export aber "
+                "eindeutig sein: " + ", ".join(f"„{d}“" for d in duplicates),
+            )
+            return
         self.accept()
 
     @staticmethod

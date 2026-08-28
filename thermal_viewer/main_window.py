@@ -50,6 +50,13 @@ ROI_COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#eab308", "#a855f7"]
 # Kreuzmusters); weitere (beliebig viele) Messbereiche darueber hinaus
 # heissen weiterhin schlicht "ROI n" (siehe default_roi_name).
 DEFAULT_ROI_NAMES = ["Oben", "Links", "Mitte", "Rechts", "Unten"]
+# Obergrenze fuer "beliebig viele ROIs" -- schuetzt _load_project (siehe dort)
+# vor einem riesigen/manipulierten Erzeugungsnummer-Wert ("index") in einer
+# .tvproj-Datei, der sonst versuchen wuerde, ebenso viele ROI-Eintraege (je
+# ein Plot, eine Listenzeile, Spinboxen, ein Grafik-Item) auf einmal
+# anzulegen -- ein Einfrieren/Speicherueberlauf ohne Fortschrittsanzeige oder
+# Abbruchmoeglichkeit.
+MAX_ROI_COUNT = 500
 
 
 def default_roi_name(number: int) -> str:
@@ -1964,7 +1971,15 @@ class MainWindow(QtWidgets.QMainWindow):
         if result is None:
             return False
         folder_path, pattern, strptime_fmt = result
-        paths = sorted(folder_path.glob("*.csv"))
+        try:
+            paths = sorted(folder_path.glob("*.csv"))
+        except OSError as exc:
+            # Ordner zwischen Auswahl und diesem Scan nicht mehr erreichbar
+            # (z.B. Netzlaufwerk getrennt, Ordner geloescht/umbenannt).
+            QtWidgets.QMessageBox.critical(
+                self, "Ordner nicht lesbar", f"„{folder_path}“ konnte nicht gelesen werden:\n{exc}"
+            )
+            return False
         if not self._load_paths(paths, pattern=pattern, strptime_fmt=strptime_fmt):
             # Laden fehlgeschlagen (z.B. defekte CSVs) -- eine evtl. bereits
             # laufende Live-Ueberwachung eines ANDEREN Ordners darf dadurch
@@ -1993,7 +2008,18 @@ class MainWindow(QtWidgets.QMainWindow):
         aktuellen Standard abweichen (siehe oben)."""
         pattern, strptime_fmt = self._filename_pattern, self._filename_strptime_fmt
         while True:
-            if files_matching_template(folder, pattern):
+            try:
+                matches = files_matching_template(folder, pattern)
+            except OSError as exc:
+                # Ordner nicht (mehr) lesbar (z.B. Netzlaufwerk getrennt,
+                # Ordner geloescht/umbenannt, nachdem er im Dialog gewaehlt
+                # wurde) -- statt hier abzustuerzen denselben Hinweis wie bei
+                # jedem anderen unlesbaren Ordner zeigen und abbrechen.
+                QtWidgets.QMessageBox.critical(
+                    self, "Ordner nicht lesbar", f"„{folder}“ konnte nicht gelesen werden:\n{exc}"
+                )
+                return None
+            if matches:
                 return folder, pattern, strptime_fmt
 
             choice = self._ask_filename_mismatch(folder)
@@ -2467,6 +2493,14 @@ class MainWindow(QtWidgets.QMainWindow):
             idx = roi_data.get("index")
             if not isinstance(idx, int) or idx < 0:
                 continue
+            if idx >= MAX_ROI_COUNT:
+                # Verhindert, dass eine manipulierte/beschaedigte .tvproj-
+                # Datei mit einer riesigen "index"-Zahl versucht, ebenso
+                # viele ROI-Eintraege auf einmal anzulegen (siehe
+                # MAX_ROI_COUNT) -- als fehlerhaft behandelt wie jeder
+                # andere ungueltige ROI-Eintrag.
+                failed_indices.append(idx)
+                continue
             # Ueber die (0-basiert gespeicherte) Erzeugungsnummer statt einer
             # reinen Listen-Position zuordnen: bei "beliebig viele ROIs"
             # koennen Messbereiche entfernt worden sein, wodurch sich
@@ -2637,10 +2671,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtWidgets.QApplication.processEvents()
 
             try:
-                recording = load_paths(
-                    paths, progress_cb=_cb, pattern=pattern, strptime_fmt=strptime_fmt,
-                    import_settings=import_settings,
-                )
+                # _cb() pumpt hier wiederholt processEvents() -- siehe
+                # _paused_background_timers zum Grund, warum Live-Watch/
+                # Wiedergabe dafuer pausiert sein muessen.
+                with self._paused_background_timers():
+                    recording = load_paths(
+                        paths, progress_cb=_cb, pattern=pattern, strptime_fmt=strptime_fmt,
+                        import_settings=import_settings,
+                    )
                 error: RecordingError | None = None
             except RecordingError as exc:
                 recording = None
@@ -3946,6 +3984,36 @@ class MainWindow(QtWidgets.QMainWindow):
                 w.setUpdatesEnabled(True)
 
     @contextlib.contextmanager
+    def _paused_background_timers(self):
+        """Pausiert die Live-Ordner-Ueberwachung (_live_watch_timer) und die
+        Wiedergabe (play_timer) fuer die Dauer eines laengeren Vorgangs, der
+        wiederholt QApplication.processEvents() aufruft (Laden mit
+        Fortschrittsanzeige, Video-/Bildstapel-Export je Frame).
+
+        Ohne dieses Pausieren koennte der alle 10s unbeaufsichtigt
+        feuernde Live-Watch-Timer (_check_for_new_files) oder der
+        Wiedergabe-Timer (_advance_frame) MITTEN in einem solchen Vorgang
+        auf einem der processEvents()-Aufrufe zum Zug kommen und
+        self.recording per _apply_appended_recording austauschen bzw.
+        current_index weiterschalten -- waehrend z.B. _export_video mit
+        lokal EINMALIG eingefrorenen Werten (Frame-Bereich, Zeitstempel-
+        Array, Fortschrittsanzeige-Gesamtzahl) weiterarbeitet. Das waere
+        kein sauberer Fehler, sondern eine leise inkonsistente/beschaedigte
+        Ausgabe. Beide Timer werden nur dann wieder gestartet, wenn sie
+        vorher tatsaechlich liefen."""
+        was_watching = self._live_watch_timer.isActive()
+        was_playing = self.play_timer.isActive()
+        self._live_watch_timer.stop()
+        self.play_timer.stop()
+        try:
+            yield
+        finally:
+            if was_watching:
+                self._live_watch_timer.start()
+            if was_playing:
+                self.play_timer.start()
+
+    @contextlib.contextmanager
     def _temporary_time_display_mode(self, mode: str | None):
         """Ueberschreibt Uhrzeit/Laufzeit-Anzeige BEIDER Zeitachsen nur fuer
         die Dauer eines Grafik-Exports (GraphicExportDialog.time_axis_mode())
@@ -5016,7 +5084,24 @@ class MainWindow(QtWidgets.QMainWindow):
             **metadata_fn(),
         }
         meta_path = path_obj.with_suffix(".json")
-        meta_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+        try:
+            meta_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+        except OSError as exc:
+            # Die Grafik selbst ist zu diesem Zeitpunkt bereits erfolgreich
+            # gespeichert (siehe try/except weiter oben) -- ein Fehler hier
+            # (Datentraeger voll, Zielordner inzwischen schreibgeschuetzt,
+            # ".json" von einem anderen Programm gesperrt) betrifft nur die
+            # zusaetzliche Metadaten-Datei und soll das nicht als kompletten
+            # Fehlschlag melden.
+            QtWidgets.QMessageBox.warning(
+                self, "Metadaten nicht gespeichert",
+                f"Die Grafik wurde gespeichert, die Metadaten-Datei „{meta_path.name}“ konnte aber "
+                f"nicht geschrieben werden:\n{exc}",
+            )
+            self.statusBar().showMessage(
+                f"Grafik gespeichert: {', '.join(p.name for p in saved_paths)}  |  Metadaten fehlgeschlagen"
+            )
+            return
 
         self.statusBar().showMessage(
             f"Grafik gespeichert: {', '.join(p.name for p in saved_paths)}  |  Metadaten: {meta_path.name}"
@@ -5127,23 +5212,34 @@ class MainWindow(QtWidgets.QMainWindow):
                 row.append(round(float(y[i]), 3))
             rows.append(row)
 
-        if export_format == "json":
-            # Echte Zahlen mit Dezimalpunkt (JSON-Standard, locale-
-            # unabhaengig) statt der komma-formatierten Text-Darstellung von
-            # CSV/Text -- konsistent von jedem JSON-Parser lesbar.
-            records = [dict(zip(header, row)) for row in rows]
-            Path(path).write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
-        else:
-            # CSV (';') und Text (Tabulator) unterscheiden sich nur im
-            # Trennzeichen -- beide nutzen wie die Rohdaten Dezimalkomma.
-            delimiter = ";" if export_format == "csv" else "\t"
-            with open(path, "w", newline="", encoding="utf-8-sig") as f:
-                writer = csv.writer(f, delimiter=delimiter)
-                writer.writerow(header)
-                for row in rows:
-                    writer.writerow(
-                        [self._format_csv_number(v) if isinstance(v, float) else v for v in row]
-                    )
+        try:
+            if export_format == "json":
+                # Echte Zahlen mit Dezimalpunkt (JSON-Standard, locale-
+                # unabhaengig) statt der komma-formatierten Text-Darstellung von
+                # CSV/Text -- konsistent von jedem JSON-Parser lesbar.
+                #
+                # dict(zip(header, row)) setzt voraus, dass "header" keine
+                # doppelten Eintraege enthaelt -- sonst wuerde eine Spalte
+                # stillschweigend eine andere ueberschreiben und deren Werte
+                # gingen verloren. CsvColumnDialog._on_accept lehnt doppelte
+                # Spaltennamen bereits vor dem Schliessen des Dialogs ab
+                # (siehe dort), diese Annahme ist also hier bereits erfuellt.
+                records = [dict(zip(header, row)) for row in rows]
+                Path(path).write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
+            else:
+                # CSV (';') und Text (Tabulator) unterscheiden sich nur im
+                # Trennzeichen -- beide nutzen wie die Rohdaten Dezimalkomma.
+                delimiter = ";" if export_format == "csv" else "\t"
+                with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                    writer = csv.writer(f, delimiter=delimiter)
+                    writer.writerow(header)
+                    for row in rows:
+                        writer.writerow(
+                            [self._format_csv_number(v) if isinstance(v, float) else v for v in row]
+                        )
+        except OSError as exc:
+            QtWidgets.QMessageBox.critical(self, "Fehler", f"Konnte Werte nicht speichern:\n{exc}")
+            return
 
         self.statusBar().showMessage(f"Werte gespeichert: {path}")
 
@@ -5317,6 +5413,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     (self._temporary_graph_content(selected_roi_numbers, include_live_curve)
                      if graph_widget is not None else contextlib.nullcontext()), \
                     self._frozen_ui_during_export(), \
+                    self._paused_background_timers(), \
                     self._scaled_export_visuals(scale):
                 # EINMALIG (nicht pro Frame) berechnet -- siehe
                 # _render_video_frame fuer den Grund (sonst leicht

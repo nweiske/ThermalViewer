@@ -218,7 +218,23 @@ def parse_timestamp(
     if not match:
         # Kein Zeitstempel im Namen -> Dateisystem-Änderungszeit als Fallback,
         # damit auch beliebig benannte Dateien geladen werden können.
-        return datetime.fromtimestamp(path.stat().st_mtime)
+        try:
+            return datetime.fromtimestamp(path.stat().st_mtime)
+        except OSError:
+            # Datei zwischen dem Auflisten (glob) und dieser Zeitstempel-
+            # Ermittlung verschwunden/nicht mehr zugreifbar (Antivirus-Scan,
+            # "Schreiben-dann-Umbenennen" der Messsoftware, Netzlaufwerk-
+            # Aussetzer). Diese Funktion dient u.a. als SORTIER-Schluessel in
+            # load_paths()/append_paths() -- dort NOCH VOR der eigentlichen
+            # Datei-fuer-Datei-Fehlerbehandlung aufgerufen. Ein hier erneut
+            # geworfener OSError wuerde den kompletten (auch bei der alle
+            # 10s unbeaufsichtigt laufenden Live-Ordner-Ueberwachung
+            # genutzten) Ladevorgang abbrechen, statt nur diese eine Datei zu
+            # ueberspringen. Ein fester Ersatzwert laesst die Sortierung
+            # kontrolliert durchlaufen -- das eigentliche Scheitern passiert
+            # danach beim Lesen des Dateiinhalts, wo es bereits regulaer als
+            # uebersprungene Datei behandelt wird.
+            return datetime.min
     return datetime.strptime(match.group(1), strptime_fmt)
 
 

@@ -3932,6 +3932,180 @@ def test_load_paths_cancel_import_retry_shows_original_error():
 
 check("_load_paths returns False and leaves state untouched when the import-settings retry is declined", test_load_paths_cancel_import_retry_shows_original_error)
 
+
+# ==================================================== Robustheits-Pass =====
+
+def test_parse_timestamp_returns_fallback_instead_of_crashing_on_vanished_file():
+    # Bugfix: parse_timestamp() dient u.a. als SORTIER-Schluessel in
+    # load_paths()/append_paths(), also VOR deren eigentlicher Datei-fuer-
+    # Datei-Fehlerbehandlung. Verschwindet eine Datei zwischen dem Auflisten
+    # (glob) und dem Fallback-stat() (kein Zeitstempel im Namen -> Datei-
+    # System-Aenderungszeit), darf das nicht den kompletten Ladevorgang mit
+    # einem unabgefangenen OSError abbrechen.
+    from datetime import datetime as _dt
+    import re as _re
+    from thermal_viewer.data import parse_timestamp
+
+    ghost = OUT / "this_file_does_not_exist_12345.csv"
+    never_matches = _re.compile(r"(?!)")  # passt auf keinen String
+    result = parse_timestamp(ghost, pattern=never_matches, strptime_fmt="%Y")
+    assert result == _dt.min, result
+
+
+check(
+    "parse_timestamp() falls back instead of raising OSError when the file vanished before stat()",
+    test_parse_timestamp_returns_fallback_instead_of_crashing_on_vanished_file,
+)
+
+
+def test_load_project_caps_roi_count_against_corrupted_index():
+    # Bugfix: eine .tvproj-Datei (z.B. handbearbeitet oder aus einer
+    # zukuenftigen App-Version) mit einer riesigen ROI-"index"-Zahl duerfte
+    # NICHT versuchen, ebenso viele ROI-Eintraege auf einmal anzulegen
+    # (Einfrieren/Speicherueberlauf) -- siehe MAX_ROI_COUNT.
+    from thermal_viewer.main_window import MAX_ROI_COUNT
+
+    project_path = OUT / "corrupted_huge_roi_index.tvproj"
+    rows, cols = win.recording.shape
+    project_data = {
+        "quellordner": str(DATASET),
+        "bild_groesse_px": {"zeilen": rows, "spalten": cols},
+        "rois": [{"index": 999_999_999, "name": "Bogus", "platziert": False}],
+    }
+    project_path.write_text(json.dumps(project_data), encoding="utf-8")
+
+    prev_roi_count = len(win.roi_entries)
+    orig_get_open = QtWidgets.QFileDialog.getOpenFileName
+    try:
+        QtWidgets.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(project_path), ""))
+        win._load_project()
+        assert len(win.roi_entries) == prev_roi_count, (
+            "ein korrupter riesiger 'index'-Wert haette KEINE neuen ROIs anlegen duerfen"
+        )
+        assert len(win.roi_entries) <= MAX_ROI_COUNT
+    finally:
+        QtWidgets.QFileDialog.getOpenFileName = orig_get_open
+
+
+check(
+    "_load_project caps ROI creation against a corrupted/oversized 'index' value instead of hanging",
+    test_load_project_caps_roi_count_against_corrupted_index,
+)
+
+
+def test_csv_column_dialog_rejects_duplicate_column_names():
+    # Bugfix: dict(zip(header, row)) im JSON-Export (MainWindow._export_csv)
+    # wuerde bei zwei identischen Spaltennamen eine Spalte stillschweigend
+    # ueberschreiben -- der Dialog muss das schon vor dem Schliessen
+    # verhindern, auch fuer zwei leer gelassene Felder (beide fallen auf
+    # denselben Standardnamen "Messwert" zurueck).
+    from thermal_viewer.dialogs import CsvColumnDialog
+
+    entries = [
+        {"name": "ROI 1", "width_px": 30.0, "height_px": 20.0, "width_mm": None, "height_mm": None},
+        {"name": "ROI 2", "width_px": 12.0, "height_px": 12.0, "width_mm": None, "height_mm": None},
+    ]
+    dialog = CsvColumnDialog(win, entries)
+    try:
+        accepted = []
+        dialog.accept = lambda: accepted.append(True)
+
+        dialog._edits[0].setText("Gleicher Name")
+        dialog._edits[1].setText("Gleicher Name")
+        dialog._on_accept()
+        assert accepted == [], "haette wegen doppelter Spaltennamen NICHT akzeptieren duerfen"
+
+        dialog._edits[0].setText("   ")
+        dialog._edits[1].setText("")
+        dialog._on_accept()
+        assert accepted == [], "zwei leere Namen (-> beide 'Messwert') haetten als Duplikat gelten muessen"
+
+        dialog._edits[1].setText("Anderer Name")
+        dialog._on_accept()
+        assert accepted == [True], "haette bei eindeutigen Namen akzeptieren muessen"
+    finally:
+        dialog.close()
+
+
+check(
+    "CsvColumnDialog rejects duplicate column names, including two blank names both falling back to 'Messwert'",
+    test_csv_column_dialog_rejects_duplicate_column_names,
+)
+
+
+def test_paused_background_timers_stops_and_restores_watch_and_playback():
+    # Bugfix: waehrend _load_paths()/_export_video() wiederholt
+    # QApplication.processEvents() aufrufen, duerfen der 10s-Live-Watch-
+    # Timer und der Wiedergabe-Timer nicht mitten im Vorgang feuern (siehe
+    # _paused_background_timers) -- und muessen danach exakt in ihren
+    # vorherigen Zustand zurueckkehren (ob sie liefen oder nicht).
+    win._live_watch_timer.start()
+    win.play_timer.start(50)
+    try:
+        assert win._live_watch_timer.isActive()
+        assert win.play_timer.isActive()
+        with win._paused_background_timers():
+            assert not win._live_watch_timer.isActive()
+            assert not win.play_timer.isActive()
+        assert win._live_watch_timer.isActive()
+        assert win.play_timer.isActive()
+    finally:
+        win._live_watch_timer.stop()
+        win.play_timer.stop()
+
+    assert not win._live_watch_timer.isActive()
+    assert not win.play_timer.isActive()
+    with win._paused_background_timers():
+        assert not win._live_watch_timer.isActive()
+        assert not win.play_timer.isActive()
+    assert not win._live_watch_timer.isActive(), "waere vorher inaktiv gewesen, darf danach nicht laufen"
+    assert not win.play_timer.isActive()
+
+
+check(
+    "_paused_background_timers stops+restores live-watch/playback timers, symmetric for both active and inactive start state",
+    test_paused_background_timers_stops_and_restores_watch_and_playback,
+)
+
+
+def test_export_csv_shows_error_dialog_on_write_failure_instead_of_crashing():
+    # Bugfix: _export_csv hatte (anders als jeder andere Export-Pfad in
+    # dieser Datei) keinerlei Fehlerbehandlung um den eigentlichen
+    # Datei-Schreibvorgang -- ein ganz gewoehnliches "Ziel-CSV ist gerade in
+    # Excel geoeffnet" haette die App mit einem unabgefangenen OSError
+    # abstuerzen lassen. Ein Verzeichnis als Schreibziel erzwingt hier
+    # portabel einen echten OSError (IsADirectoryError/PermissionError),
+    # ohne dafuer irgendetwas monkeypatchen zu muessen.
+    from thermal_viewer.dialogs import CsvColumnDialog
+
+    locked_target = OUT / "export_csv_write_failure.csv"
+    locked_target.mkdir(exist_ok=True)
+    try:
+        placed = [e for e in win.roi_entries if e.placed]
+        assert placed, "Testvoraussetzung: mindestens ein platzierter Messbereich"
+
+        def fake_column_exec(self):
+            self.combo_format.setCurrentIndex(self.combo_format.findData("csv"))
+            return (self.accept(), QtWidgets.QDialog.DialogCode.Accepted)[1]
+
+        orig_save = QtWidgets.QFileDialog.getSaveFileName
+        try:
+            with temp_dialog_exec(CsvColumnDialog, fake_column_exec):
+                QtWidgets.QFileDialog.getSaveFileName = staticmethod(
+                    lambda *a, **k: (str(locked_target), "CSV-Datei (*.csv)")
+                )
+                win._export_csv()  # darf NICHT crashen -- OSError muss abgefangen werden
+        finally:
+            QtWidgets.QFileDialog.getSaveFileName = orig_save
+    finally:
+        locked_target.rmdir()
+
+
+check(
+    "_export_csv catches OSError on write failure and shows an error dialog instead of crashing",
+    test_export_csv_shows_error_dialog_on_write_failure_instead_of_crashing,
+)
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S):", failures)

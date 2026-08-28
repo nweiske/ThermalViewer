@@ -8,7 +8,6 @@ compile_filename_template) auch fuer andere Namensschemata anpassbar.
 """
 from __future__ import annotations
 
-import dataclasses
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -209,20 +208,6 @@ class ImportSettings:
     skip_leading_columns: int = 0
     skip_trailing_columns: int = 0
 
-    def to_dict(self) -> dict:
-        return dataclasses.asdict(self)
-
-    @staticmethod
-    def from_dict(data: dict) -> "ImportSettings":
-        """Baut aus einem (z.B. aus QSettings/JSON stammenden) dict eine
-        ImportSettings -- unbekannte/fehlende Schluessel fallen auf den
-        jeweiligen Standardwert zurueck, damit alte/neue Programmversionen
-        gespeicherte Einstellungen des jeweils anderen Stands nicht mit
-        einem Fehler ablehnen."""
-        defaults = ImportSettings()
-        kwargs = {f.name: data.get(f.name, getattr(defaults, f.name)) for f in dataclasses.fields(ImportSettings)}
-        return ImportSettings(**kwargs)
-
 
 def parse_timestamp(
     path: Path,
@@ -254,7 +239,11 @@ def _select_data_lines(text: str, settings: ImportSettings) -> list[str]:
     if settings.skip_header_lines:
         lines = lines[settings.skip_header_lines:]
     if settings.skip_footer_lines:
-        lines = lines[: -settings.skip_footer_lines] if settings.skip_footer_lines < len(lines) else []
+        # seq[:-n] clamped von Python bereits korrekt auf [] fuer n >= len(seq)
+        # -- ein zusaetzlicher Laengenvergleich waere redundant. Der aeussere
+        # if-Guard bleibt aber noetig: bei n == 0 waere -n == 0 und seq[:-0]
+        # wuerde (anders als beabsichtigt) ALLES statt NICHTS abschneiden.
+        lines = lines[: -settings.skip_footer_lines]
     return lines
 
 
@@ -268,7 +257,7 @@ def _parse_data_line(line: str, settings: ImportSettings) -> list[float]:
     if settings.skip_leading_columns:
         parts = parts[settings.skip_leading_columns:]
     if settings.skip_trailing_columns:
-        parts = parts[: -settings.skip_trailing_columns] if settings.skip_trailing_columns < len(parts) else []
+        parts = parts[: -settings.skip_trailing_columns]  # siehe _select_data_lines zum Grund des if-Guards
     sep = settings.decimal_separator
     return [float(value.strip().replace(sep, ".") if sep and sep != "." else value.strip()) for value in parts]
 

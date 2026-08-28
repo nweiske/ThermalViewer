@@ -3678,22 +3678,48 @@ check(
 
 # ==================================================== Datenimport-Manager ==
 
-def test_import_settings_dict_roundtrip_and_compat():
+def test_import_settings_qsettings_roundtrip_and_missing_key_defaults():
+    # _set_import_settings(persist=True)/_load_import_settings sind der
+    # tatsaechlich genutzte Persistenzweg (je ein einzelner QSettings-
+    # Schluessel pro Feld, konsistent mit den uebrigen Einstellungen dieser
+    # App wie z.B. filename_template) -- ein frisches MainWindow muss exakt
+    # das zuletzt persistierte ImportSettings wieder laden, und ein noch nie
+    # zuvor gespeicherter Schluessel (frische QSettings-Datei) muss auf die
+    # ImportSettings-Standardwerte zurueckfallen statt zu scheitern.
     from thermal_viewer.data import ImportSettings
 
-    s = ImportSettings(
-        delimiter="\t", decimal_separator=".", encoding="cp1252",
-        skip_header_lines=2, skip_footer_lines=1, skip_leading_columns=1, skip_trailing_columns=1,
-    )
-    assert ImportSettings.from_dict(s.to_dict()) == s
-    # Fehlende Schluessel (z.B. aeltere gespeicherte QSettings) -> Standardwerte.
-    assert ImportSettings.from_dict({}) == ImportSettings()
-    # Unbekannte Schluessel (z.B. neuere gespeicherte QSettings, alte App-Version)
-    # werden ignoriert statt einen Fehler zu werfen.
-    assert ImportSettings.from_dict({"delimiter": ",", "future_field": 123}) == ImportSettings(delimiter=",")
+    fresh1 = MainWindow()
+    try:
+        fresh1._import_settings = ImportSettings()
+        custom = ImportSettings(
+            delimiter="\t", decimal_separator=".", encoding="cp1252",
+            skip_header_lines=2, skip_footer_lines=1, skip_leading_columns=1, skip_trailing_columns=1,
+        )
+        fresh1._set_import_settings(custom, persist=True)
+        assert fresh1._import_settings == custom
+
+        fresh2 = MainWindow()
+        try:
+            assert fresh2._import_settings == custom, "persistierte Einstellung haette geladen werden muessen"
+        finally:
+            fresh2.close()
+
+        # Wieder auf den Standard zuruecksetzen, damit nachfolgende Tests in
+        # diesem Lauf (gemeinsame, isolierte QSettings-Datei) unbeeinflusst bleiben.
+        fresh1._set_import_settings(ImportSettings(), persist=True)
+        fresh3 = MainWindow()
+        try:
+            assert fresh3._import_settings == ImportSettings()
+        finally:
+            fresh3.close()
+    finally:
+        fresh1.close()
 
 
-check("ImportSettings.to_dict()/from_dict() round-trip + forward/backward compat", test_import_settings_dict_roundtrip_and_compat)
+check(
+    "MainWindow._set_import_settings(persist=True)/_load_import_settings round-trip through QSettings, default on missing keys",
+    test_import_settings_qsettings_roundtrip_and_missing_key_defaults,
+)
 
 
 def test_parse_frame_text_header_footer_columns_delimiter_decimal():

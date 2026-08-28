@@ -2650,7 +2650,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if error is None:
                 break
             if self._offer_import_settings_retry(paths[0], str(error)):
-                dlg = ImportSettingsDialog(self, paths[0], import_settings)
+                dlg = ImportSettingsDialog(self, paths[0], import_settings, is_retry=True)
                 if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
                     new_settings = dlg.settings()
                     if dlg.persist():

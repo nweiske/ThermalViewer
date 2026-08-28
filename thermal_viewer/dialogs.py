@@ -1395,11 +1395,21 @@ class ImportSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     _PARSED_PREVIEW_ROWS = 6
     _PARSED_PREVIEW_COLS = 8
 
-    def __init__(self, parent, sample_path: Path, settings: ImportSettings):
+    def __init__(self, parent, sample_path: Path, settings: ImportSettings, *, is_retry: bool = False):
         super().__init__(parent)
         self.setWindowTitle("Datenimport anpassen")
         self.setMinimumSize(780, 620)
         self._sample_path = Path(sample_path)
+        # Cache fuer den zuletzt gelesenen Dateiinhalt: nur Pfad und
+        # Kodierung beeinflussen, WAS von der Platte gelesen wird -- alle
+        # anderen Einstellungen (Kopf-/Fusszeilen, Trennzeichen, Spalten)
+        # wirken nur auf den bereits im Speicher liegenden Text. Ohne diesen
+        # Cache laese _refresh() bei JEDER Spinbox-Aenderung (Klick auf einen
+        # der Pfeile) die komplette Beispieldatei erneut von der Platte --
+        # bei einer grossen Datei spuerbares Rucken pro Klick.
+        self._cache_key: tuple[Path, str] | None = None
+        self._cached_text = ""
+        self._cached_read_error: str | None = None
 
         layout = QtWidgets.QVBoxLayout(self)
 
@@ -1492,10 +1502,23 @@ class ImportSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         layout.addWidget(result_box)
 
         self.chk_persist = QtWidgets.QCheckBox("Als neue Standardeinstellung dauerhaft speichern")
-        self.chk_persist.setToolTip(
-            "Aus: gilt nur für diesen einen Ladevorgang. An: wird als neuer Standard für "
-            "künftige Ladevorgänge gespeichert."
-        )
+        if is_retry:
+            # Waehrend eines konkreten Ladevorgangs (siehe MainWindow._load_paths):
+            # unmarkiert gilt die Anpassung wirklich nur fuer DIESEN einen Versuch,
+            # der Session-Standard bleibt unveraendert.
+            self.chk_persist.setToolTip(
+                "Aus: gilt nur für diesen einen Ladevorgang. An: wird als neuer Standard für "
+                "künftige Ladevorgänge gespeichert."
+            )
+        else:
+            # Eigenstaendig ueber "Werkzeuge > Datenimport anpassen…" geoeffnet
+            # (kein Ladevorgang laeuft gerade) -- ein OK hier hat nur dann
+            # ueberhaupt einen Effekt, wenn es den Session-Standard aendert,
+            # sonst waere der Dialog ausserhalb einer Fehlerbehebung wirkungslos.
+            self.chk_persist.setToolTip(
+                "Aus: gilt nur für die aktuelle Sitzung (bis zum Beenden des Programms). "
+                "An: wird zusätzlich dauerhaft als neuer Standard gespeichert."
+            )
         layout.addWidget(self.chk_persist)
 
         self.buttons = QtWidgets.QDialogButtonBox(
@@ -1542,12 +1565,17 @@ class ImportSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
     def _refresh(self) -> None:
         settings = self.settings()
-        try:
-            text = self._sample_path.read_text(encoding=settings.encoding)
-            read_error: str | None = None
-        except (OSError, LookupError, UnicodeDecodeError) as exc:
-            text = ""
-            read_error = f"Beispieldatei konnte nicht gelesen werden: {exc}"
+        cache_key = (self._sample_path, settings.encoding)
+        if cache_key != self._cache_key:
+            try:
+                self._cached_text = self._sample_path.read_text(encoding=settings.encoding)
+                self._cached_read_error = None
+            except (OSError, LookupError, UnicodeDecodeError) as exc:
+                self._cached_text = ""
+                self._cached_read_error = f"Beispieldatei konnte nicht gelesen werden: {exc}"
+            self._cache_key = cache_key
+        text = self._cached_text
+        read_error = self._cached_read_error
 
         self.raw_preview.setPlainText(
             "\n".join(text.splitlines()[: self._MAX_RAW_PREVIEW_LINES]) or "(leer)"

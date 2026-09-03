@@ -64,8 +64,22 @@ jobs:
         # startete der Video-Export auf einem frischen Rechner ohne lokal
         # installiertes imageio mit einer Fehlermeldung, obwohl das Paket in
         # pyproject.toml als Abhaengigkeit gelistet ist (Bugreport).
+        #
+        # --noupx: OHNE UPX-Kompression bauen (Bugreport: "Failed to extract
+        # VCRUNTIME140.dll: decompression resulted in return code -3!" beim
+        # Start auf einem ANDEREN Rechner als dem, auf dem gebaut wurde, z.B.
+        # nach Kopieren auf einen USB-Stick). Ursache: PyInstallers
+        # --onefile-Bootloader entpackt beim Start alle mitgelieferten
+        # Dateien in einen Temp-Ordner -- ist z.B. vcruntime140.dll dabei
+        # zusaetzlich UPX-komprimiert, schlaegt dieses Entpacken auf manchen
+        # Zielrechnern fehl (u.a. durch Antiviren-Software, die UPX-
+        # komprimierte Binaries besonders aggressiv/verzoegert prueft und
+        # dabei den Extraktionsvorgang stoert) -- ein bekanntes, gut
+        # dokumentiertes PyInstaller+UPX-Problem, nicht spezifisch fuer diese
+        # App. Ohne UPX ist die exe zwar etwas groesser, dafuer aber auf
+        # jedem Zielrechner zuverlaessig lauffaehig.
         run: >
-          uv run pyinstaller --noconfirm --clean --windowed --onefile
+          uv run pyinstaller --noconfirm --clean --windowed --onefile --noupx
           --name ThermalViewer --icon thermal_viewer/resources/icon.ico
           --add-data "thermal_viewer/resources/icon.ico;resources"
           --collect-all imageio_ffmpeg --collect-all imageio run.py
@@ -107,8 +121,10 @@ jobs:
         run: python -m pytest
 
       - name: Windows-7-exe bauen
+        # --noupx: siehe Kommentar im "build-windows"-Job (Bugreport "Failed
+        # to extract VCRUNTIME140.dll") -- betrifft --onefile-Builds generell.
         run: >
-          pyinstaller --noconfirm --clean --windowed --onefile
+          pyinstaller --noconfirm --clean --windowed --onefile --noupx
           --name ThermalViewer --icon thermal_viewer/resources/icon.ico
           --add-data "thermal_viewer/resources/icon.ico;resources" run.py
 
@@ -163,9 +179,10 @@ jobs:
       - name: Linux-Binärdatei bauen
         # --collect-all imageio_ffmpeg/imageio: siehe Kommentar im
         # Windows-Build-Schritt oben -- betrifft den PyInstaller-Onefile-Bau
-        # gleichermaßen.
+        # gleichermaßen. --noupx: siehe Kommentar im "build-windows"-Job --
+        # aus Konsistenz-/Zuverlaessigkeitsgruenden auch hier ohne UPX.
         run: >
-          uv run pyinstaller --noconfirm --clean --onefile
+          uv run pyinstaller --noconfirm --clean --onefile --noupx
           --name ThermalViewer
           --add-data "thermal_viewer/resources/icon.ico:resources"
           --collect-all imageio_ffmpeg --collect-all imageio run.py

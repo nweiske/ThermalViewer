@@ -323,6 +323,91 @@ def load_frame(path: Path, import_settings: ImportSettings | None = None) -> np.
     return parse_frame_text(text, settings)
 
 
+def load_tiff_grayscale(path: Path) -> np.ndarray:
+    """Liest eine EINZELSEITIGE Graustufen-TIFF-Datei (z.B. ein "Intensität
+    (DL)"-Rohbild-Export ohne Farbskala/Kalibrierung) und gibt ihre
+    Helligkeitswerte als (Höhe, Breite)-Array zurück -- Grundlage für den
+    TIFF-Import (siehe dialogs.TiffImportDialog), der daraus per manuell
+    angegebener Min-/Max-Temperatur und Bildausschnitt eine Temperaturmatrix
+    im normalen Anwendungsformat erzeugt (siehe tiff_crop_to_temperature).
+
+    Bewusst NUR echte Graustufenbilder (R=G=B je Pixel, bis auf minimales
+    Kompressionsrauschen): ein bereits falschfarben koloriertes Thermobild
+    liesse sich ohne exakte Kenntnis der verwendeten Farbpalette NICHT
+    zuverlässig in Werte zurückrechnen -- ein Rateversuch würde falsche,
+    aber plausibel aussehende Temperaturen erzeugen, was hier bewusst
+    vermieden wird (Nutzervorgabe: nur einbauen, wenn zuverlässig lösbar).
+    Ebenso werden mehrseitige TIFFs abgelehnt: ohne bekannte, dokumentierte
+    Bedeutung einer zweiten Bildebene (herstellerspezifisch, siehe
+    Analyse-Notizen) wäre auch dort nur raten möglich.
+
+    tifffile wird bewusst NUR hier (lazy) importiert, nicht auf Modulebene
+    -- data.py wird bei JEDEM Programmstart importiert, auch im
+    Windows-7-Legacy-Build, der dieses (dort nicht mitgelieferte) Paket
+    nicht installiert hat (siehe requirements-win7.txt). Ein Modulebene-
+    Import würde dort den kompletten Programmstart verhindern, statt nur
+    diese eine, optionale Funktion nicht nutzbar zu machen."""
+    try:
+        import tifffile
+    except ImportError as exc:
+        raise RecordingError(
+            "Für den TIFF-Import wird das Paket „tifffile“ benötigt, das in dieser Installation "
+            "nicht verfügbar ist."
+        ) from exc
+
+    try:
+        with tifffile.TiffFile(str(path)) as tif:
+            if len(tif.pages) != 1:
+                raise RecordingError(
+                    f"„{path.name}“ hat {len(tif.pages)} Bildebenen -- unterstützt wird nur eine "
+                    "einzelne Graustufen-Bildebene pro Datei."
+                )
+            arr = tif.pages[0].asarray()
+    except RecordingError:
+        raise
+    except Exception as exc:
+        raise RecordingError(f"„{path.name}“ konnte nicht als TIFF gelesen werden: {exc}") from exc
+
+    if arr.ndim == 2:
+        return arr.astype(np.float64)
+    if arr.ndim == 3 and arr.shape[2] >= 3:
+        r = arr[:, :, 0].astype(np.float64)
+        g = arr[:, :, 1].astype(np.float64)
+        b = arr[:, :, 2].astype(np.float64)
+        if max(float(np.abs(r - g).max()), float(np.abs(r - b).max())) > 4:
+            raise RecordingError(
+                f"„{path.name}“ ist kein Graustufenbild (die Farbkanäle weichen sichtbar "
+                "voneinander ab) -- eine zuverlässige Rückrechnung aus einer Falschfarben-"
+                "Kolorierung ist ohne die genaue Farbpalette nicht möglich."
+            )
+        return r
+    raise RecordingError(f"„{path.name}“ hat ein nicht unterstütztes Bildformat.")
+
+
+def tiff_crop_to_temperature(
+    gray: np.ndarray, crop: tuple[int, int, int, int], t_min: float, t_max: float
+) -> np.ndarray:
+    """Bildet den Ausschnitt crop=(x0, y0, x1, y1) von gray (siehe
+    load_tiff_grayscale) linear zwischen t_min (dunkelster Pixel IM
+    Ausschnitt) und t_max (hellster Pixel im Ausschnitt) auf Temperaturwerte
+    ab. Reine, unkalibrierte lineare Skalierung -- KEINE echte radiometrische
+    Kalibrierung der Kamera (siehe TiffImportDialog für den vollen
+    Warnhinweis "Auswertung auf eigene Gefahr"). Der Ausschnitt muss die
+    Farbskala/Legende des Original-Exports bereits ausschliessen, sonst
+    verfälschen deren Extremwerte (reines Schwarz/Weiss) t_min/t_max."""
+    x0, y0, x1, y1 = crop
+    region = gray[y0:y1, x0:x1]
+    if region.size == 0:
+        raise RecordingError("Der gewählte Bildausschnitt ist leer.")
+    g_min, g_max = float(region.min()), float(region.max())
+    if g_max - g_min < 1e-9:
+        # Kontrastloser Ausschnitt (z.B. komplett einfarbig) -- ohne diesen
+        # Schutz wuerde die Division unten durch Null fuehren.
+        return np.full(region.shape, t_min, dtype=np.float32)
+    normalized = (region - g_min) / (g_max - g_min)
+    return (t_min + normalized * (t_max - t_min)).astype(np.float32)
+
+
 @dataclass
 class Recording:
     paths: list[Path] = field(default_factory=list)
@@ -402,10 +487,17 @@ def load_paths(
     dialogs.ImportSettingsDialog). Ohne Angabe gilt das bisherige feste
     Format.
     """
-    def _ts(p: Path) -> datetime:
-        return parse_timestamp(p, pattern, strptime_fmt)
-
-    paths = sorted(paths, key=_ts)
+    # Zeitstempel je Datei EINMAL ermitteln und zwischenspeichern (statt bei
+    # Bedarf mehrfach ueber parse_timestamp() neu zu berechnen): dessen
+    # OSError-Fallback (siehe dort) kann bei einem zwischenzeitlich wieder
+    # verschwundenen/erneut zugreifbaren Zeitstempel-Kandidaten sonst bei
+    # zwei Aufrufen fuer dieselbe Datei unterschiedliche Werte liefern --
+    # das wuerde die Sortierreihenfolge (erster Aufruf) von der tatsaechlich
+    # gespeicherten Recording.timestamps-Reihenfolge (zweiter Aufruf)
+    # abweichen lassen und die von _deduplicate_timestamps vorausgesetzte
+    # aufsteigende Sortierung unbemerkt verletzen.
+    timestamps_by_path = {p: parse_timestamp(p, pattern, strptime_fmt) for p in paths}
+    paths = sorted(paths, key=lambda p: timestamps_by_path[p])
 
     loaded: list[tuple[Path, datetime, np.ndarray]] = []
     skipped: list[tuple[Path, str]] = []
@@ -416,7 +508,7 @@ def load_paths(
         except (OSError, UnicodeDecodeError, ValueError, RecordingError) as exc:
             skipped.append((p, str(exc)))
         else:
-            loaded.append((p, _ts(p), frame))
+            loaded.append((p, timestamps_by_path[p], frame))
         if progress_cb is not None:
             progress_cb(i + 1, len(paths))
 
@@ -484,11 +576,14 @@ def append_paths(
     dem beim urspruenglichen Laden dieser Recording verwendeten
     Namensschema/Datenimport uebereinstimmen (MainWindow uebergibt dafuer
     konsistent self._active_filename_pattern/-strptime_fmt/-import_settings)."""
-    def _ts(p: Path) -> datetime:
-        return parse_timestamp(p, pattern, strptime_fmt)
-
     existing = set(recording.paths)
-    candidates = sorted((p for p in new_paths if p not in existing), key=_ts)
+    candidate_paths = [p for p in new_paths if p not in existing]
+    # Siehe load_paths(): Zeitstempel je Datei EINMAL ermitteln und
+    # zwischenspeichern, damit Sortierreihenfolge und gespeicherter
+    # Recording.timestamps-Wert bei einem transienten OSError-Fallback nicht
+    # auseinanderlaufen.
+    timestamps_by_path = {p: parse_timestamp(p, pattern, strptime_fmt) for p in candidate_paths}
+    candidates = sorted(candidate_paths, key=lambda p: timestamps_by_path[p])
     if not candidates:
         return recording
 
@@ -507,7 +602,7 @@ def append_paths(
                     (p, f"Abweichende Bildaufloesung {frame.shape} -- erwartet wurde {reference_shape}")
                 )
             else:
-                loaded.append((p, _ts(p), frame))
+                loaded.append((p, timestamps_by_path[p], frame))
         if progress_cb is not None:
             progress_cb(i + 1, len(candidates))
 

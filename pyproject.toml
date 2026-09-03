@@ -10,6 +10,7 @@ dependencies = [
     "pyqtgraph>=0.14.0",
     "pyside6>=6.11.1",
     "qtpy>=2.4.3",
+    "tifffile>=2024.1.30",
 ]
 
 [tool.uv]

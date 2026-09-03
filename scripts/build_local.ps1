@@ -45,7 +45,9 @@ Write-Host "==> Windows-exe bauen (PyInstaller)..." -ForegroundColor Cyan
 # Identischer Befehl wie im "build-windows"-Job (siehe
 # .github/workflows/release.yml) -- inkl. --collect-all fuer
 # imageio/imageio-ffmpeg, sonst fehlt der Video-Export in der fertigen exe.
-uv run pyinstaller --noconfirm --clean --windowed --onefile `
+# --noupx: siehe Kommentar im "build-windows"-Job -- ohne UPX-Kompression,
+# um "Failed to extract VCRUNTIME140.dll" auf anderen Rechnern zu vermeiden.
+uv run pyinstaller --noconfirm --clean --windowed --onefile --noupx `
     --name ThermalViewer `
     --icon thermal_viewer/resources/icon.ico `
     --add-data "thermal_viewer/resources/icon.ico;resources" `

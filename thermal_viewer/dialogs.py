@@ -3,12 +3,22 @@ Import-Funktionen (Namensschema-Anpassung beim Laden)."""
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 
+import numpy as np
+import pyqtgraph as pg
 from qtpy import QtCore, QtGui, QtWidgets
 
-from .data import ImportSettings, RecordingError, compile_filename_template, parse_frame_text, validate_filename_template
+from .data import (
+    ImportSettings,
+    RecordingError,
+    compile_filename_template,
+    parse_frame_text,
+    render_filename_template,
+    validate_filename_template,
+)
 from .widgets import LocaleTolerantDoubleSpinBox
 
 
@@ -93,6 +103,151 @@ def _build_color_scale_override(
     }
 
 
+def _build_axis_override_selector(parent_dialog: QtWidgets.QDialog, current_axis_state: dict) -> dict:
+    """Baut den wiederverwendbaren "Aktuelle Ansicht/Eigene Achsen-
+    Einstellungen"-Block -- gemeinsam genutzt von GraphicExportDialog und
+    VideoExportDialog (Nutzerwunsch: "mehr Gestaltungsmoeglichkeiten beim
+    Exportieren ... Achsen-Labels/Ticklabels/Schrittweite"). Oeffnet dafuer
+    bewusst denselben AxisSettingsDialog wie "Achsen einstellen..." im
+    Hauptfenster (Wiedererkennung, keine doppelt gepflegte UI) -- der Export
+    wendet das Ergebnis aber nur WAEHREND des Renderns an und lässt die
+    Live-Ansicht unangetastet (siehe MainWindow._temporary_axis_override).
+
+    current_axis_state: von MainWindow._gather_axis_state(widget) --
+    x_min/x_max (Sekunden seit Aufnahmebeginn), x_auto, x_runtime_mode,
+    x_spacing, y_min/y_max, y_auto, y_spacing."""
+    group_box = QtWidgets.QGroupBox("Achsen")
+    layout = QtWidgets.QVBoxLayout(group_box)
+
+    radio_current = QtWidgets.QRadioButton("Aktuelle Ansicht übernehmen")
+    radio_current.setToolTip("Übernimmt Wertebereich und Tick-Abstand exakt so, wie sie gerade im Hauptfenster angezeigt werden.")
+    radio_custom = QtWidgets.QRadioButton("Eigene Achsen-Einstellungen für diesen Export")
+    radio_current.setChecked(True)
+    layout.addWidget(radio_current)
+    layout.addWidget(radio_custom)
+
+    # Eingerueckt unter "Eigene Achsen-Einstellungen" -- Knopf UND
+    # Zusammenfassungstext gehoeren beide zu DIESER Option (nicht zu
+    # "Aktuelle Ansicht übernehmen" darueber), Bugfix: der Text lautete
+    # zuvor im nicht konfigurierten Zustand "(wie aktuell im Hauptfenster
+    # angezeigt)" -- das beschreibt aber die ANDERE (obere) Option und wirkte
+    # dadurch irrefuehrend, gerade weil er direkt unter "Eigene Achsen-
+    # Einstellungen" steht.
+    indent_row = QtWidgets.QHBoxLayout()
+    indent_row.addSpacing(20)
+    btn_configure = QtWidgets.QPushButton("Einstellen…")
+    lbl_summary = QtWidgets.QLabel("(noch nicht konfiguriert)")
+    lbl_summary.setWordWrap(True)
+    indent_row.addWidget(btn_configure)
+    indent_row.addWidget(lbl_summary, 1)
+    layout.addLayout(indent_row)
+
+    # "overrides" haelt None (noch nicht konfiguriert) oder ein dict mit
+    # denselben Feldern, die AxisSettingsDialog liefert -- wird beim Export
+    # nur angewendet, wenn radio_custom aktiv UND overrides gesetzt ist
+    # (siehe use_custom_axes()/custom_axis_overrides() in den Export-
+    # Dialogen selbst).
+    holder = {"overrides": None}
+
+    def _update_summary() -> None:
+        if holder["overrides"] is None:
+            lbl_summary.setText("(noch nicht konfiguriert)")
+        else:
+            lbl_summary.setText("Eigene Achsen-Einstellungen gewählt.")
+
+    def _open_sub_dialog() -> None:
+        # AxisSettingsDialog ist weiter unten in dieser Datei definiert --
+        # als Vorwaertsreferenz unproblematisch, da dieser Funktionskoerper
+        # erst beim tatsaechlichen Knopfklick (also nach vollstaendigem
+        # Laden des Moduls) ausgefuehrt wird.
+        ov = holder["overrides"]
+        dialog = AxisSettingsDialog(
+            parent_dialog,
+            current_x_min=ov["x_range"][0] if ov else current_axis_state["x_min"],
+            current_x_max=ov["x_range"][1] if ov else current_axis_state["x_max"],
+            current_y_min=ov["y_range"][0] if ov else current_axis_state["y_min"],
+            current_y_max=ov["y_range"][1] if ov else current_axis_state["y_max"],
+            x_manual=ov["x_manual"] if ov else not current_axis_state["x_auto"],
+            y_manual_range=ov["y_manual_range"] if ov else not current_axis_state["y_auto"],
+            y_spacing=(ov["y_spacing"] if ov and ov["y_spacing_manual"] else current_axis_state["y_spacing"]),
+            x_runtime_mode=current_axis_state["x_runtime_mode"],
+            x_spacing=(ov["x_spacing"] if ov and ov["x_spacing_manual"] else current_axis_state["x_spacing"]),
+        )
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        holder["overrides"] = {
+            "x_manual": dialog.x_manual(), "x_range": dialog.x_range(),
+            "x_spacing_manual": dialog.x_manual_spacing(), "x_spacing": dialog.x_spacing(),
+            "y_manual_range": dialog.y_manual_range(), "y_range": dialog.y_range(),
+            "y_spacing_manual": dialog.y_manual_spacing(), "y_spacing": dialog.y_spacing(),
+        }
+        radio_custom.setChecked(True)
+        _update_summary()
+
+    btn_configure.clicked.connect(_open_sub_dialog)
+
+    def _update_enabled() -> None:
+        btn_configure.setEnabled(radio_custom.isChecked())
+
+    radio_current.toggled.connect(_update_enabled)
+    radio_custom.toggled.connect(_update_enabled)
+    _update_enabled()
+
+    return {
+        "group_box": group_box,
+        "radio_current": radio_current,
+        "radio_custom": radio_custom,
+        "btn_configure": btn_configure,
+        "holder": holder,
+    }
+
+
+def _color_scale_range_invalid(
+    radio_custom: QtWidgets.QRadioButton,
+    combo_level_mode: QtWidgets.QComboBox,
+    spin_min: QtWidgets.QDoubleSpinBox,
+    spin_max: QtWidgets.QDoubleSpinBox,
+) -> bool:
+    """True, wenn "Eigene Einstellungen" mit manueller Skalierung gewählt
+    ist, aber Max <= Min steht -- gemeinsam von GraphicExportDialog._on_accept
+    und VideoExportDialog._on_accept genutzt (beide bieten dieselbe Farbskala-
+    Auswahl, VideoExportDialog baut sie aber wegen der zusätzlichen "Farbskala
+    einblenden"-Checkbox nicht über _build_color_scale_override())."""
+    return (
+        radio_custom.isChecked()
+        and combo_level_mode.currentData() == "manual"
+        and spin_max.value() <= spin_min.value()
+    )
+
+
+def _axis_override_incomplete(axis_widgets: dict | None) -> bool:
+    """True, wenn "Eigene Achsen-Einstellungen" gewählt, aber noch nicht über
+    "Einstellen…" konfiguriert wurde -- gemeinsam von GraphicExportDialog und
+    VideoExportDialog genutzt (beide bauen ihren Achsen-Block über
+    _build_axis_override_selector())."""
+    return (
+        axis_widgets is not None
+        and axis_widgets["radio_custom"].isChecked()
+        and axis_widgets["holder"]["overrides"] is None
+    )
+
+
+def _use_custom_axes(axis_widgets: dict | None) -> bool:
+    return (
+        axis_widgets is not None
+        and axis_widgets["radio_custom"].isChecked()
+        and axis_widgets["holder"]["overrides"] is not None
+    )
+
+
+def _custom_axis_overrides(axis_widgets: dict | None) -> dict | None:
+    """Siehe MainWindow._gather_axis_state()/_temporary_axis_override() für
+    die Bedeutung der Felder -- None, falls _use_custom_axes() False ist."""
+    if not _use_custom_axes(axis_widgets):
+        return None
+    return axis_widgets["holder"]["overrides"]
+
+
 _INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
 
 
@@ -104,6 +259,36 @@ def sanitize_filename_prefix(prefix: str, fallback: str = "Frame") -> str:
     damit die Vorschau niemals einen Dateinamen zeigt, der beim
     tatsaechlichen Speichern anders aussehen wuerde."""
     return _INVALID_FILENAME_CHARS.sub("_", prefix).strip() or fallback
+
+
+# Bewusst NICHT Teil von data.FILENAME_TEMPLATE_TOKENS/_tokenize_filename_
+# template(): dieser Platzhalter gilt nur fuer den Bildstapel-Export-Praefix
+# (fortlaufende Frame-Nummer), nicht fuer das Namensschema beim LADEN
+# bestehender Dateien (compile_filename_template/validate_filename_template)
+# -- eine Vermischung wuerde dort z.B. literales "IDX" in einem Ordnerpfad
+# faelschlich als Zahlen-Platzhalter interpretieren. "IDX" (statt z.B. dem
+# kuerzeren "ID") bewusst gewaehlt, um Kollisionen mit zufaellig in einem
+# getippten Praefix vorkommenden Buchstaben "ID" zu vermeiden.
+INDEX_TOKEN = "IDX"
+
+
+def render_index_token(prefix: str, index: int, digits: int) -> tuple[str, bool]:
+    """Ersetzt INDEX_TOKEN im (bereits Zeitstempel-gerenderten) Praefix durch
+    die auf `digits` Stellen nullgefuellte, 1-basierte laufende Nummer.
+
+    Gibt (Ergebnis, gefunden) zurueck: gefunden=False, wenn der Platzhalter
+    nicht vorkam -- der Aufrufer haengt die Nummer dann wie bisher (vor
+    dieser Funktion) automatisch ans Dateiname-Ende an, fuer bestehende
+    Praefixe ohne den neuen Platzhalter also unveraendertes Verhalten.
+    Hintergrund (Nutzerwunsch): enthaelt der Praefix bereits einen vollen
+    Zeitstempel (YYYY-MM-DD_hh-mm-ss), sind die Dateien dadurch meist schon
+    eindeutig unterscheidbar -- die bisher IMMER zusaetzlich angehaengte
+    Nummer war dann ueberfluessig. Mit IDX kann die Nummer stattdessen an
+    beliebiger Stelle im Praefix platziert werden, statt zwingend ans Ende
+    angehaengt zu werden."""
+    if INDEX_TOKEN not in prefix:
+        return prefix, False
+    return prefix.replace(INDEX_TOKEN, f"{index:0{digits}d}"), True
 
 
 def _build_graph_content_selector(
@@ -162,8 +347,14 @@ def _build_graph_content_selector(
     outer.addWidget(chk_live)
 
     def _select_all(checked: bool) -> None:
+        # Bugfix: "Alle auswaehlen"/"Keine auswaehlen" liessen chk_live bisher
+        # unangetastet (nur die ROI-Checkboxen wurden umgeschaltet) -- beim
+        # Abwaehlen wird sie immer mit ausgeschaltet, beim Auswaehlen nur,
+        # wenn ueberhaupt ein Live-Cursor-Pixel verfuegbar ist (sonst bleibt
+        # sie wie bisher deaktiviert).
         for chk in checks.values():
             chk.setChecked(checked)
+        chk_live.setChecked(checked and chk_live.isEnabled())
 
     btn_all.clicked.connect(partial(_select_all, True))
     btn_none.clicked.connect(partial(_select_all, False))
@@ -267,26 +458,51 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         show_graph_source_choice: bool = False,
         live_available: bool = False,
         roi_entries: list[tuple[int, str]] | None = None,
+        current_axis_state: dict | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Grafik exportieren")
-        self.setMinimumWidth(480)
+        # Nutzerwunsch: "gleiche Wahlmoeglichkeiten wie beim Video-Export ...
+        # zur Not auch in die Breite gehen (vom Fenster her)" -- zweispaltiger
+        # Aufbau (siehe layout_top unten) statt einer einzigen, stetig nach
+        # unten wachsenden Spalte, analog zu VideoExportDialog.
+        self.setMinimumWidth(760)
         self._settings = settings
         self._show_mode_choice = show_mode_choice
 
         layout = QtWidgets.QVBoxLayout(self)
+        layout_top = QtWidgets.QHBoxLayout()
+        left_col = QtWidgets.QVBoxLayout()
+        right_col = QtWidgets.QVBoxLayout()
 
-        # Nur noch EIN Grafik-Export-Fenster statt getrennter "Zeitverlauf-"/
-        # "Live-Grafik"-Menüpunkte (Nutzerwunsch): hier wird gewählt, welche
-        # Kurve(n) -- einzelne Messbereiche und/oder Live-Cursor -- tatsächlich
-        # mit exportiert werden sollen.
+        # LINKE Spalte: welche Kurve(n) -- einzelne Messbereiche und/oder
+        # Live-Cursor -- sowie an welcher Position relativ zum Thermobild.
         self._content_widgets = None
+        self.combo_graph_position = None
         self.chk_cursor_position = None
         if show_graph_source_choice:
             self._content_widgets = _build_graph_content_selector(
                 roi_entries or [], live_available, default_live_checked=False
             )
-            layout.addWidget(self._content_widgets["group_box"])
+            left_col.addWidget(self._content_widgets["group_box"])
+
+            # Position relativ zum Thermobild -- dieselben vier Optionen wie
+            # beim Video-/Bildstapel-Export (Nutzerwunsch: "gib mir die
+            # gleichen Wahlmoeglichkeiten"), nur relevant im "Kombiniert"-
+            # Modus (siehe _update_mode_enabled unten), daher unter "Dateien"
+            # in der rechten Spalte gekoppelt statt hier oben eingerueckt.
+            position_row = QtWidgets.QHBoxLayout()
+            position_row.addSpacing(20)
+            self.combo_graph_position = QtWidgets.QComboBox()
+            self.combo_graph_position.addItem("Unter dem Bild", "unten")
+            self.combo_graph_position.addItem("Über dem Bild", "oben")
+            self.combo_graph_position.addItem("Links vom Bild", "links")
+            self.combo_graph_position.addItem("Rechts vom Bild", "rechts")
+            self.combo_graph_position.setCurrentIndex(self.combo_graph_position.findData("rechts"))  # Standard
+            position_form = QtWidgets.QFormLayout()
+            position_form.addRow("Position:", self.combo_graph_position)
+            position_row.addLayout(position_form)
+            left_col.addLayout(position_row)
 
             # Eingerueckt unter "Graph-Inhalt" (gehoert inhaltlich zusammen,
             # siehe _wire_cursor_curve_dependency: Live-Cursor-Kurve setzt
@@ -303,7 +519,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             )
             cursor_row.addWidget(self.chk_cursor_position)
             cursor_row.addStretch(1)
-            layout.addLayout(cursor_row)
+            left_col.addLayout(cursor_row)
             _wire_cursor_curve_dependency(self.chk_cursor_position, self._content_widgets["chk_live"])
         else:
             # Kein Graph in diesem Export (z.B. Einzelexport des Thermobilds
@@ -317,18 +533,20 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 "Thermobild mit ein. Standardmäßig aus, damit die Grafik nicht\n"
                 "ungewollt eine Maus-/Debug-Markierung enthält."
             )
-            layout.addWidget(self.chk_cursor_position)
+            left_col.addWidget(self.chk_cursor_position)
+        left_col.addStretch(1)
+        layout_top.addLayout(left_col, 1)
 
-        # DPI und Kombiniert/Getrennt nebeneinander statt untereinander --
-        # beides sind kurze, unabhaengige Ausgabe-Einstellungen.
-        top_row = QtWidgets.QHBoxLayout()
+        # RECHTE Spalte: DPI, Dateien (kombiniert/getrennt), Farbskala,
+        # Achsen, Zeitachse -- alle uebrigen, von der Kurven-Auswahl
+        # unabhaengigen Export-Einstellungen.
         form = QtWidgets.QFormLayout()
         self.spin_dpi = QtWidgets.QSpinBox()
         self.spin_dpi.setRange(50, 1200)
         self.spin_dpi.setSingleStep(10)
         self.spin_dpi.setValue(default_dpi)
         form.addRow("Auflösung (DPI):", self.spin_dpi)
-        top_row.addLayout(form)
+        right_col.addLayout(form)
 
         self.radio_combined = None
         self.radio_separate = None
@@ -339,14 +557,22 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             self.radio_separate = QtWidgets.QRadioButton("Getrennt (zwei Dateien: Bild und Kurve einzeln)")
             mode_layout.addWidget(self.radio_combined)
             mode_layout.addWidget(self.radio_separate)
-            top_row.addWidget(mode_box, 1)
+            right_col.addWidget(mode_box)
 
             separate = bool(settings.value("export/separate_images", False, type=bool))
             self.radio_separate.setChecked(separate)
             self.radio_combined.setChecked(not separate)
-        else:
-            top_row.addStretch(1)
-        layout.addLayout(top_row)
+
+            # Die Position relativ zum Bild ergibt nur im "Kombiniert"-Modus
+            # (eine gemeinsame Datei) einen Sinn -- bei "Getrennt" landen
+            # Bild und Kurve ohnehin in zwei unabhaengigen Dateien.
+            if self.combo_graph_position is not None:
+                def _update_position_enabled() -> None:
+                    self.combo_graph_position.setEnabled(self.radio_combined.isChecked())
+
+                self.radio_combined.toggled.connect(_update_position_enabled)
+                self.radio_separate.toggled.connect(_update_position_enabled)
+                _update_position_enabled()
 
         # Dieselbe Freiheit wie in der UI: Farbverlauf/Invertiert/Skalierung
         # unabhängig von der aktuell angezeigten Einstellung für GENAU diesen
@@ -355,7 +581,16 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             colormaps or [], current_colormap_index, current_invert,
             current_level_mode, current_min, current_max,
         )
-        layout.addWidget(self._color_widgets["group_box"])
+        right_col.addWidget(self._color_widgets["group_box"])
+
+        # Nur anbieten, wenn dieser Export ueberhaupt einen Kurven-Graphen
+        # enthaelt (current_axis_state wird von MainWindow nur dann
+        # mitgegeben) -- fuer den reinen Thermobild-Einzelexport ergeben
+        # Achsen-Einstellungen keinen Sinn.
+        self._axis_widgets = None
+        if current_axis_state is not None:
+            self._axis_widgets = _build_axis_override_selector(self, current_axis_state)
+            right_col.addWidget(self._axis_widgets["group_box"])
 
         self.combo_time_axis = None
         if show_time_axis_choice:
@@ -372,7 +607,10 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             idx = self.combo_time_axis.findData(current_time_axis_mode)
             self.combo_time_axis.setCurrentIndex(max(0, idx))
             time_form.addRow("Zeitachse:", self.combo_time_axis)
-            layout.addLayout(time_form)
+            right_col.addLayout(time_form)
+        right_col.addStretch(1)
+        layout_top.addLayout(right_col, 1)
+        layout.addLayout(layout_top)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
@@ -391,6 +629,21 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                     "Bitte mindestens einen Messbereich und/oder Live-Cursor auswählen."
                 )
                 return
+        if _color_scale_range_invalid(
+            self._color_widgets["radio_custom"], self._color_widgets["combo_level_mode"],
+            self._color_widgets["spin_min"], self._color_widgets["spin_max"],
+        ):
+            QtWidgets.QMessageBox.warning(
+                self, "Ungültiger Bereich", "Bei der Farbskala muss „Max“ größer als „Min“ sein."
+            )
+            return
+        if _axis_override_incomplete(self._axis_widgets):
+            QtWidgets.QMessageBox.information(
+                self, "Achsen nicht eingestellt",
+                "Bitte auf „Einstellen…“ klicken, um eigene Achsen-Einstellungen festzulegen -- "
+                "oder „Aktuelle Ansicht übernehmen“ wählen."
+            )
+            return
         self.accept()
 
     def dpi(self) -> int:
@@ -414,6 +667,16 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     def include_live(self) -> bool:
         return self._content_widgets is not None and self._content_widgets["chk_live"].isChecked()
 
+    def graph_position(self) -> str:
+        """"unten"/"oben"/"links"/"rechts" -- wo der Kurven-Graph relativ zum
+        Thermobild platziert wird (Standard: "rechts"), dieselbe Konvention
+        wie VideoExportDialog.graph_position(). "unten" als Vorbelegung,
+        falls der Dialog gar keine Positions-Auswahl anbietet (kein Graph in
+        diesem Export, show_graph_source_choice=False)."""
+        if self.combo_graph_position is None:
+            return "unten"
+        return self.combo_graph_position.currentData()
+
     def has_graph_content(self) -> bool:
         """Ob ueberhaupt ein Graph exportiert werden soll -- False nur, wenn
         show_graph_source_choice=False war (kein Graph in diesem Export)."""
@@ -436,6 +699,12 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
     def custom_min_max(self) -> tuple[float, float]:
         return self._color_widgets["spin_min"].value(), self._color_widgets["spin_max"].value()
+
+    def use_custom_axes(self) -> bool:
+        return _use_custom_axes(self._axis_widgets)
+
+    def custom_axis_overrides(self) -> dict | None:
+        return _custom_axis_overrides(self._axis_widgets)
 
     def time_axis_mode(self) -> str:
         """"clock"/"runtime"/"both", oder "clock" als Vorbelegung, falls der
@@ -464,10 +733,21 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         default_end_frame: int | None = None,
         roi_entries: list[tuple[int, str]] | None = None,
         live_available: bool = False,
+        sample_timestamp: datetime | None = None,
+        timestamps: list[datetime] | None = None,
+        current_axis_state: dict | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Video / Bildstapel exportieren")
         self.setMinimumWidth(720)
+        self._sample_timestamp = sample_timestamp
+        # Nur fuer die LIVE-Warnung bei nicht eindeutigem Dateiname-Muster
+        # (siehe _update_filename_preview) -- die tatsaechlich verwendeten
+        # Zeitstempel koennen beim echten Export noch abweichen (siehe
+        # MainWindow._resolve_export_timestamps, Ersatz-Zeitplan ohne echte
+        # Datei-Zeitstempel), die massgebliche Pruefung erfolgt daher ohnehin
+        # dort nochmal.
+        self._timestamps = timestamps
 
         layout = QtWidgets.QVBoxLayout(self)
 
@@ -498,19 +778,35 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             ("WebP-Bild (*.webp)", ".webp"),
         ):
             self.combo_image_format.addItem(label, ext)
-        self.edit_image_prefix = QtWidgets.QLineEdit("Frame_")
+        # Standard bewusst MIT "IDX" (nicht nur "Frame_"): ohne automatisch
+        # angehaengten Zaehler (Punkt 2, "volle Kontrolle ueber den Namen")
+        # waere ein bloss "Frame_" lautender Praefix ab dem allerersten
+        # Bildstapel-Export sofort mehrdeutig -- der Standard soll ohne
+        # jede Anpassung bereits eindeutige Dateinamen ergeben.
+        self.edit_image_prefix = QtWidgets.QLineEdit(f"Frame_{INDEX_TOKEN}_")
         self.edit_image_prefix.setToolTip(
-            "Gemeinsamer Dateiname-Anfang für alle Bilder -- direkt gefolgt vom Frame-Index "
-            "(ein Trennzeichen wie „_“ davor bitte selbst mit eintippen). Unterstützt dieselben "
-            "Zeitstempel-Platzhalter wie das Namensschema beim Laden (YYYY/MM/DD/hh/mm/ss), die "
-            "mit dem echten Zeitstempel jedes Frames gefüllt werden, z.B. "
-            "„Frame_YYYY-MM-DD_hh-mm-ss_“ -> Frame_2026-01-01_12-00-00_1.png, "
-            "Frame_2026-01-01_12-00-01_2.png, …"
+            "Voller Dateiname (ohne Endung) für jedes exportierte Bild -- volle Kontrolle, es wird "
+            "NICHTS automatisch angehängt. Unterstützt dieselben Zeitstempel-Platzhalter wie das "
+            "Namensschema beim Laden (YYYY/MM/DD/hh/mm/ss), die mit dem echten Zeitstempel jedes "
+            "Frames gefüllt werden, sowie „IDX“ für die fortlaufende, nullgefüllte Frame-Nummer -- "
+            "GENAU an der Stelle, wo „IDX“ im Muster steht, z.B. „Frame_IDX_YYYY-MM-DD_hh-mm-ss“ -> "
+            "Frame_1_2026-01-01_12-00-00.png. Ergibt das Muster (z.B. weil es weder „IDX“ noch einen "
+            "vollen Zeitstempel enthält) für mehrere Frames denselben Namen, erscheint beim Export "
+            "eine Warnung -- spätere Frames würden sonst frühere überschreiben."
         )
         image_form.addRow("Bildformat:", self.combo_image_format)
-        image_form.addRow("Dateiname-Präfix:", self.edit_image_prefix)
+        image_form.addRow("Dateiname-Muster:", self.edit_image_prefix)
         self.lbl_filename_preview = QtWidgets.QLabel()
         image_form.addRow("Beispiel:", self.lbl_filename_preview)
+        self.lbl_filename_warning = QtWidgets.QLabel(
+            "⚠ Dieses Muster ergibt für mehrere Frames im gewählten Bereich denselben Dateinamen -- "
+            "spätere Frames würden frühere überschreiben. „IDX“ ins Muster aufnehmen, um eine "
+            "fortlaufende Nummer einzufügen."
+        )
+        self.lbl_filename_warning.setWordWrap(True)
+        self.lbl_filename_warning.setStyleSheet("color:#b45309; font-weight:600;")
+        self.lbl_filename_warning.setVisible(False)
+        image_form.addRow("", self.lbl_filename_warning)
         image_indent_row.addLayout(image_form)
         output_layout.addLayout(image_indent_row)
         layout_top = QtWidgets.QHBoxLayout()
@@ -559,17 +855,46 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             self.combo_image_format.setEnabled(not is_video)
             self.edit_image_prefix.setEnabled(not is_video)
             self.lbl_filename_preview.setEnabled(not is_video)
+            self.lbl_filename_warning.setEnabled(not is_video)
 
         self.radio_output_video.toggled.connect(_update_output_mode_enabled)
         self.radio_output_images.toggled.connect(_update_output_mode_enabled)
         _update_output_mode_enabled()
 
         def _update_filename_preview() -> None:
-            prefix = sanitize_filename_prefix(self.edit_image_prefix.text(), fallback="Frame_")
+            # sanitize_filename_prefix() zuerst (entfernt unter Windows/macOS/
+            # Linux ungueltige Zeichen), render_filename_template() DANACH --
+            # Zeitstempel-Platzhalter (YMDhms-Buchstaben) enthalten keines der
+            # ungueltigen Zeichen, die Reihenfolge veraendert das Ergebnis
+            # also nicht. Nur EIN Beispiel (statt zuvor zwei): zeigt den
+            # tatsaechlichen, mit einem echten Zeitstempel gefuellten
+            # Dateinamen (Nutzerwunsch), zwei nahezu identische Beispiele
+            # brachten keinen Zusatznutzen.
+            raw_prefix = sanitize_filename_prefix(self.edit_image_prefix.text(), fallback="Frame_")
             ext = self.combo_image_format.currentData() or ".png"
             count = max(1, self.spin_end.value() - self.spin_start.value() + 1)
             digits = len(str(count))
-            self.lbl_filename_preview.setText(f"{prefix}{1:0{digits}d}{ext}, {prefix}{2:0{digits}d}{ext}, …")
+            has_index_token = INDEX_TOKEN in raw_prefix
+
+            preview_prefix = raw_prefix
+            if self._sample_timestamp is not None:
+                preview_prefix = render_filename_template(preview_prefix, self._sample_timestamp)
+            preview_prefix, _ = render_index_token(preview_prefix, 1, digits)
+            # KEIN automatisch angehaengtes Suffix mehr (Nutzerwunsch: volle
+            # Kontrolle ueber den Dateinamen) -- ohne "IDX" bleibt das Muster
+            # fuer jeden Frame exakt so, wie eingegeben; ob das eindeutig ist,
+            # prueft die Warnung unten bzw. verbindlich MainWindow._export_video.
+            self.lbl_filename_preview.setText(f"{preview_prefix}{ext}")
+
+            warn = False
+            if not has_index_token and self._timestamps:
+                start = self.spin_start.value() - 1
+                end = self.spin_end.value() - 1
+                window = self._timestamps[start : end + 1]
+                if len(window) > 1:
+                    rendered = {render_filename_template(raw_prefix, ts) for ts in window}
+                    warn = len(rendered) < len(window)
+            self.lbl_filename_warning.setVisible(warn)
 
         self.edit_image_prefix.textChanged.connect(_update_filename_preview)
         self.combo_image_format.currentIndexChanged.connect(_update_filename_preview)
@@ -687,9 +1012,19 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.combo_graph_position.addItem("Über dem Bild", "oben")
         self.combo_graph_position.addItem("Links vom Bild", "links")
         self.combo_graph_position.addItem("Rechts vom Bild", "rechts")
+        self.combo_graph_position.setCurrentIndex(self.combo_graph_position.findData("rechts"))  # Standard
         position_form = QtWidgets.QFormLayout()
         position_form.addRow("Position:", self.combo_graph_position)
         graph_indent_col.addLayout(position_form)
+
+        # Nur anbieten, wenn ueberhaupt ein Graph exportiert werden kann
+        # (current_axis_state wird von MainWindow nur dann mitgegeben) --
+        # Nutzerwunsch: "mehr Gestaltungsmoeglichkeiten ... Achsen-Labels/
+        # Ticklabels/Schrittweite" auch beim Video-/Bildstapel-Export.
+        self._axis_widgets = None
+        if current_axis_state is not None:
+            self._axis_widgets = _build_axis_override_selector(self, current_axis_state)
+            graph_indent_col.addWidget(self._axis_widgets["group_box"])
 
         graph_indent_row.addLayout(graph_indent_col)
         graph_layout.addLayout(graph_indent_row)
@@ -697,6 +1032,8 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         def _update_graph_enabled(checked: bool) -> None:
             self._content_widgets["group_box"].setEnabled(checked)
             self.combo_graph_position.setEnabled(checked)
+            if self._axis_widgets is not None:
+                self._axis_widgets["group_box"].setEnabled(checked)
 
         self.chk_show_graph.toggled.connect(_update_graph_enabled)
         _update_graph_enabled(False)
@@ -782,6 +1119,13 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 self, "Ungültiger Bereich", "Der End-Frame muss größer oder gleich dem Start-Frame sein."
             )
             return
+        if self.chk_legend.isChecked() and _color_scale_range_invalid(
+            self.radio_custom_settings, self.combo_level_mode, self.spin_min, self.spin_max
+        ):
+            QtWidgets.QMessageBox.warning(
+                self, "Ungültiger Bereich", "Bei der Farbskala muss „Max“ größer als „Min“ sein."
+            )
+            return
         if self.chk_show_graph.isChecked():
             any_roi = any(chk.isChecked() for chk in self._content_widgets["checks"].values())
             if not any_roi and not self._content_widgets["chk_live"].isChecked():
@@ -790,6 +1134,13 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                     "Bitte mindestens einen Messbereich und/oder Live-Cursor für den Graphen auswählen."
                 )
                 return
+        if self.chk_show_graph.isChecked() and _axis_override_incomplete(self._axis_widgets):
+            QtWidgets.QMessageBox.information(
+                self, "Achsen nicht eingestellt",
+                "Bitte auf „Einstellen…“ klicken, um eigene Achsen-Einstellungen festzulegen -- "
+                "oder „Aktuelle Ansicht übernehmen“ wählen."
+            )
+            return
         self.accept()
 
     def frame_range(self) -> tuple[int, int]:
@@ -828,6 +1179,12 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
     def custom_min_max(self) -> tuple[float, float]:
         return self.spin_min.value(), self.spin_max.value()
+
+    def use_custom_axes(self) -> bool:
+        return _use_custom_axes(self._axis_widgets)
+
+    def custom_axis_overrides(self) -> dict | None:
+        return _custom_axis_overrides(self._axis_widgets)
 
     def show_graph(self) -> bool:
         return self.chk_show_graph.isChecked()
@@ -883,18 +1240,64 @@ class RulerLengthDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         return self.spin_mm.value()
 
 
+class StartTimestampDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
+    """Fragt einen eigenen Start-Zeitpunkt (Datum + Uhrzeit) ab -- fuer den
+    Bildstapel-Export, wenn der Dateiname-Präfix Zeitstempel-Platzhalter
+    (YYYY/MM/DD/hh/mm/ss) enthält, die geladene Messreihe aber keinen
+    echten, aus den Dateinamen erkannten Zeitstempel hat (siehe
+    MainWindow._resolve_export_timestamps). Der gewählte Zeitpunkt wird als
+    neuer Zeitstempel des ERSTEN Frames verwendet, die relativen Abstände
+    zwischen den Frames bleiben dabei erhalten."""
+
+    def __init__(self, parent, current: datetime):
+        super().__init__(parent)
+        self.setWindowTitle("Eigenen Startpunkt festlegen")
+
+        layout = QtWidgets.QVBoxLayout(self)
+        intro = QtWidgets.QLabel(
+            "Zeitpunkt des ERSTEN Frames -- alle weiteren Frames übernehmen denselben "
+            "zeitlichen Abstand wie in der geladenen Messreihe."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        form = QtWidgets.QFormLayout()
+        self.edit_datetime = QtWidgets.QDateTimeEdit(QtCore.QDateTime(current))
+        self.edit_datetime.setCalendarPopup(True)
+        self.edit_datetime.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
+        form.addRow("Start-Zeitpunkt:", self.edit_datetime)
+        layout.addLayout(form)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        _disable_enter_auto_accept(buttons)
+        layout.addWidget(buttons)
+
+    def value(self) -> datetime:
+        # .toPython() (PySide6) vs .toPyDateTime() (PyQt5/6) unterscheiden
+        # sich je nach Qt-Binding -- stattdessen ueber Date/Time-Komponenten
+        # manuell zusammensetzen, das ist in JEDEM qtpy-Binding gleich
+        # verfuegbar (wichtig fuer den PyQt5-Windows-7-Legacy-Build).
+        qdt = self.edit_datetime.dateTime()
+        d, t = qdt.date(), qdt.time()
+        return datetime(d.year(), d.month(), d.day(), t.hour(), t.minute(), t.second())
+
+
 class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
-    """Manueller Wertebereich (X/Y) und manuelle Y-Schrittweite fuer EINEN
+    """Manueller Wertebereich (X/Y) und manuelle Schrittweite fuer EINEN
     Kurven-Graphen -- Ersatz fuer das schwer auffindbare "X/Y axis"-
     Untermenue im pyqtgraph-Standard-Rechtsklickmenue (Nutzerwunsch: "die
     Achsen ... nach belieben einstellen ... mehr Entscheidungsfreiheit").
 
-    Bewusst OHNE X-Achsen-Schrittweite: die Zeitachse ist eine
-    DateAxisItem, die ihre Tick-Intervalle automatisch anhand
-    kalendertypischer, gut lesbarer Abstaende waehlt (z.B. alle 5/15/30
-    Minuten) -- ein frei waehlbarer Sekundenwert wuerde dort in der Praxis
-    zu haesslichen, nicht-runden Intervallen fuehren (siehe Hinweistext
-    unten im Dialog)."""
+    Die X-Achsen-Schrittweite wirkt nur im "Laufzeit"-Modus (echte Uhrzeit
+    waehlt weiterhin automatisch gut lesbare Kalenderabstaende, z.B. alle
+    5/15/30 Minuten) -- im Laufzeit-Modus sonst z.B. haesslich unrunde
+    Werte wie 00:00:24, 00:01:24 statt 00:00:00, 00:01:00, weil pyqtgraph
+    seine "schoenen" Intervalle an der ABSOLUTEN Uhrzeit statt am
+    Aufnahmebeginn ausrichtet (siehe TimeAxisItem.tickValues)."""
 
     def __init__(
         self,
@@ -906,6 +1309,8 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         x_manual: bool = False,
         y_manual_range: bool = False,
         y_spacing: float | None = None,
+        x_runtime_mode: bool = False,
+        x_spacing: float | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Achsen einstellen")
@@ -930,10 +1335,23 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         x_form.addRow("Von (Sekunden seit Aufnahmebeginn):", self.spin_x_min)
         x_form.addRow("Bis (Sekunden seit Aufnahmebeginn):", self.spin_x_max)
         x_layout.addLayout(x_form)
+
+        self.chk_x_manual_spacing = QtWidgets.QCheckBox("Tick-Abstand (Laufzeit-Modus) manuell festlegen")
+        x_layout.addWidget(self.chk_x_manual_spacing)
+        x_spacing_form = QtWidgets.QFormLayout()
+        self.spin_x_spacing = LocaleTolerantDoubleSpinBox()
+        self.spin_x_spacing.setRange(0.1, 1e7)
+        self.spin_x_spacing.setDecimals(1)
+        self.spin_x_spacing.setSuffix(" s")
+        self.spin_x_spacing.setValue(x_spacing if x_spacing is not None else 60.0)
+        x_spacing_form.addRow("Hauptintervall:", self.spin_x_spacing)
+        x_layout.addLayout(x_spacing_form)
         x_note = QtWidgets.QLabel(
-            "Hinweis: Eine feste Schrittweite ist für die Zeitachse nicht wählbar -- "
-            "sie wählt automatisch gut lesbare Kalenderabstände (z.B. alle 5/15/30 "
-            "Minuten), abhängig vom sichtbaren Zeitraum."
+            "Hinweis: Der Tick-Abstand wirkt nur, solange die Zeitachse auf „Laufzeit“ "
+            "steht (Umschalter unter dem Graphen). Bei „Uhrzeit“ wählt sie weiterhin "
+            "automatisch gut lesbare Kalenderabstände."
+            if not x_runtime_mode
+            else "Zeitachse steht aktuell auf „Laufzeit“ -- der Tick-Abstand wirkt sofort."
         )
         x_note.setWordWrap(True)
         x_layout.addWidget(x_note)
@@ -973,11 +1391,13 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         def _update_enabled() -> None:
             self.spin_x_min.setEnabled(self.chk_x_manual.isChecked())
             self.spin_x_max.setEnabled(self.chk_x_manual.isChecked())
+            self.spin_x_spacing.setEnabled(self.chk_x_manual_spacing.isChecked())
             self.spin_y_min.setEnabled(self.chk_y_manual_range.isChecked())
             self.spin_y_max.setEnabled(self.chk_y_manual_range.isChecked())
             self.spin_y_spacing.setEnabled(self.chk_y_manual_spacing.isChecked())
 
         self.chk_x_manual.toggled.connect(_update_enabled)
+        self.chk_x_manual_spacing.toggled.connect(_update_enabled)
         self.chk_y_manual_range.toggled.connect(_update_enabled)
         self.chk_y_manual_spacing.toggled.connect(_update_enabled)
         # Checkboxen spiegeln den TATSAECHLICH gerade aktiven Achsen-Zustand
@@ -986,6 +1406,7 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # beim Wiederoeffnen faelschlich so, als waere er nie angewendet
         # worden.
         self.chk_x_manual.setChecked(x_manual)
+        self.chk_x_manual_spacing.setChecked(x_spacing is not None)
         self.chk_y_manual_range.setChecked(y_manual_range)
         self.chk_y_manual_spacing.setChecked(y_spacing is not None)
         _update_enabled()
@@ -1017,6 +1438,12 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     def x_range(self) -> tuple[float, float]:
         return self.spin_x_min.value(), self.spin_x_max.value()
 
+    def x_manual_spacing(self) -> bool:
+        return self.chk_x_manual_spacing.isChecked()
+
+    def x_spacing(self) -> float:
+        return self.spin_x_spacing.value()
+
     def y_manual_range(self) -> bool:
         return self.chk_y_manual_range.isChecked()
 
@@ -1034,15 +1461,20 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     """Export-Auswahl fuer die CSV-Werte: welche Messbereiche ueberhaupt
     exportiert werden (Standard: alle) und mit welcher Spaltenueberschrift."""
 
-    def __init__(self, parent, entries: list[dict]):
+    def __init__(self, parent, entries: list[dict], reserved_names: list[str] | None = None):
         # entries: [{"name": str, "width_px": float, "height_px": float,
         #            "width_mm": float | None, "height_mm": float | None}, ...]
         # Kann neben echten Messbereichen (Punkt 5) auch eine synthetische
         # "Live (Cursor)"-Zeile enthalten (width_px/height_px = Kantenlaenge
         # des Live-Cursor-Mittelungsfensters) -- fuer diese Zeile gilt exakt
         # dieselbe Auswahl-/Autofill-Logik wie fuer echte Messbereiche.
+        # reserved_names: die vom Aufrufer FEST vorangestellten Spalten
+        # (z.B. "Zeitstempel", "Laufzeit (...)", "Live X-Achse"/"Live
+        # Y-Achse") -- gegen diese wird zusaetzlich zur Eindeutigkeit unter
+        # den frei editierbaren Namen selbst geprueft (siehe _on_accept).
         super().__init__(parent)
         self.setWindowTitle("Werte exportieren")
+        self._reserved_names = set(reserved_names or [])
 
         layout = QtWidgets.QVBoxLayout(self)
 
@@ -1229,11 +1661,24 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             for chk, edit in zip(self._checks, self._edits) if chk.isChecked()
         ]
         duplicates = sorted({name for name in included_names if included_names.count(name) > 1})
-        if duplicates:
+        # Kollision mit den vom Aufrufer fest vorangestellten Spalten
+        # ("Zeitstempel"/"Laufzeit (...)"/"Live X-Achse"/"Live Y-Achse") ist
+        # derselbe Fehlerfall wie zwei gleiche frei editierte Namen -- ohne
+        # diese Pruefung koennte z.B. eine ROI-Spalte "Zeitstempel" genannt
+        # werden und beim JSON-Export den echten Zeitstempel ueberschreiben.
+        reserved_conflicts = sorted({name for name in included_names if name in self._reserved_names})
+        if duplicates or reserved_conflicts:
+            parts = []
+            if duplicates:
+                parts.append("mehrfach vergeben: " + ", ".join(f"„{d}“" for d in duplicates))
+            if reserved_conflicts:
+                parts.append(
+                    "kollidieren mit einer festen Spalte (Zeitstempel/Laufzeit/Live-Achse): "
+                    + ", ".join(f"„{d}“" for d in reserved_conflicts)
+                )
             QtWidgets.QMessageBox.information(
                 self, "Doppelte Spaltennamen",
-                "Folgende Spaltenüberschriften sind mehrfach vergeben, müssen für den Export aber "
-                "eindeutig sein: " + ", ".join(f"„{d}“" for d in duplicates),
+                "Folgende Spaltenüberschriften sind für den Export nicht eindeutig -- " + "; ".join(parts),
             )
             return
         self.accept()
@@ -1606,6 +2051,21 @@ class ImportSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         if read_error is not None:
             self.lbl_result_status.setText(f"⚠ {read_error}")
             self.result_preview.setPlainText("")
+        elif settings.delimiter and settings.delimiter == settings.decimal_separator:
+            # Trennzeichen und Dezimaltrennzeichen duerfen nicht dasselbe
+            # Zeichen sein: parse_frame_text() wuerde sonst z.B. "28,6"
+            # zuerst am Komma in "28"/"6" zerlegen (Trennzeichen), bevor das
+            # anschliessende Dezimaltrennzeichen-Replace ueberhaupt noch
+            # etwas zu tun haette -- jede Zeile bekaeme dadurch doppelt so
+            # viele (falsche, halbierte) Spalten, OHNE dass der Parser einen
+            # Fehler wirft (die Spaltenzahl bleibt ja pro Zeile einheitlich).
+            # Ohne diese explizite Pruefung wuerde das Ergebnis-Vorschau
+            # "erfolgreich" aussehen, obwohl die Werte stillschweigend
+            # kaputt sind.
+            self.lbl_result_status.setText(
+                "⚠ Trennzeichen und Dezimaltrennzeichen dürfen nicht dasselbe Zeichen sein."
+            )
+            self.result_preview.setPlainText("")
         else:
             try:
                 array = parse_frame_text(text, settings)
@@ -1641,3 +2101,163 @@ class ImportSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
     def persist(self) -> bool:
         return self.chk_persist.isChecked()
+
+
+class TiffImportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
+    """Fragt Bildausschnitt (zum Ausschliessen von Farbskala/Legende) sowie
+    Min-/Max-Temperatur für den TIFF-Import ab -- siehe
+    MainWindow._import_tiff_images() und data.tiff_crop_to_temperature() für
+    die eigentliche Umrechnung.
+
+    Bewusst KEINE automatische Kalibrierung/Metadaten-Auswertung: die
+    Original-TIFFs enthalten keine verlässlichen, dokumentierten
+    Kalibrierdaten (siehe Analyse-Notizen) -- einzig zulässiger Kompromiss
+    (Nutzervorgabe) ist eine manuell angegebene Min-/Max-Temperatur, deutlich
+    als unkalibrierte Schätzung gekennzeichnet."""
+
+    def __init__(self, parent, preview_gray: np.ndarray, file_count: int):
+        super().__init__(parent)
+        self.setWindowTitle("TIFF-Bilder importieren")
+        self.setMinimumSize(720, 640)
+        self._gray = preview_gray
+        height, width = preview_gray.shape
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        warning = QtWidgets.QLabel(
+            "⚠ Unkalibrierte Schätzung: Die Grauwerte werden rein linear zwischen den unten "
+            "angegebenen Temperaturen interpoliert -- OHNE echte radiometrische Kalibrierung der "
+            "Kamera. Nur verwenden, wenn Min-/Max-Temperatur für den gewählten Ausschnitt "
+            "tatsächlich bekannt sind (z.B. von der Farbskala der Original-Software abgelesen). "
+            "Auswertung auf eigene Gefahr!"
+        )
+        warning.setWordWrap(True)
+        warning.setStyleSheet("color:#b91c1c; font-weight:600;")
+        layout.addWidget(warning)
+
+        if file_count > 1:
+            note = QtWidgets.QLabel(
+                f"Ausschnitt UND Temperaturbereich gelten für ALLE {file_count} ausgewählten "
+                "Dateien gemeinsam (Vorschau zeigt nur die erste Datei) -- bei unterschiedlichen "
+                "Temperaturbereichen je Datei einzeln importieren."
+            )
+            note.setWordWrap(True)
+            layout.addWidget(note)
+
+        instructions = QtWidgets.QLabel(
+            "Blaues Rechteck im Bild auf den reinen Messbereich ziehen -- Farbskala/Legende/"
+            "Beschriftungen des Original-Exports AUSSERHALB des Rechtecks lassen, sonst "
+            "verfälschen deren Extremwerte (reines Schwarz/Weiß) die Min-/Max-Zuordnung."
+        )
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+
+        self.plot = pg.PlotWidget()
+        self.plot.setAspectLocked(True)
+        self.plot.invertY(True)
+        self.plot.showGrid(x=False, y=False)
+        self.plot.getPlotItem().hideAxis("bottom")
+        self.plot.getPlotItem().hideAxis("left")
+        view_box = self.plot.getPlotItem().getViewBox()
+        view_box.setMouseEnabled(x=False, y=False)
+        view_box.setMenuEnabled(False)
+        self.image_item = pg.ImageItem(preview_gray)
+        self.plot.addItem(self.image_item)
+        self.roi = pg.RectROI(
+            [0, 0], [width, height], pen=pg.mkPen("#38bdf8", width=2), maxBounds=QtCore.QRectF(0, 0, width, height)
+        )
+        # RectROI fuegt selbst schon einen Skalier-Ziehpunkt unten rechts
+        # hinzu (Anker oben links) -- ein zusaetzlicher addScaleHandle an
+        # GENAU derselben Position/demselben Anker wuerde dort einen exakt
+        # doppelten (ueberlappenden) Ziehpunkt erzeugen. Hier nur den noch
+        # fehlenden Ziehpunkt oben links (Anker unten rechts) ergaenzen,
+        # damit sich das Rechteck von BEIDEN gegenueberliegenden Ecken aus
+        # ziehen laesst.
+        self.roi.addScaleHandle([0, 0], [1, 1])
+        self.plot.addItem(self.roi)
+        layout.addWidget(self.plot, 1)
+
+        self.lbl_crop = QtWidgets.QLabel()
+        layout.addWidget(self.lbl_crop)
+
+        form = QtWidgets.QFormLayout()
+        self.spin_min = LocaleTolerantDoubleSpinBox()
+        self.spin_min.setRange(-273.15, 10000.0)
+        self.spin_min.setDecimals(2)
+        self.spin_min.setSuffix(" °C")
+        self.spin_min.setValue(0.0)
+        self.spin_min.setToolTip("Temperatur des DUNKELSTEN Pixels im gewählten Ausschnitt.")
+        form.addRow("Min-Temperatur (dunkelster Pixel):", self.spin_min)
+        self.spin_max = LocaleTolerantDoubleSpinBox()
+        self.spin_max.setRange(-273.15, 10000.0)
+        self.spin_max.setDecimals(2)
+        self.spin_max.setSuffix(" °C")
+        self.spin_max.setValue(100.0)
+        self.spin_max.setToolTip("Temperatur des HELLSTEN Pixels im gewählten Ausschnitt.")
+        form.addRow("Max-Temperatur (hellster Pixel):", self.spin_max)
+        layout.addLayout(form)
+
+        self.chk_confirm = QtWidgets.QCheckBox(
+            "Mir ist bewusst, dass dies eine unkalibrierte Schätzung ist, und ich kenne die "
+            "korrekten Grenzwerte für diesen Ausschnitt."
+        )
+        layout.addWidget(self.chk_confirm)
+
+        self.buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        self._btn_ok = self.buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Ok)
+        self._btn_ok.setEnabled(False)
+        self.chk_confirm.toggled.connect(self._btn_ok.setEnabled)
+        self.buttons.accepted.connect(self._on_accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+
+        self.roi.sigRegionChanged.connect(self._update_crop_label)
+        self._update_crop_label()
+
+    def _on_accept(self) -> None:
+        x0, y0, x1, y1 = self.crop_rect()
+        if x1 <= x0 or y1 <= y0:
+            QtWidgets.QMessageBox.warning(
+                self, "Ungültiger Ausschnitt", "Bitte einen nicht-leeren Bildausschnitt wählen."
+            )
+            return
+        if self.spin_max.value() <= self.spin_min.value():
+            QtWidgets.QMessageBox.warning(
+                self, "Ungültiger Bereich",
+                "Die Max-Temperatur muss größer als die Min-Temperatur sein -- sonst ergibt "
+                "sich eine invertierte oder flache (unbrauchbare) Temperaturzuordnung.",
+            )
+            return
+        self.accept()
+
+    def _update_crop_label(self) -> None:
+        x0, y0, x1, y1 = self.crop_rect()
+        region = self._gray[y0:y1, x0:x1]
+        if region.size:
+            self.lbl_crop.setText(
+                f"Ausschnitt: {x1 - x0}×{y1 - y0} px bei ({x0}, {y0})  |  "
+                f"Grauwerte im Ausschnitt: {region.min():.0f}–{region.max():.0f}"
+            )
+        else:
+            self.lbl_crop.setText("Ausschnitt: leer -- bitte Rechteck vergrößern.")
+
+    def crop_rect(self) -> tuple[int, int, int, int]:
+        """(x0, y0, x1, y1) in Bild-Pixelkoordinaten, auf die Bildgrenzen
+        geklemmt und normalisiert (x0<=x1, y0<=y1) -- unabhängig davon, in
+        welche Richtung der Nutzer das ROI-Rechteck gezogen hat."""
+        height, width = self._gray.shape
+        pos = self.roi.pos()
+        size = self.roi.size()
+        x0 = max(0, min(width, round(pos.x())))
+        y0 = max(0, min(height, round(pos.y())))
+        x1 = max(0, min(width, round(pos.x() + size.x())))
+        y1 = max(0, min(height, round(pos.y() + size.y())))
+        return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+    def min_temp(self) -> float:
+        return self.spin_min.value()
+
+    def max_temp(self) -> float:
+        return self.spin_max.value()

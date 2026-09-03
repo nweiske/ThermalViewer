@@ -28,16 +28,22 @@ def test_dark_palette_sets_all_fusion_shading_roles():
     assert palette.color(QtGui.QPalette.Window).lightness() < 128
 
 
-def test_dark_mode_toggle_switches_theme_and_graph_colors(main_window):
+def test_dark_mode_toggle_switches_theme_but_graph_and_image_colors_stay_fixed(main_window):
+    # Nutzerwunsch: Graphen bleiben IMMER hell (wissenschaftlicher Standard),
+    # das Thermobild bleibt IMMER dunkel (Kontrast zu Hotspots) --
+    # unabhaengig vom Hell-/Dunkelmodus-Schalter, der seither nur noch die
+    # uebrige App-Oberflaeche betrifft.
     mw = main_window
     mw._apply_theme("light")
     assert mw._current_theme == "light"
     assert mw._graph_bg == "#ffffff"
+    assert mw._image_bg == "#1e1e1e"
 
     mw.act_dark_mode.trigger()
     assert mw._current_theme == "dark"
     assert mw.act_dark_mode.isChecked()
-    assert mw._graph_bg == "#1e1e1e"
+    assert mw._graph_bg == "#ffffff"
+    assert mw._image_bg == "#1e1e1e"
 
     mw.act_dark_mode.trigger()
     assert mw._current_theme == "light"
@@ -72,7 +78,7 @@ def test_ansicht_menu_stays_open_after_checkable_clicks(main_window):
 
 # -------------------------------------------------------- Live-Cursor
 
-@pytest.mark.parametrize("size", [1, 3, 5, 7])
+@pytest.mark.parametrize("size", [1, 3, 5, 7, 9, 11, 13, 15])
 def test_live_cursor_bounds_odd_sizes_match_legacy_symmetric_window(loaded_main_window, size):
     mw = loaded_main_window
     mw._live_cursor_kernel_size = size
@@ -84,20 +90,16 @@ def test_live_cursor_bounds_odd_sizes_match_legacy_symmetric_window(loaded_main_
     assert row1 == 10 + half + 1
 
 
-def test_live_cursor_bounds_10x10_is_exactly_ten_pixels_wide(loaded_main_window):
-    # Bugfix-Regression: fuer eine GERADE Kantenlaenge ergab die alte
-    # "half = size // 2"-Formel nur size-1 Pixel (asymmetrisch) statt
-    # tatsaechlich size Pixel -- "10x10" haette 9x9 gemittelt.
-    mw = loaded_main_window
-    mw._live_cursor_kernel_size = 10
-    row0, row1, col0, col1 = mw._live_cursor_bounds(10, 10)
-    assert (row1 - row0) == 10
-    assert (col1 - col0) == 10
-
-
-def test_kernel_size_menu_offers_10x10_option(main_window):
-    assert 10 in main_window._live_cursor_kernel_actions
-    assert main_window._live_cursor_kernel_actions[10].text() == "10×10 Pixel (Mittelwert)"
+def test_kernel_size_menu_offers_only_odd_sizes_with_5x5_default(main_window):
+    # Bugfix-Regression: 10x10 (einzige GERADE Groesse) wurde entfernt --
+    # ausschliesslich ungerade Kantenlaengen liegen symmetrisch um ein
+    # Mittelpunkt-Pixel. 5x5 ist jetzt der Standard (vorher 1x1).
+    assert set(main_window._live_cursor_kernel_actions.keys()) == {1, 3, 5, 7, 9, 11, 13, 15}
+    assert 10 not in main_window._live_cursor_kernel_actions
+    assert main_window._live_cursor_kernel_size == 5
+    assert main_window._live_cursor_kernel_actions[5].isChecked()
+    assert main_window._live_cursor_kernel_actions[9].text() == "9×9 Pixel (Mittelwert)"
+    assert main_window._live_cursor_kernel_actions[15].text() == "15×15 Pixel (Mittelwert)"
 
 
 # ------------------------------------------------------------- Achsen
@@ -352,13 +354,16 @@ def test_export_video_image_stack_uses_rendered_timestamp_prefix(roi_and_live_wi
 
     mw._export_video()
 
+    # Kein automatisch angehaengter Zaehler mehr (Nutzerwunsch "volle
+    # Kontrolle ueber den Dateinamen") -- der Zeitstempel im Praefix macht
+    # die Namen bereits eindeutig, siehe render_index_token/INDEX_TOKEN.
     written = sorted(p.name for p in stack_dir.glob("*.png"))
     assert written == [
-        "Frame_2026-01-01_12-00-00_1.png",
-        "Frame_2026-01-01_12-00-01_2.png",
-        "Frame_2026-01-01_12-00-02_3.png",
-        "Frame_2026-01-01_12-00-03_4.png",
-        "Frame_2026-01-01_12-00-04_5.png",
+        "Frame_2026-01-01_12-00-00_.png",
+        "Frame_2026-01-01_12-00-01_.png",
+        "Frame_2026-01-01_12-00-02_.png",
+        "Frame_2026-01-01_12-00-03_.png",
+        "Frame_2026-01-01_12-00-04_.png",
     ]
 
 

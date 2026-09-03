@@ -34,10 +34,37 @@ def isolated_qsettings(tmp_path):
     QSettings(organisation, anwendung)-Konstruktionsaufrufe waehrend JEDES
     Tests in eine isolierte, temporaere ini-Datei um (autouse=True, gilt
     also automatisch ueberall, ohne dass einzelne Tests das anfordern
-    muessen)."""
-    QtCore.QSettings.setDefaultFormat(QtCore.QSettings.IniFormat)
-    QtCore.QSettings.setPath(QtCore.QSettings.IniFormat, QtCore.QSettings.UserScope, str(tmp_path))
-    yield
+    muessen).
+
+    Bugfix: QSettings(organisation, anwendung) -- GENAU die Zwei-Argument-
+    Form, die MainWindow tatsaechlich verwendet -- ignoriert
+    setDefaultFormat()/setPath() vollstaendig und verwendet auf Windows
+    IMMER NativeFormat (die echte Registry), egal was hier vorher gesetzt
+    wurde (Qt-Eigenheit: dieser Konstruktor-Overload pinnt das Format fest
+    auf NativeFormat). Die alte, nur auf setDefaultFormat/setPath gestuetzte
+    Version dieser Fixture isolierte dadurch NICHTS -- jeder Testlauf las
+    UND SCHRIEB (z.B. GraphicExportDialog.separate(), das seinen Wert beim
+    blossen Auslesen zurueckschreibt) tatsaechlich in die echte Windows-
+    Registry des Nutzers, und ein einmal dort haengengebliebener Wert
+    beeinflusste JEDEN nachfolgenden Testlauf (auch in kuenftigen Sitzungen)
+    unbemerkt weiter. Fix: die Klasse QtCore.QSettings selbst durch eine
+    Unterklasse ersetzen, die IMMER explizit IniFormat + isolierten Pfad an
+    den Basiskonstruktor durchreicht (denselben Ansatz nutzt bereits
+    tests/smoke_test.py erfolgreich) -- das umgeht den NativeFormat-Zwang
+    vollstaendig, unabhaengig davon, mit wie vielen Argumenten der Aufrufer
+    QSettings(...) konstruiert."""
+    real_qsettings = QtCore.QSettings
+    settings_path = str(tmp_path / "settings.ini")
+
+    class _IsolatedQSettings(real_qsettings):
+        def __init__(self, *args, **kwargs):
+            super().__init__(settings_path, real_qsettings.Format.IniFormat)
+
+    QtCore.QSettings = _IsolatedQSettings
+    try:
+        yield
+    finally:
+        QtCore.QSettings = real_qsettings
 
 
 @pytest.fixture(scope="session")

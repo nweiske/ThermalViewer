@@ -12,8 +12,31 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Iterable, Iterator
 
 import numpy as np
+
+
+def zip_strict(*iterables: Iterable) -> Iterator[tuple]:
+    """Gleichwertig zu Python 3.10+'s eingebautem zip(..., strict=True) --
+    von Hand nachgebaut, weil der Windows-7-Legacy-Release (siehe
+    requirements-win7.txt) weiterhin Python 3.8 anpeilt, wo das strict-
+    Schluesselwort ueberhaupt nicht existiert (TypeError: zip() takes no
+    keyword arguments -- brach auf diesem Stack jeden Export, der diese
+    Funktion nutzt). Genutzt ueberall, wo mehrere parallele Listen
+    garantiert gleich lang sein MUESSEN (z.B. Kurven und ihre alten
+    Datenpunkte beim voruebergehenden Hochskalieren fuer den Export) --
+    ein stiller Laengen-Unterschied wuerde sonst Daten unbemerkt
+    abschneiden, statt einen klaren Fehler zu zeigen."""
+    iterators = [iter(it) for it in iterables]
+    sentinel = object()
+    while True:
+        items = [next(it, sentinel) for it in iterators]
+        if all(item is sentinel for item in items):
+            return
+        if any(item is sentinel for item in items):
+            raise ValueError("zip_strict() argument iterables have different lengths")
+        yield tuple(items)
 
 # Platzhalter bewusst nach international gebraeuchlicher Konvention (wie z.B.
 # Excel/JavaScript/Moment.js: YYYY=Jahr, MM=Monat GROSS vs. mm=Minute klein,
@@ -616,7 +639,7 @@ def append_paths(
         )
 
     existing_frames = list(recording.frames) if recording.frames is not None else []
-    combined = list(zip(recording.paths, recording.timestamps, existing_frames, strict=True)) + loaded
+    combined = list(zip_strict(recording.paths, recording.timestamps, existing_frames)) + loaded
     combined.sort(key=lambda entry: entry[1])
 
     paths = [p for p, _, _ in combined]

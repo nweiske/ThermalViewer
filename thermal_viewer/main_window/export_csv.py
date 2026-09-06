@@ -7,6 +7,7 @@ from pathlib import Path
 
 from qtpy import QtWidgets
 
+from ..data import zip_strict
 from ..plot_items import (
     _RUNTIME_UNIT_DIVISORS,
 )
@@ -103,7 +104,7 @@ class _CsvExportMixin:
         if include_extra_runtime:
             header.append(extra_runtime_header)
         value_arrays: list[tuple[int, object]] = []
-        for i, (name, inc) in enumerate(zip(names, included, strict=True)):
+        for i, (name, inc) in enumerate(zip_strict(names, included)):
             if not inc:
                 continue
             is_live = i >= len(placed_entries)
@@ -156,7 +157,7 @@ class _CsvExportMixin:
                 # gingen verloren. CsvColumnDialog._on_accept lehnt doppelte
                 # Spaltennamen bereits vor dem Schliessen des Dialogs ab
                 # (siehe dort), diese Annahme ist also hier bereits erfuellt.
-                records = [dict(zip(header, row, strict=True)) for row in rows]
+                records = [dict(zip_strict(header, row)) for row in rows]
                 Path(path).write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
             else:
                 # CSV (';') und Text (Tabulator) unterscheiden sich nur im

@@ -12,6 +12,7 @@ from qtpy import QtCore, QtGui, QtWidgets
 
 from ..data import (
     render_filename_template,
+    zip_strict,
 )
 from ..dialogs import (
     StartTimestampDialog,
@@ -231,7 +232,7 @@ class _ExportCommonMixin:
             self.timeseries_live_curve.setPen(pg.mkPen("#38bdf8", width=2))
             self.frame_marker.setPen(_dash_pen(1))
             self.live_frame_marker.setPen(_dash_pen(1))
-            for lg, t in zip(legends, old_legend_transforms, strict=True):
+            for lg, t in zip_strict(legends, old_legend_transforms):
                 lg.setTransform(t)
 
     @contextlib.contextmanager
@@ -497,10 +498,10 @@ class _ExportCommonMixin:
         # veraenderte damit unbemerkt den Live-Zustand der App selbst).
         x_auto = vb.autoRangeEnabled()[0]
 
-        for curve, (x, y) in zip(curves, old_curve_data, strict=True):
+        for curve, (x, y) in zip_strict(curves, old_curve_data):
             if x is not None:
                 curve.setData(np.asarray(x, dtype=float) - t0, y)
-        for marker, value in zip(markers, old_marker_values, strict=True):
+        for marker, value in zip_strict(markers, old_marker_values):
             marker.setValue(value - t0)
         vb.setXRange(old_range[0] - t0, old_range[1] - t0, padding=0)
         bottom_axis.export_offset = t0
@@ -513,10 +514,10 @@ class _ExportCommonMixin:
         try:
             yield
         finally:
-            for curve, (x, y) in zip(curves, old_curve_data, strict=True):
+            for curve, (x, y) in zip_strict(curves, old_curve_data):
                 if x is not None:
                     curve.setData(x, y)
-            for marker, value in zip(markers, old_marker_values, strict=True):
+            for marker, value in zip_strict(markers, old_marker_values):
                 marker.setValue(value)
             if x_auto:
                 vb.enableAutoRange(x=True)

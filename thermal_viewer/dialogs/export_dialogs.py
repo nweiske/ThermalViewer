@@ -626,14 +626,18 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         row2.addWidget(graph_box, 1)
         layout.addLayout(row2)
 
-        # Eigener, vom Graphen UNABHAENGIGER Kasten fuer den Cursor IM BILD
-        # (Fadenkreuz + Live-Temperatur-Text direkt auf dem Thermobild) --
-        # bewusst getrennt von "Temperaturverlauf-Graph" (siehe Kommentar
-        # oben) und daher auch nicht an "Graph mit exportieren" gekoppelt.
-        # Zusammen mit "Zeitanzeige im Bild" in einer Zeile, da beides
-        # zusaetzliche Einblendungen DIREKT AUF DEM BILD sind (im Unterschied
-        # zum Graphen-Inhalt/-Position oben).
-        cursor_box = QtWidgets.QGroupBox("Cursor im Bild")
+        # Eigener, vom Graphen UNABHAENGIGER Kasten fuer alles, was zusaetzlich
+        # DIREKT AUF DEM THERMOBILD selbst eingeblendet wird -- Cursor
+        # (Fadenkreuz + Live-Temperatur-Text) UND Maßstab/Messungen
+        # (Folgeanfrage: "Cursor im Bild" und "Maßstab & Messungen im Export"
+        # bitte unter einem einzigen Bereich zusammenfassen -- beides betrifft
+        # ja dieselbe Sache: zusaetzliche Overlays auf dem Bild). Bewusst
+        # getrennt von "Temperaturverlauf-Graph" (siehe Kommentar oben) und
+        # daher auch nicht an "Graph mit exportieren" gekoppelt. Zusammen mit
+        # "Zeitanzeige im Bild" in einer Zeile, da beides zusaetzliche
+        # Einblendungen DIREKT AUF DEM BILD sind (im Unterschied zum
+        # Graphen-Inhalt/-Position oben).
+        cursor_box = QtWidgets.QGroupBox("Cursor & Maßstab im Bild")
         cursor_layout = QtWidgets.QVBoxLayout(cursor_box)
         self.chk_cursor_position = QtWidgets.QCheckBox("Cursor-Position im Bild anzeigen")
         self.chk_cursor_position.setChecked(False)
@@ -646,6 +650,13 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         )
         cursor_layout.addWidget(self.chk_cursor_position)
         self._cursor_curve_link = _CursorCurveLink(self.chk_cursor_position, self._content_selector.chk_live)
+
+        # Punkt 12 (Nutzerwunsch): Maßstab-Linie und einzelne Messungen
+        # optional mit ins exportierte Video/Bildstapel aufnehmen -- jetzt
+        # direkt IN diese Box gehaengt (host_box), statt in einer eigenen,
+        # separaten Box weiter unten zu stehen (siehe ScaleContentSelector).
+        cursor_layout.addSpacing(6)
+        self._scale_selector = ScaleContentSelector(ruler_available, measurement_entries or [], host_box=cursor_box)
 
         # Bewusst NICHT "Zeitachse" genannt (frueherer Stand): dieser Name wird
         # an anderer Stelle (Hauptfenster-Steuerung, GraphicExportDialog) schon
@@ -690,11 +701,6 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         overlay_row.addWidget(cursor_box, 1)
         overlay_row.addWidget(overlay_box, 1)
         layout.addLayout(overlay_row)
-
-        # Punkt 12 (Nutzerwunsch): Maßstab-Linie und einzelne Messungen
-        # optional mit ins exportierte Video/Bildstapel aufnehmen.
-        self._scale_selector = ScaleContentSelector(ruler_available, measurement_entries or [])
-        layout.addWidget(self._scale_selector.group_box)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel

@@ -29,8 +29,19 @@ def clamp_label_offset(offset: QtCore.QPointF, line_length: float) -> QtCore.QPo
     MainWindow), damit sowohl MeasurementEntry (siehe unten, eigene
     Beschriftung/Linie) als auch der Maßstab (MainWindow._MeasurementMixin)
     dieselbe Formel nutzen, ohne dass MeasurementEntry auf MainWindow
-    zugreifen muesste."""
-    max_dist = max(line_length * 1.5, 15.0)
+    zugreifen muesste.
+
+    Bugfix Folgeanfrage ("auch wenn ich die Box loslasse springt sie nicht
+    zurueck"): der urspruengliche Faktor 1.5 ergab fuer eine Linie, die einen
+    guten Teil des Bilds ueberspannt (typischer Maßstab, oft fast so breit
+    wie das Thermobild selbst), einen Radius, der GROESSER als das gesamte
+    sichtbare Bild sein konnte -- das Clamping griff dann bei jeder in der
+    Praxis vorkommenden Ablage-Position ueberhaupt nicht mehr, wirkte also
+    wie "gar nicht wirksam". Faktor auf 0.5 (statt 1.5) reduziert: die
+    Beschriftung darf sich hoechstens um die HALBE Linienlaenge vom
+    Mittelpunkt entfernen -- bleibt bei jeder Linienlaenge sichtbar in deren
+    unmittelbarer Naehe."""
+    max_dist = max(line_length * 0.5, 20.0)
     dist = (offset.x() ** 2 + offset.y() ** 2) ** 0.5
     if dist <= max_dist or dist < 1e-9:
         return offset

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from qtpy import QtCore, QtWidgets
 
-from ..data import compile_filename_template, validate_filename_template
+from ..data import compile_filename_template, validate_filename_template, zip_strict
 from ._base import _disable_enter_auto_accept, _NoEnterAutoAccept
 
 
@@ -260,7 +260,7 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # denselben Namen "Messwert" bekommen.
         included_names = [
             edit.text().strip() or "Messwert"
-            for chk, edit in zip(self._checks, self._edits, strict=True) if chk.isChecked()
+            for chk, edit in zip_strict(self._checks, self._edits) if chk.isChecked()
         ]
         duplicates = sorted({name for name in included_names if included_names.count(name) > 1})
         # Kollision mit den vom Aufrufer fest vorangestellten Spalten

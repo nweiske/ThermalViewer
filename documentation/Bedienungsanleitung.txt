@@ -873,7 +873,7 @@ speichern - ganz oben im Dialog per "Ausgabeform" waehlbar:
     gewaehlt, in den alle Bilder geschrieben werden. Die
     "Wiedergabe-FPS" hat fuer den Bildstapel keine Bedeutung (Feld bleibt
     ausgegraut) - alle uebrigen Einstellungen (Frame-Bereich,
-    Farbskala/Legende, Temperaturverlauf-Graph, Cursor im Bild,
+    Farbskala/Legende, Temperaturverlauf-Graph, Cursor & Maßstab im Bild,
     Zeitanzeige im Bild) gelten identisch fuer beide Ausgabeformen.
 
 Bricht der anschliessende Speichern-/Zielordner-Dialog ab (z.B. "Abbrechen"
@@ -916,15 +916,24 @@ Alle uebrigen Einstellungen im Dialog:
     diesen Bildstapel, gelten dann fuer ALLE exportierten Frames gleich.
     Dieser gesamte Kasten betrifft NUR den Kurven-Graphen -- nicht das
     Thermobild selbst.
-  - "Cursor im Bild" -> EIGENER, vom Graphen UNABHAENGIGER Kasten (bewusst
-    NICHT Teil von "Temperaturverlauf-Graph", auch bei ausgeschaltetem
-    "Graph mit exportieren" bedienbar): "Cursor-Position im Bild anzeigen"
-    (Standard: AUS) blendet das Fadenkreuz samt Temperaturanzeige am
-    fixierten/zuletzt angefahrenen Cursor-Pixel im THERMOBILD mit ein,
-    unabhaengig von der "Live-Cursor"-Kurve im Graphen einzeln schaltbar
-    (die Kurve setzt diese Option allerdings voraus -- ein Anhaken von
-    "Live-Cursor" aktiviert sie automatisch mit). Bleibt der Haken leer,
-    enthaelt der Export KEINE Maus-Markierung im Bild.
+  - "Cursor & Maßstab im Bild" -> EIGENER, vom Graphen UNABHAENGIGER Kasten
+    (bewusst NICHT Teil von "Temperaturverlauf-Graph", auch bei
+    ausgeschaltetem "Graph mit exportieren" bedienbar) fuer alles, was
+    zusaetzlich DIREKT AUF DEM THERMOBILD eingeblendet wird:
+      * "Cursor-Position im Bild anzeigen" (Standard: AUS) blendet das
+        Fadenkreuz samt Temperaturanzeige am fixierten/zuletzt
+        angefahrenen Cursor-Pixel im THERMOBILD mit ein, unabhaengig von
+        der "Live-Cursor"-Kurve im Graphen einzeln schaltbar (die Kurve
+        setzt diese Option allerdings voraus -- ein Anhaken von
+        "Live-Cursor" aktiviert sie automatisch mit). Bleibt der Haken
+        leer, enthaelt der Export KEINE Maus-Markierung im Bild.
+      * Darunter, falls ein Maßstab und/oder Messungen definiert sind
+        (Abschnitt 11): "Alle auswählen"/"Keine auswählen" plus je eine
+        Checkbox fuer den Maßstab (Referenzlinie) und jede einzelne
+        Messung -- genau wie bei den Messbereichen im Graph-Inhalt
+        einzeln an-/abwaehlbar (Standard: alle AUS, eine rein optionale
+        Zusatzanzeige). Ohne definierten Maßstab/Messungen steht hier nur
+        ein Hinweistext.
   - "Zeitanzeige im Bild" -> blendet unten im Bild einen Streifen ein,
     waehlbar als 2x2-Auswahl (Namen bewusst wie im uebrigen Programm, mit
     Tooltip bei Laufzeit/Zeitstempel; Standard: "Beides"). Nicht zu

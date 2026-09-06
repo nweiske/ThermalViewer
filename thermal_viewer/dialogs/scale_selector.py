@@ -25,9 +25,25 @@ class ScaleContentSelector:
     eindeutige Messungs-NUMMER, analog zu GraphContentSelector/RoiEntry
     (siehe dort für den Bugreport zu namensbasierter Auswahl)."""
 
-    def __init__(self, ruler_available: bool, measurement_entries: list[tuple[int, str]]) -> None:
-        self.group_box = QtWidgets.QGroupBox("Maßstab && Messungen im Export")
-        outer = QtWidgets.QVBoxLayout(self.group_box)
+    def __init__(
+        self,
+        ruler_available: bool,
+        measurement_entries: list[tuple[int, str]],
+        host_box: QtWidgets.QGroupBox | None = None,
+    ) -> None:
+        """host_box (Folgeanfrage, Video-Export): falls gesetzt, wird DESSEN
+        Layout genutzt statt eine eigene neue Box zu erzeugen -- damit sich
+        z.B. "Cursor im Bild" und diese Maßstab-/Messungs-Auswahl im Video-
+        Export unter einem einzigen Bereich zusammenfassen lassen, statt in
+        zwei separaten Kaesten nebeneinander zu stehen. Der Aufrufer haengt
+        in diesem Fall vorher bereits eigene Inhalte in host_box, diese
+        Klasse haengt ihre eigenen Widgets nur noch DARUNTER an. Ohne
+        host_box (GraphicExportDialog/_export_image.py) unveraendertes
+        Verhalten: eine eigene, neue Box."""
+        self.group_box = host_box if host_box is not None else QtWidgets.QGroupBox("Maßstab && Messungen im Export")
+        outer = self.group_box.layout()
+        if outer is None:
+            outer = QtWidgets.QVBoxLayout(self.group_box)
         self.chk_ruler: QtWidgets.QCheckBox | None = None
         self.checks: dict[int, QtWidgets.QCheckBox] = {}
 

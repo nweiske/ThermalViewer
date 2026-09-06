@@ -298,6 +298,36 @@ def test_plot_context_menu_hides_unneeded_pyqtgraph_entries(loaded_main_window):
             assert not action.isVisible()
 
 
+# --------------------------------------------------- Maßstab/Messungen
+
+def test_clamp_label_offset_keeps_long_ruler_labels_visibly_near_the_line():
+    # Bugfix Folgeanfrage ("auch wenn ich die Box loslasse springt sie nicht
+    # zurueck"): der urspruengliche Faktor (Linienlaenge * 1.5) ergab fuer
+    # eine Linie, die einen guten Teil des Bilds ueberspannt (typischer
+    # Maßstab), einen Radius GROESSER als das ganze sichtbare Bild -- das
+    # Clamping griff dann in der Praxis nie. Mit dem neuen Faktor (0.5) darf
+    # die Beschriftung sich hoechstens um die HALBE Linienlaenge vom
+    # Mittelpunkt entfernen.
+    from thermal_viewer.measurement import clamp_label_offset
+
+    line_length = 300.0
+    far_offset = QtCore.QPointF(280.0, 0.0)  # fast so weit wie die Linie selbst lang ist
+    clamped = clamp_label_offset(far_offset, line_length)
+    dist = (clamped.x() ** 2 + clamped.y() ** 2) ** 0.5
+    assert dist == pytest.approx(150.0), "muss auf die HALBE Linienlaenge begrenzt werden"
+
+    # Innerhalb des erlaubten Radius bleibt der Versatz unveraendert.
+    near_offset = QtCore.QPointF(100.0, 0.0)
+    assert clamp_label_offset(near_offset, line_length) == near_offset
+
+    # Sehr kurze/punktfoermige Linien: feste Untergrenze statt eines
+    # verschwindend kleinen Radius.
+    tiny_far_offset = QtCore.QPointF(50.0, 0.0)
+    clamped_tiny = clamp_label_offset(tiny_far_offset, 2.0)
+    dist_tiny = (clamped_tiny.x() ** 2 + clamped_tiny.y() ** 2) ** 0.5
+    assert dist_tiny == pytest.approx(20.0)
+
+
 # ------------------------------------------------------------- ROI
 
 def test_roi_label_shows_temperature_on_same_line_as_name(loaded_main_window):

@@ -4218,7 +4218,12 @@ def test_video_export_dialog_cursor_independent_of_graph_box_and_beides_default(
 
         cursor_box = dlg.chk_cursor_position.parentWidget()
         assert isinstance(cursor_box, QtWidgets.QGroupBox)
-        assert cursor_box.title() == "Cursor im Bild", cursor_box.title()
+        # Folgeanfrage: "Cursor im Bild" und "Maßstab & Messungen im Export"
+        # unter einem einzigen Bereich zusammengefasst (siehe
+        # ScaleContentSelector host_box) -- daher jetzt derselbe Kasten wie
+        # dlg._scale_selector.group_box, mit entsprechend erweitertem Titel.
+        assert cursor_box.title() == "Cursor & Maßstab im Bild", cursor_box.title()
+        assert dlg._scale_selector.group_box is cursor_box
         assert cursor_box is not dlg.chk_show_graph.parentWidget(), (
             "Cursor-Kasten darf NICHT mehr im 'Temperaturverlauf-Graph'-Kasten liegen"
         )

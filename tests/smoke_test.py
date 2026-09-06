@@ -728,7 +728,7 @@ def test_ruler():
 check("ruler tool sets px_to_mm", test_ruler)
 
 
-def test_measure_tool_uses_scale_without_modifying_it():
+def test_measurement_tool_uses_scale_without_modifying_it():
     # Nutzerwunsch (Folgeanfrage zu Punkt 12): "ich will keinen neuen
     # Maßstab setzen können, sondern wirklich nur messen" -- das Mess-
     # Werkzeug nutzt einen bereits gesetzten Maßstab nur LESEND, im
@@ -743,40 +743,160 @@ def test_measure_tool_uses_scale_without_modifying_it():
     px_to_mm = win._px_to_mm
     assert px_to_mm is not None
 
-    assert win.btn_measure.isEnabled()
-    assert win.act_measure.isEnabled()
+    assert win.btn_add_measurement.isEnabled()
 
-    win._start_measure_tool()
-    assert win._measure_armed
+    win._start_measurement_tool()
+    assert win._measurement_armed
     assert not win._ruler_armed, "Lineal- und Mess-Werkzeug muessen sich gegenseitig ausschliessen"
 
     m1 = win.view_box.mapViewToScene(QtCore.QPointF(0, 0))
     m2 = win.view_box.mapViewToScene(QtCore.QPointF(10, 0))
-    win._handle_measure_click(FakeEvent(QtCore.Qt.LeftButton, m1))
-    assert win._measure_start is not None
-    win._handle_measure_click(FakeEvent(QtCore.Qt.LeftButton, m2))
+    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, m1))
+    assert win._measurement_start is not None
+    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, m2))
 
-    assert not win._measure_armed
+    assert not win._measurement_armed
     assert win._px_to_mm == px_to_mm, "Messen darf den bestehenden Maßstab nicht veraendern"
-    assert win._measure_line is not None and win._measure_line.isVisible()
-    assert win._measure_text is not None and win._measure_text.isVisible()
+    assert len(win.measurements) == 1
+    entry = win.measurements[0]
+    assert entry.line.isVisible()
+    assert entry.text.isVisible()
 
     import re
     expected_mm = 10 * px_to_mm
-    match = re.search(r"[\d,]+", win._measure_text.toPlainText())
-    assert match is not None, win._measure_text.toPlainText()
+    match = re.search(r"[\d,]+(?=\s*mm)", entry.text.toPlainText())
+    assert match is not None, entry.text.toPlainText()
     shown_value = float(match.group(0).replace(",", "."))
     assert abs(shown_value - expected_mm) < 0.06, (shown_value, expected_mm)
+    # Punkt 7 (Nutzerwunsch): der Messwert erscheint auch als eigene Zeile
+    # im rechten Panel, nicht nur als Beschriftung im Bild.
+    assert entry.value_label is not None
+    assert abs(float(entry.value_label.text().split(" ")[0].replace(",", ".")) - expected_mm) < 0.06
 
     win._clear_ruler_scale()
-    assert not win.btn_measure.isEnabled()
-    assert not win.act_measure.isEnabled()
-    assert not win._measure_line.isVisible()
+    assert not win.btn_add_measurement.isEnabled()
+    # Bestehende Messungen bleiben (analog zum Maßstab) als Eintrag/Wert
+    # erhalten, werden aber ausgeblendet -- kein Maßstab mehr heisst, ihre
+    # Pixel-Distanz laesst sich nicht mehr sinnvoll in mm umrechnen.
+    assert not entry.line.isVisible()
 
 
 check(
     "measure tool reads the existing scale without redefining it, and is disabled without a defined scale",
-    test_measure_tool_uses_scale_without_modifying_it,
+    test_measurement_tool_uses_scale_without_modifying_it,
+)
+
+
+def test_multiple_measurements_independent_named_colored_and_removable():
+    # Punkt 8 (Nutzerwunsch): "beliebig viele (Größen-)Messungen
+    # gleichzeitig", gemanaged über die UI (Panel-Zeile pro Messung).
+    win._start_ruler_tool()
+    p1 = win.view_box.mapViewToScene(QtCore.QPointF(2, 2))
+    p2 = win.view_box.mapViewToScene(QtCore.QPointF(22, 2))
+    win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p1))
+    with ruler_length_input(20.0):
+        win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p2))
+    assert win._px_to_mm is not None
+    prev_count = len(win.measurements)
+
+    def add_measurement(x0, y0, x1, y1):
+        win._start_measurement_tool()
+        a = win.view_box.mapViewToScene(QtCore.QPointF(x0, y0))
+        b = win.view_box.mapViewToScene(QtCore.QPointF(x1, y1))
+        win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, a))
+        win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, b))
+
+    add_measurement(0, 0, 5, 0)
+    add_measurement(0, 3, 0, 8)
+    assert len(win.measurements) == prev_count + 2, "zwei gleichzeitige Messungen erwartet"
+    entry_a, entry_b = win.measurements[-2], win.measurements[-1]
+
+    # Unabhaengige Namen/Farben.
+    assert entry_a.name != entry_b.name
+    assert entry_a.number != entry_b.number
+    win._on_measurement_name_changed(entry_a, "Kreis-Durchmesser 1")
+    assert entry_a.name == "Kreis-Durchmesser 1"
+    assert "Kreis-Durchmesser 1" in entry_a.text.toPlainText()
+    assert entry_b.name != "Kreis-Durchmesser 1"
+    entry_a.set_color("#123456")
+    assert entry_a.color == "#123456"
+    assert entry_b.color != "#123456", "Farben duerfen sich nicht gegenseitig beeinflussen"
+
+    # Punkt 9: Beschriftung unabhaengig verschiebbar, ueberlebt eine
+    # nachtraegliche Linien-Verschiebung als fester Versatz statt wieder an
+    # den (neuen) Mittelpunkt zu springen.
+    assert entry_a.label_offset is None
+    p_mid_before = (entry_a.endpoints()[0] + entry_a.endpoints()[1]) / 2
+    entry_a.text.setPos(p_mid_before.x() + 5, p_mid_before.y() + 7)
+    win._on_measurement_label_moved(entry_a)
+    assert entry_a.label_offset is not None
+    offset = entry_a.label_offset
+    # Linie neu positioniert (LineSegmentROI kennt kein setPoints() fuer
+    # beide Endpunkte auf einmal -- Handles einzeln per movePoint() setzen).
+    handles = entry_a.line.getHandles()
+    entry_a.line.movePoint(handles[0], QtCore.QPointF(0, 0))
+    entry_a.line.movePoint(handles[1], QtCore.QPointF(9, 0))
+    win._on_measurement_line_dragged(entry_a)
+    new_mid = (entry_a.endpoints()[0] + entry_a.endpoints()[1]) / 2
+    expected_pos = new_mid + offset
+    assert abs(entry_a.text.pos().x() - expected_pos.x()) < 1e-6
+    assert abs(entry_a.text.pos().y() - expected_pos.y()) < 1e-6
+
+    # Entfernen: nur die eine Messung verschwindet, die andere bleibt.
+    win._remove_measurement(entry_a)
+    assert entry_a not in win.measurements
+    assert entry_b in win.measurements
+
+    win._remove_measurement(entry_b)
+    win._clear_ruler_scale()
+
+
+check(
+    "multiple simultaneous measurements: independent names/colors, draggable labels keep their offset, individually removable",
+    test_multiple_measurements_independent_named_colored_and_removable,
+)
+
+
+def test_renaming_a_hidden_measurement_does_not_resurrect_its_stale_label():
+    # Bugfix: _hide_measurement_visuals() (z.B. beim Laden einer neuen
+    # Aufnahme mit anderen Pixel-Koordinaten, siehe _set_recording) blendet
+    # Linie UND Beschriftung aus, laesst aber die Panel-Zeile (Name-Feld
+    # etc.) weiter bedienbar -- update_text_position() setzte die
+    # Beschriftung bislang UNBEDINGT wieder sichtbar, sodass ein Umbenennen
+    # einer laengst ausgeblendeten Messung eine verwaiste Beschriftung ohne
+    # zugehoerige (weiterhin ausgeblendete) Linie an alten, fuer die neue
+    # Aufnahme bedeutungslosen Pixel-Koordinaten wieder einblendete.
+    win._start_ruler_tool()
+    p1 = win.view_box.mapViewToScene(QtCore.QPointF(2, 2))
+    p2 = win.view_box.mapViewToScene(QtCore.QPointF(22, 2))
+    win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p1))
+    with ruler_length_input(20.0):
+        win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p2))
+    assert win._px_to_mm is not None
+
+    win._start_measurement_tool()
+    a = win.view_box.mapViewToScene(QtCore.QPointF(0, 0))
+    b = win.view_box.mapViewToScene(QtCore.QPointF(5, 0))
+    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, a))
+    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, b))
+    entry = win.measurements[-1]
+    assert entry.line.isVisible() and entry.text.isVisible()
+
+    win._hide_measurement_visuals()
+    assert not entry.line.isVisible() and not entry.text.isVisible()
+
+    win._on_measurement_name_changed(entry, "Nach Reload umbenannt")
+    assert entry.name == "Nach Reload umbenannt", "Umbenennen selbst muss weiterhin funktionieren"
+    assert not entry.text.isVisible(), "Beschriftung darf ohne sichtbare Linie nicht wieder auftauchen"
+    assert not entry.line.isVisible()
+
+    win._remove_measurement(entry)
+    win._clear_ruler_scale()
+
+
+check(
+    "renaming a measurement hidden by _hide_measurement_visuals() keeps its label hidden instead of resurrecting it",
+    test_renaming_a_hidden_measurement_does_not_resurrect_its_stale_label,
 )
 
 
@@ -869,6 +989,17 @@ def test_ruler_persistence_and_reload():
         win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p2))
     assert win._ruler_line.isVisible()
 
+    # Dieselbe Erwartung gilt fuer Messungen (Punkt 8): eine bereits
+    # platzierte Messung darf beim Neuladen einer Messreihe nicht mit
+    # falschen Pixelkoordinaten sichtbar bleiben.
+    win._start_measurement_tool()
+    m1 = win.view_box.mapViewToScene(QtCore.QPointF(0, 0))
+    m2 = win.view_box.mapViewToScene(QtCore.QPointF(3, 0))
+    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, m1))
+    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, m2))
+    measurement_entry = win.measurements[-1]
+    assert measurement_entry.line.isVisible()
+
     # Bugfix: Neuladen einer Messreihe muss die (jetzt auf falsche
     # Pixelkoordinaten zeigende) Linie ausblenden, den Umrechnungsfaktor
     # selbst aber bewusst bestehen lassen.
@@ -876,8 +1007,10 @@ def test_ruler_persistence_and_reload():
     win._set_recording(win.recording)
     assert not win._ruler_line.isVisible()
     assert not win._ruler_text.isVisible()
+    assert not measurement_entry.line.isVisible(), "Messungen muessen beim Neuladen ebenfalls ausgeblendet werden"
     assert win._px_to_mm == px_to_mm_before
 
+    win._remove_measurement(measurement_entry)
     win._clear_ruler_scale()
 
 
@@ -1103,6 +1236,49 @@ def test_csv_export():
 check("csv export (relative runtime + real timestamp)", test_csv_export)
 
 
+def test_export_dir_remembered_across_exports():
+    # Punkt 4 (Nutzerwunsch): "dass sich das Programm dann den Zielordner
+    # merkt und mich dann beim nächsten Export dann direkt da wieder
+    # reinsetzt" -- gemeinsamer QSettings-Schluessel "export/last_dir",
+    # geschrieben von _remember_export_dir(), gelesen von _export_dir_hint().
+    remembered_folder = OUT / "remember_export_dir_test"
+    remembered_folder.mkdir(exist_ok=True)
+    first_path = remembered_folder / "Werte_1.csv"
+    if first_path.exists():
+        first_path.unlink()
+
+    orig = QtWidgets.QFileDialog.getSaveFileName
+    prev_setting = win._settings.value("export/last_dir", "")
+    try:
+        QtWidgets.QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (str(first_path), ""))
+        win._export_csv()
+        assert win._export_dir_hint() == str(remembered_folder), win._export_dir_hint()
+
+        captured_dirs = []
+
+        def capturing_save(*args, **kwargs):
+            # getSaveFileName(parent, caption, dir, filter) -- "dir" ist das
+            # dritte Positionsargument.
+            captured_dirs.append(args[2] if len(args) > 2 else kwargs.get("dir"))
+            return ("", "")  # Abbruch -- nur der Vorschlags-Pfad interessiert hier.
+
+        QtWidgets.QFileDialog.getSaveFileName = staticmethod(capturing_save)
+        win._export_csv()
+        assert captured_dirs, "getSaveFileName haette aufgerufen werden muessen"
+        assert captured_dirs[0].startswith(str(remembered_folder)), captured_dirs[0]
+    finally:
+        QtWidgets.QFileDialog.getSaveFileName = orig
+        win._settings.setValue("export/last_dir", prev_setting)
+        if first_path.exists():
+            first_path.unlink()
+
+
+check(
+    "MainWindow remembers the last export folder and pre-fills it for the next export dialog",
+    test_export_dir_remembered_across_exports,
+)
+
+
 def test_csv_export_numeric_runtime_unit_changes_column_header_and_values():
     # Nutzerwunsch ("dritte Zeitachse"): das gewaehlte Laufzeit-Format wirkt
     # auch im CSV-Export -- Spaltenkopf UND Werte wechseln von hh:mm:ss auf
@@ -1187,6 +1363,85 @@ check(
 )
 
 
+def test_csv_export_extra_runtime_column_independent_of_global_runtime_unit():
+    # Punkt 2 (Nutzerwunsch): zusaetzliche, im Export-Dialog selbst waehlbare
+    # Laufzeit-Spalte als fortlaufende Zahl -- UNABHAENGIG vom globalen
+    # Graph-Laufzeit-Format (self._runtime_unit bleibt hier "hhmmss").
+    from thermal_viewer.dialogs import CsvColumnDialog
+
+    def fake_column_exec(self):
+        self.combo_format.setCurrentIndex(self.combo_format.findData("json"))
+        self.chk_extra_runtime.setChecked(True)
+        self.combo_extra_runtime_unit.setCurrentIndex(self.combo_extra_runtime_unit.findData("h"))
+        return (self.accept(), QtWidgets.QDialog.DialogCode.Accepted)[1]
+
+    assert win._runtime_unit == "hhmmss", "Testvoraussetzung: globales Format unveraendert"
+    path = OUT / "roi_export_extra_runtime.json"
+    if path.exists():
+        path.unlink()
+    orig = QtWidgets.QFileDialog.getSaveFileName
+    try:
+        with temp_dialog_exec(CsvColumnDialog, fake_column_exec):
+            QtWidgets.QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (str(path), ""))
+            win._export_csv()
+    finally:
+        QtWidgets.QFileDialog.getSaveFileName = orig
+    assert path.exists(), "JSON wurde nicht geschrieben"
+    records = json.loads(path.read_text(encoding="utf-8"))
+    assert records[0]["Laufzeit (HH:MM:SS)"] == "00:00:00", "normale Laufzeit-Spalte bleibt hh:mm:ss"
+    extra_key = "Laufzeit (fortlaufend, Stunden)"
+    assert extra_key in records[0], records[0].keys()
+    assert isinstance(records[0][extra_key], (int, float)), type(records[0][extra_key])
+    assert records[0][extra_key] == 0.0
+    path.unlink()
+
+
+check(
+    "csv export: zusaetzliche fortlaufende Laufzeit-Spalte (eigene Einheit, unabhaengig vom globalen Format)",
+    test_csv_export_extra_runtime_column_independent_of_global_runtime_unit,
+)
+
+
+def test_extra_runtime_column_defaults_on_and_offers_seconds():
+    # Punkt 3/4 (Nutzerwunsch): "setzte es als von Haus aus aktiviert" +
+    # "Ergänze dort auch ... dass man die Laufzeitspalte auch in Sekunden
+    # exportieren lassen kann".
+    from thermal_viewer.dialogs import CsvColumnDialog
+
+    prev_enabled = win._settings.value("export/extra_runtime_enabled", None)
+    prev_unit = win._settings.value("export/extra_runtime_unit", None)
+    win._settings.remove("export/extra_runtime_enabled")
+    win._settings.remove("export/extra_runtime_unit")
+    entries = [{"name": "Mitte", "width_px": 5.0, "height_px": 5.0, "width_mm": None, "height_mm": None}]
+    try:
+        dialog = CsvColumnDialog(win, entries, win._settings)
+        try:
+            assert dialog.chk_extra_runtime.isChecked() is True, "muss ohne gespeicherte Einstellung an sein"
+            assert dialog.include_extra_runtime() is True
+            units = [dialog.combo_extra_runtime_unit.itemData(i) for i in range(dialog.combo_extra_runtime_unit.count())]
+            assert units == ["s", "min", "h"], units
+            dialog.combo_extra_runtime_unit.setCurrentIndex(dialog.combo_extra_runtime_unit.findData("s"))
+            assert dialog.extra_runtime_unit() == "s"
+            assert dialog.extra_runtime_header() == "Laufzeit (fortlaufend, Sekunden)"
+        finally:
+            dialog.close()
+    finally:
+        if prev_enabled is None:
+            win._settings.remove("export/extra_runtime_enabled")
+        else:
+            win._settings.setValue("export/extra_runtime_enabled", prev_enabled)
+        if prev_unit is None:
+            win._settings.remove("export/extra_runtime_unit")
+        else:
+            win._settings.setValue("export/extra_runtime_unit", prev_unit)
+
+
+check(
+    "CsvColumnDialog: zusaetzliche Laufzeit-Spalte ist von Haus aus aktiviert und bietet Sekunden/Minuten/Stunden an",
+    test_extra_runtime_column_defaults_on_and_offers_seconds,
+)
+
+
 def test_csv_column_dialog_rejects_name_colliding_with_fixed_header_column():
     # Bugfix: die Eindeutigkeits-Pruefung der frei editierbaren Spaltennamen
     # verglich bisher NUR untereinander, nicht gegen die vom Export fest
@@ -1197,7 +1452,7 @@ def test_csv_column_dialog_rejects_name_colliding_with_fixed_header_column():
     from thermal_viewer.dialogs import CsvColumnDialog
 
     entries = [{"name": "Mitte", "width_px": 5.0, "height_px": 5.0, "width_mm": None, "height_mm": None}]
-    dialog = CsvColumnDialog(win, entries, reserved_names=["Zeitstempel", "Laufzeit (HH:MM:SS)"])
+    dialog = CsvColumnDialog(win, entries, win._settings, reserved_names=["Zeitstempel", "Laufzeit (HH:MM:SS)"])
     try:
         dialog._edits[0].setText("Zeitstempel")
         accepted = []
@@ -1237,6 +1492,11 @@ def test_csv_export_roi_selection():
         if isinstance(self, CsvColumnDialog):
             assert all(chk.isChecked() for chk in self._checks), "Standard sollte 'alle' sein"
             self._checks[0].setChecked(False)  # erstes ROI abwaehlen
+            # Diese Pruefung gilt der ROI-Auswahl, nicht der zusaetzlichen
+            # Laufzeit-Spalte (seit Punkt 3/4 von Haus aus aktiviert) --
+            # explizit aus, damit die feste Spaltenzahl unten (2 Zeitspalten)
+            # wie vor deren Einfuehrung stimmt.
+            self.chk_extra_runtime.setChecked(False)
         return orig_exec(self)
 
     QtWidgets.QDialog.exec = custom_exec
@@ -1272,7 +1532,7 @@ def test_csv_column_dialog_combined_px_mm_autofill():
         {"name": "ROI 1", "width_px": 30.0, "height_px": 20.0, "width_mm": 15.0, "height_mm": 10.0},
         {"name": "ROI 2", "width_px": 12.0, "height_px": 12.0, "width_mm": None, "height_mm": None},
     ]
-    dialog = CsvColumnDialog(win, entries)
+    dialog = CsvColumnDialog(win, entries, win._settings)
     try:
         edit = dialog._edits[0]
         unit_checks = [c for c in dialog.findChildren(QtWidgets.QCheckBox) if c.text() in ("px", "mm", "cm")]
@@ -1325,6 +1585,48 @@ def test_csv_column_dialog_combined_px_mm_autofill():
 
 
 check("CSV column dialog: px/mm default off, live autofill, 'ALLE'-Sammel-Checkboxen", test_csv_column_dialog_combined_px_mm_autofill)
+
+
+def test_csv_column_dialog_all_checkbox_replaces_select_all_none_buttons():
+    # Nutzerwunsch: die grossen "Alle auswählen"/"Keine auswählen"-Knoepfe
+    # sollen durch eine kleine "ALLE"-Checkbox ueber der Ein-/Ausschluss-
+    # Spalte ersetzt werden -- einheitlich mit den bestehenden "ALLE px"/
+    # "ALLE mm"-Sammel-Checkboxen (siehe test_csv_column_dialog_combined_px_mm_autofill).
+    from thermal_viewer.dialogs import CsvColumnDialog
+
+    entries = [
+        {"name": "ROI 1", "width_px": 30.0, "height_px": 20.0, "width_mm": None, "height_mm": None},
+        {"name": "ROI 2", "width_px": 12.0, "height_px": 12.0, "width_mm": None, "height_mm": None},
+    ]
+    dialog = CsvColumnDialog(win, entries, win._settings)
+    try:
+        assert not any(
+            isinstance(w, QtWidgets.QPushButton) and w.text() in ("Alle auswählen", "Keine auswählen")
+            for w in dialog.findChildren(QtWidgets.QPushButton)
+        ), "die alten Sammel-Knoepfe sollten entfernt sein"
+        assert not hasattr(dialog, "_set_all_checked")
+
+        assert all(chk.isChecked() for chk in dialog._checks), "Standard: alle Zeilen ausgewaehlt"
+        assert dialog.chk_all.isChecked() is True
+
+        dialog.chk_all.setChecked(False)
+        assert all(not chk.isChecked() for chk in dialog._checks)
+        dialog.chk_all.setChecked(True)
+        assert all(chk.isChecked() for chk in dialog._checks)
+
+        # Manuelles Abwaehlen einer einzelnen Zeile laesst "ALLE" automatisch abspringen.
+        dialog._checks[0].setChecked(False)
+        assert dialog.chk_all.isChecked() is False
+        dialog._checks[0].setChecked(True)
+        assert dialog.chk_all.isChecked() is True
+    finally:
+        dialog.close()
+
+
+check(
+    "CsvColumnDialog: 'ALLE'-Checkbox ersetzt die alten Alle/Keine-auswaehlen-Knoepfe",
+    test_csv_column_dialog_all_checkbox_replaces_select_all_none_buttons,
+)
 
 live_csv_path = OUT / "live_export.csv"
 
@@ -1730,21 +2032,15 @@ def test_graphic_export_separate():
         if f.exists():
             f.unlink()
 
-    # Bugreport: "Live (Cursor)" ist mit "Zeitverlauf" tabifiziert und wurde
-    # in dieser Sitzung noch nie in den Vordergrund geholt -- Qt layoutet
-    # eine im Hintergrund liegende Dock-Registerkarte nie vollstaendig,
-    # wodurch live_plot vor dem Fix eine winzige/veraltete Groesse hatte und
-    # der Export dadurch ohne (bzw. abgeschnittener) Achsenbeschriftung
-    # herauskam. Muss hier tatsaechlich noch nie gezeigt worden sein, sonst
-    # testet dieser Test den Bug gar nicht. (widget.isVisible() ist dafuer
-    # NICHT zuverlaessig -- meldet True auch fuer eine im Hintergrund
-    # liegende Registerkarte -- visibleRegion().isEmpty() dagegen schon.)
+    # Historischer Bugreport (siehe Git-Historie): eine tabifizierte, nie in
+    # den Vordergrund geholte Dock-Registerkarte wurde von Qt nie vollstaendig
+    # layoutet, wodurch ein Export ohne (bzw. mit abgeschnittener)
+    # Achsenbeschriftung herauskam. Das redundante "Live (Cursor)"-Dock, an
+    # dem dieser Bug urspruenglich reproduziert wurde, ist inzwischen
+    # entfernt (Nutzerwunsch, Punkt 10) -- die verbleibende Kernpruefung
+    # unten (Achsenbeschriftung im Export tatsaechlich vorhanden) bleibt
+    # unabhaengig davon gueltig.
     assert win.timeseries_dock.visibleRegion().isEmpty() is False
-    assert win.live_dock.visibleRegion().isEmpty() is True
-    tiny_before = win.live_plot.size()
-    assert tiny_before.width() < 400 or tiny_before.height() < 200, (
-        f"Testvoraussetzung verletzt: live_plot war schon vorher richtig gross ({tiny_before})"
-    )
 
     orig = QtWidgets.QFileDialog.getSaveFileName
     QtWidgets.QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (str(p), "PNG-Bild (*.png)"))
@@ -1758,7 +2054,6 @@ def test_graphic_export_separate():
     # Vorher aktiver Tab muss unveraendert wiederhergestellt sein (kein
     # sichtbarer Sprung fuer den Nutzer).
     assert win.timeseries_dock.visibleRegion().isEmpty() is False
-    assert win.live_dock.visibleRegion().isEmpty() is True
 
     import numpy as np
 
@@ -1801,18 +2096,19 @@ def test_context_menu_export_routes_to_exact_same_method_as_menu():
     # eigenen Dialog (nur dieser eine Graph, ohne Kombiniert/Getrennt-Auswahl)
     # statt zum exakt SELBEN Weg wie ueber das Menüband. Seit ecbe9b5 gibt es
     # ohnehin nur noch EINE gemeinsame _export_graphic-Methode (statt
-    # getrennter _export_timeseries_graphic/_export_live_graphic) -- beide
-    # Rechtsklick-Eintraege muessen exakt diese eine Methode aufrufen.
+    # getrennter _export_timeseries_graphic/_export_live_graphic) -- der
+    # Rechtsklick-Eintrag muss exakt diese eine Methode aufrufen. (Das
+    # frueher zusaetzlich auf self.live_plot gebundene Export-Menü ist mit
+    # dem redundanten "Live (Cursor)"-Dock entfallen, Punkt 10 -- live_plot
+    # war ohnehin nie das tatsaechlich exportierte Widget, siehe unten.)
     assert win.timeseries_plot.scene().contextMenu[0].text() == "Grafik speichern…"
-    assert win.live_plot.scene().contextMenu[0].text() == "Grafik speichern…"
 
     calls = []
     orig = win._export_graphic
     win._export_graphic = lambda: calls.append("called")
     try:
         win.timeseries_plot.scene().contextMenu[0].trigger()
-        win.live_plot.scene().contextMenu[0].trigger()
-        assert calls == ["called", "called"], calls
+        assert calls == ["called"], calls
     finally:
         win._export_graphic = orig
 
@@ -1828,13 +2124,14 @@ def test_context_menu_export_unified_and_fixes_svg_curves():
     # + DateAxisItem) in der Praxis die Kurve selbst weg -- nur das
     # Koordinatensystem landete im SVG. Der Rechtsklick-"Export..."-Eintrag
     # ruft jetzt stattdessen denselben (bereits fuer den Export-Menü
-    # verifizierten) Renderer auf wie das Export-Menü -- fuer Zeitverlauf-/
-    # Live-Graph exakt derselbe (inkl. Thermobild+Kombiniert/Getrennt-Wahl),
-    # fuer das Thermobild selbst (kein Menü-Aequivalent) weiterhin der auf
-    # dieses eine Widget beschraenkte Einzel-Export.
+    # verifizierten) Renderer auf wie das Export-Menü (inkl. Thermobild+
+    # Kombiniert/Getrennt-Wahl), fuer das Thermobild selbst (kein
+    # Menü-Aequivalent) weiterhin der auf dieses eine Widget beschraenkte
+    # Einzel-Export. (self.live_plot hat seit Entfernung des redundanten
+    # "Live (Cursor)"-Docks, Punkt 10, kein eigenes Rechtsklick-Export-
+    # Binding mehr -- war ohnehin nie das tatsaechlich exportierte Widget.)
     for widget, name in (
         (win.timeseries_plot, "context_export_timeseries.svg"),
-        (win.live_plot, "context_export_live.svg"),
         (win.glw, "context_export_image.svg"),
     ):
         p = OUT / name
@@ -1894,7 +2191,6 @@ def test_svg_export_curve_has_precise_coordinates_no_scientific_notation():
 
     for widget, name in (
         (win.timeseries_plot, "svg_precision_timeseries.svg"),
-        (win.live_plot, "svg_precision_live.svg"),
     ):
         p = OUT / name
         if p.exists():
@@ -2439,6 +2735,25 @@ def test_dock_tab_position_above_graphs():
 
 check("Zeitverlauf/Live (Cursor) dock tabs positioned above the graphs", test_dock_tab_position_above_graphs)
 
+
+def test_timeseries_dock_title_bar_hidden_but_still_toggleable_via_menu():
+    # Nutzerfeedback: die Titelzeile "Zeitverlauf" ueber dem Graphen ist
+    # redundant (sollte offensichtlich sein, was gemeint ist) -- die
+    # sichtbare Titelleiste wird daher ausgeblendet (leeres Platzhalter-
+    # Widget), waehrend windowTitle() fuer den "Ansicht"-Menuepunkt (Ein-/
+    # Ausblenden) weiterhin "Zeitverlauf" bleibt.
+    assert win.timeseries_dock.windowTitle() == "Zeitverlauf"
+    title_bar = win.timeseries_dock.titleBarWidget()
+    assert title_bar is not None, "leeres Widget statt der Standard-Titelleiste erwartet"
+    assert type(title_bar) is QtWidgets.QWidget, "muss ein schlichtes, leeres Platzhalter-Widget sein"
+    assert win.timeseries_dock.toggleViewAction().text() == "Zeitverlauf"
+
+
+check(
+    "'Zeitverlauf'-Dock: Titelzeile ueber dem Graphen ausgeblendet, aber weiterhin ueber 'Ansicht'-Menue umschaltbar",
+    test_timeseries_dock_title_bar_hidden_but_still_toggleable_via_menu,
+)
+
 # --- Uhrzeit/Laufzeit-Umschalter an beiden Kurven-Graphen -------------------
 
 
@@ -2530,7 +2845,7 @@ def test_legend_labels_added_before_theme_apply_get_recolored_too():
     assert len(existing_labels) >= 5, "erwartet mind. die 5 Standard-Messbereiche in der Legende"
 
     # Graph-Farben sind seit dem Nutzerwunsch "Graph immer hell" nicht mehr
-    # an _apply_theme gekoppelt (siehe _apply_curve_colors) -- der Bugfix
+    # an _apply_window_theme gekoppelt (siehe _apply_curve_colors) -- der Bugfix
     # selbst (Label-Neurendern bei jedem Farbwechsel) wird hier direkt ueber
     # _apply_curve_colors mit zwei unterschiedlichen Farben geprueft, statt
     # ueber einen Theme-Wechsel.
@@ -2570,8 +2885,8 @@ def render_window(path: Path):
     pix.save(str(path))
 
 
-check("render light theme screenshot", lambda: (win._apply_theme("light"), render_window(OUT / "theme_light.png")))
-check("render dark theme screenshot", lambda: (win._apply_theme("dark"), render_window(OUT / "theme_dark.png")))
+check("render light theme screenshot", lambda: (win._apply_window_theme("light"), render_window(OUT / "theme_light.png")))
+check("render dark theme screenshot", lambda: (win._apply_window_theme("dark"), render_window(OUT / "theme_dark.png")))
 
 # --- Projekt speichern/laden ------------------------------------------------
 project_path = OUT / "test_project.tvproj"
@@ -3178,7 +3493,7 @@ def test_enter_in_spinbox_does_not_auto_accept_export_dialogs():
     finally:
         dlg2.close()
 
-    dlg3 = CsvColumnDialog(win, [{"name": "ROI 1", "width_px": 30.0, "height_px": 20.0, "width_mm": None, "height_mm": None}])
+    dlg3 = CsvColumnDialog(win, [{"name": "ROI 1", "width_px": 30.0, "height_px": 20.0, "width_mm": None, "height_mm": None}], win._settings)
     dlg3.show()
     app.processEvents()
     try:
@@ -3197,32 +3512,32 @@ check(
 )
 
 
-# Der frueher unabhaengig waehlbare Graph-Theme-Modus (_graph_theme_mode)
-# wurde entfernt und durch feste Farben ersetzt: Graphen bleiben IMMER hell,
-# das Thermobild bleibt IMMER dunkel (Nutzerwunsch: "wissenschaftlicher
-# Standard"/"besserer Kontrast zu Hotspots"), unabhaengig vom App-Design
-# (siehe _apply_curve_colors/_apply_image_colors-Docstrings). Test prueft,
-# dass die Design-Wahl selbst (nur noch die App-Palette) einen Neustart
-# uebersteht, WAEHREND Graph-/Thermobild-Farben in JEDEM Design konstant
-# bleiben.
+# Fenster-Farbschema (betrifft nur die UI-Oberflaeche) und Thermobild-/Graph-
+# Darstellung (Ansichts-Manager, Punkt 5) sind unabhaengige Einstellungen:
+# die Fenster-Wahl beeinflusst Graph-/Thermobild-Farben NICHT (bleiben beim
+# jeweils eingestellten Ansichts-Manager-Wert), UND alle drei ueberstehen
+# unabhaengig voneinander einen Neustart (eigene QSettings-Schluessel
+# "window_theme"/"image_theme"/"graph_theme").
 from thermal_viewer.main_window import THEMES as _THEMES  # noqa: E402
 
 
-def test_theme_choice_persists_across_restart_graph_and_image_colors_stay_fixed():
-    win._settings.setValue("theme", "dark")
+def test_window_theme_persists_across_restart_graph_and_image_colors_stay_fixed():
+    win._settings.setValue("window_theme", "dark")
     win2 = MainWindow()
     try:
-        assert win2._current_theme == "dark"
+        assert win2._window_theme == "dark"
+        # Standard (kein image_theme/graph_theme in QSettings gesetzt):
+        # entspricht dem bisherigen festen Verhalten, unabhaengig vom Fenster-Farbschema.
         assert win2._graph_bg == _THEMES["light"]["pg_background"]
         assert win2._graph_fg == _THEMES["light"]["pg_foreground"]
         assert win2._image_bg == _THEMES["dark"]["pg_background"]
         assert win2._image_fg == _THEMES["dark"]["pg_foreground"]
     finally:
         win2.close()
-        win._settings.setValue("theme", "light")
+        win._settings.setValue("window_theme", "light")
     win3 = MainWindow()
     try:
-        assert win3._current_theme == "light"
+        assert win3._window_theme == "light"
         assert win3._graph_bg == _THEMES["light"]["pg_background"]
         assert win3._image_bg == _THEMES["dark"]["pg_background"]
         # Bugfix (siehe _light_palette): der Hell-Modus muss explizit hell
@@ -3235,12 +3550,111 @@ def test_theme_choice_persists_across_restart_graph_and_image_colors_stay_fixed(
         assert window_color.lightness() > 200
     finally:
         win3.close()
-        win._apply_theme("light")
+        win._apply_window_theme("light")
 
 
 check(
-    "Design-Wahl uebersteht Neustart (App-Palette); Graph-/Thermobild-Farben bleiben in jedem Design fest",
-    test_theme_choice_persists_across_restart_graph_and_image_colors_stay_fixed,
+    "Fenster-Farbschema uebersteht Neustart (App-Palette); Graph-/Thermobild-Farben bleiben in jedem Design fest",
+    test_window_theme_persists_across_restart_graph_and_image_colors_stay_fixed,
+)
+
+
+def test_default_theme_buttons_set_window_image_and_graph_together():
+    # Folgeanfrage: "Alles: Hell"/"Alles: Dunkel" setzen alle drei
+    # Farbschemata (Fenster/Thermobild/Graph) gemeinsam, bleiben danach aber
+    # weiterhin unabhaengig einzeln veraenderbar.
+    prev_window = win._settings.value("window_theme", "light")
+    prev_image = win._settings.value("image_theme", "dark")
+    prev_graph = win._settings.value("graph_theme", "light")
+    try:
+        win._apply_default_theme("dark")
+        assert win._window_theme == "dark"
+        assert win._image_theme == "dark"
+        assert win._graph_theme == "dark"
+        assert win._window_theme_actions["dark"].isChecked()
+        assert win._image_theme_actions["dark"].isChecked()
+        assert win._graph_theme_actions["dark"].isChecked()
+
+        win._apply_default_theme("light")
+        assert win._window_theme == "light"
+        assert win._image_theme == "light"
+        assert win._graph_theme == "light"
+
+        # Danach weiterhin unabhaengig einzeln veraenderbar -- kein
+        # Ruecksprung auf einen gemeinsamen Zustand.
+        win._apply_image_theme("dark")
+        assert win._image_theme == "dark"
+        assert win._window_theme == "light"
+        assert win._graph_theme == "light"
+    finally:
+        win._apply_window_theme(prev_window if prev_window in _THEMES else "light")
+        win._apply_image_theme(prev_image if prev_image in _THEMES else "dark")
+        win._apply_graph_theme(prev_graph if prev_graph in _THEMES else "light")
+
+
+check(
+    "\"Alles: Hell\"/\"Alles: Dunkel\" setzen Fenster/Thermobild/Graph gemeinsam, bleiben danach unabhaengig",
+    test_default_theme_buttons_set_window_image_and_graph_together,
+)
+
+
+def test_ansichts_manager_image_and_graph_theme_independent_and_persist_across_restart():
+    # Punkt 5 (Nutzerwunsch, "Ansichts-Manager"): Thermobild und Graph sollen
+    # UNABHAENGIG voneinander (und vom App-Design) zwischen Hell/Dunkel
+    # umschaltbar sein -- jeweils per eigenem Untermenue ("Ansicht >
+    # Thermobild-Farbschema"/"Graph-Farbschema", zog aus der frueheren
+    # "Ansicht"-Box im rechten Panel dorthin um, siehe _build_menu).
+    # Nutzerfeedback: die fruehere "Ansicht"-GroupBox im rechten Panel (neben
+    # Legende/Maßstab) "macht da, wo es jetzt ist, keinen Sinn" -- ersatzlos
+    # entfernt, die Comboboxen gibt es nicht mehr.
+    assert not hasattr(win, "combo_image_theme")
+    assert not hasattr(win, "combo_graph_theme")
+
+    prev_image = win._settings.value("image_theme", "dark")
+    prev_graph = win._settings.value("graph_theme", "light")
+    try:
+        # Umschalten auf das jeweilige Gegenteil des Standards.
+        win._apply_image_theme("light")
+        assert win._image_bg == _THEMES["light"]["pg_background"]
+        assert win._image_fg == _THEMES["light"]["pg_foreground"]
+        assert win._image_theme_actions["light"].isChecked()
+        assert win.glw.backgroundBrush().color().name() == QtGui.QColor(_THEMES["light"]["pg_background"]).name()
+
+        win._apply_graph_theme("dark")
+        assert win._graph_bg == _THEMES["dark"]["pg_background"]
+        assert win._graph_theme_actions["dark"].isChecked()
+        assert win.timeseries_plot.backgroundBrush().color().name() == QtGui.QColor(
+            _THEMES["dark"]["pg_background"]
+        ).name()
+
+        # Beide Auswahlen sind wirklich unabhaengig -- keine hat die andere
+        # veraendert.
+        assert win._image_theme == "light"
+        assert win._graph_theme == "dark"
+
+        # Persistenz ueber einen Neustart, unabhaengig vom App-Design.
+        win2 = MainWindow()
+        try:
+            assert win2._image_theme == "light"
+            assert win2._image_bg == _THEMES["light"]["pg_background"]
+            assert win2._image_theme_actions["light"].isChecked()
+            assert win2._graph_theme == "dark"
+            assert win2._graph_bg == _THEMES["dark"]["pg_background"]
+            assert win2._graph_theme_actions["dark"].isChecked()
+        finally:
+            win2.close()
+
+        # Aendern per Menue-Action (wie ein echter Nutzerklick) wirkt genauso.
+        win._image_theme_actions["dark"].trigger()
+        assert win._image_bg == _THEMES["dark"]["pg_background"]
+    finally:
+        win._apply_image_theme(prev_image)
+        win._apply_graph_theme(prev_graph)
+
+
+check(
+    "Ansichts-Manager: Thermobild-/Graph-Darstellung unabhaengig waehlbar, uebersteht Neustart",
+    test_ansichts_manager_image_and_graph_theme_independent_and_persist_across_restart,
 )
 
 
@@ -3435,10 +3849,55 @@ check(
 )
 
 
+def test_render_video_frame_graph_area_uses_graph_background_not_base_canvas_fill():
+    # Bugfix ("Hintergrund im Graph schwarz" beim Video-Export, Punkt 5):
+    # _render_widget_into_painter rendert den Graph-Bereich fuer Nicht-glw-
+    # Widgets ueber einen direkten scene().render()-Aufruf -- der geht an
+    # pyqtgraphs View-Hintergrund (setBackground() setzt nur die VIEW-, nicht
+    # die SZENE-Hintergrundfarbe) vorbei, wodurch der Graph-Bereich
+    # transparent blieb und stattdessen den dunklen Basis-Fill der gesamten
+    # Video-Leinwand zeigte. graph_background fuellt den Graph-Zielbereich
+    # jetzt vorab explizit mit seiner eigenen Farbe.
+    unix = win.recording.unix_seconds()
+    frame_indices = list(range(0, min(4, win.recording.n_frames)))
+    segments = win._tight_glw_segments()
+
+    dark_base = QtGui.QColor("#101010")
+    light_graph = QtGui.QColor("#ffffff")
+
+    # graph_position="oben": der Graph liegt oben links bei (0, 0) -- ein
+    # Pixel nahe der Ecke (5, 5) liegt garantiert im Graph-Rechteck, aber
+    # weit genug von Achsen/Kurven entfernt, um reinen Hintergrund zu zeigen.
+    img_without_fix = win._render_video_frame(
+        1.0, dark_base, "none", frame_indices[0], frame_indices, unix, segments,
+        win.timeseries_plot, "oben",
+    )  # kein graph_background -> reproduziert den alten Bug
+    img_with_fix = win._render_video_frame(
+        1.0, dark_base, "none", frame_indices[0], frame_indices, unix, segments,
+        win.timeseries_plot, "oben", graph_background=light_graph,
+    )
+
+    color_without_fix = QtGui.QColor(img_without_fix.pixel(5, 5))
+    color_with_fix = QtGui.QColor(img_with_fix.pixel(5, 5))
+    assert color_without_fix.name() == dark_base.name(), (
+        f"Testvoraussetzung: ohne graph_background muss der Graph-Bereich den dunklen Basis-Fill "
+        f"zeigen, zeigt aber {color_without_fix.name()}"
+    )
+    assert color_with_fix.name() == light_graph.name(), (
+        f"Graph-Bereich sollte graph_background zeigen, zeigt aber {color_with_fix.name()}"
+    )
+
+
+check(
+    "video export: graph area is pre-filled with its own background instead of showing the dark base canvas fill through",
+    test_render_video_frame_graph_area_uses_graph_background_not_base_canvas_fill,
+)
+
+
 def test_video_export_dialog_graph_option_defaults_off():
     # "Graph mit exportieren" (frueher: "Graph mit anzeigen") ist standardmaessig
     # AUS; einmal an, ist die Graph-Inhalt-Auswahl (einzelne Messbereiche +
-    # Live-Cursor, siehe _build_graph_content_selector in dialogs.py) nutzbar,
+    # Live-Cursor, siehe GraphContentSelector in dialogs.py) nutzbar,
     # mit allen platzierten ROIs vorausgewaehlt und Live-Cursor aus.
     from thermal_viewer.dialogs import VideoExportDialog as RealVideoExportDialog
 
@@ -3451,13 +3910,13 @@ def test_video_export_dialog_graph_option_defaults_off():
     try:
         assert dlg.chk_show_graph.text() == "Graph mit exportieren"
         assert dlg.show_graph() is False, "Standard muss AUS sein"
-        assert dlg._content_widgets["group_box"].isEnabled() is False
+        assert dlg._content_selector.group_box.isEnabled() is False
         dlg.chk_show_graph.setChecked(True)
         assert dlg.show_graph() is True
-        assert dlg._content_widgets["group_box"].isEnabled() is True
+        assert dlg._content_selector.group_box.isEnabled() is True
         assert dlg.included_roi_numbers() == {101, 102}, "Standard: alle ROIs vorausgewaehlt"
         assert dlg.include_live() is False, "Standard: Live-Cursor aus"
-        dlg._content_widgets["checks"][101].setChecked(False)
+        dlg._content_selector.checks[101].setChecked(False)
         assert dlg.included_roi_numbers() == {102}
     finally:
         dlg.close()
@@ -3492,7 +3951,7 @@ def test_cursor_curve_dependency_wiring_video_and_graphic_dialogs():
         ),
     ):
         try:
-            chk_live = dlg._content_widgets["chk_live"]
+            chk_live = dlg._content_selector.chk_live
             assert dlg.chk_cursor_position.isChecked() is False
             assert chk_live.isChecked() is False
 
@@ -3523,7 +3982,7 @@ def test_graphic_export_dialog_no_graph_choice_keeps_plain_cursor_checkbox():
 
     dlg = RealGraphicExportDialog(win, win._settings, default_dpi=150, show_mode_choice=False, show_time_axis_choice=False)
     try:
-        assert dlg._content_widgets is None
+        assert dlg._content_selector is None
         assert dlg.chk_cursor_position is not None
         assert dlg.chk_cursor_position.text() == "Cursor-Position im Bild anzeigen"
         assert dlg.chk_cursor_position.isChecked() is False
@@ -3557,12 +4016,15 @@ def test_graphic_export_dialog_offers_graph_position_like_video_export():
         ]
         assert dlg.graph_position() == "rechts"  # Standard
 
-        # Position ist nur im "Kombiniert"-Modus sinnvoll/aktiv.
-        dlg.radio_combined.setChecked(True)
+        # Position ist nur relevant, solange ueberhaupt eine kombinierte
+        # Datei entsteht -- "Kombiniert" und "Getrennt" sind unabhaengige
+        # Checkboxen (Punkt 9), keine sich gegenseitig ausschliessenden
+        # Radio-Buttons mehr.
+        dlg.chk_combined.setChecked(True)
         assert dlg.combo_graph_position.isEnabled() is True
-        dlg.radio_separate.setChecked(True)
+        dlg.chk_combined.setChecked(False)
         assert dlg.combo_graph_position.isEnabled() is False
-        dlg.radio_combined.setChecked(True)
+        dlg.chk_combined.setChecked(True)
 
         dlg.combo_graph_position.setCurrentIndex(dlg.combo_graph_position.findData("oben"))
         assert dlg.graph_position() == "oben"
@@ -3625,23 +4087,29 @@ check(
 def test_graphic_export_dialog_color_and_time_axis_override():
     from thermal_viewer.dialogs import GraphicExportDialog as RealGraphicExportDialog
 
-    # Mit Zeitachsen-Wahl (Standard fuer den kombinierten Export). Punkt 4
-    # (Round 3): "Wie aktuell in der Anwendung" entfernt, stattdessen ist die
-    # aktuell aktive Anzeige (current_time_axis_mode) die VORBELEGUNG einer
-    # der drei echten Optionen (Uhrzeit/Laufzeit/Beide).
+    # Mit Zeitachsen-Wahl (Standard fuer den kombinierten Export). Folge-
+    # anfrage: Vorbelegung ist IMMER "Beide", unabhaengig von der gerade in
+    # der Anwendung aktiven Uhrzeit-/Laufzeit-Anzeige (frueher spiegelte die
+    # Vorbelegung genau diese wieder) -- UND die Combobox haengt jetzt
+    # sichtbar IN der "Achsen"-Box (self._axis_panel.group_box), nicht mehr
+    # als lose Zeile daneben.
     dlg = RealGraphicExportDialog(
         win, win._settings, default_dpi=150,
         colormaps=COLORMAPS, current_colormap_index=2, current_invert=True,
         current_level_mode="manual", current_min=1.0, current_max=99.0,
-        current_time_axis_mode="runtime",
+        current_axis_state=win._gather_axis_state(win.timeseries_plot),
     )
     try:
         assert dlg.use_custom_colors() is False, "Standard: aktuelle Einstellungen uebernehmen"
-        assert dlg.time_axis_mode() == "runtime", "Vorbelegung muss der aktuellen App-Anzeige entsprechen"
+        assert dlg.time_axis_mode() == "both", "Vorbelegung muss immer \"Beide\" sein"
         assert [dlg.combo_time_axis.itemData(i) for i in range(dlg.combo_time_axis.count())] == [
             "clock", "runtime", "both",
         ]
-        dlg._color_widgets["radio_custom"].setChecked(True)
+        assert dlg._axis_panel is not None
+        assert dlg.combo_time_axis.parentWidget() is dlg._axis_panel.group_box, (
+            "Zeitachse muss Teil der Achsen-Box sein"
+        )
+        dlg._color_panel.radio_custom.setChecked(True)
         assert dlg.use_custom_colors() is True
         assert dlg.custom_colormap_index() == 2
         assert dlg.custom_invert() is True
@@ -4180,7 +4648,7 @@ def test_duplicate_roi_names_stay_independently_selectable():
             live_available=False, roi_entries=[(a.number, a.name), (b.number, b.name)],
         )
         try:
-            checks = dlg._content_widgets["checks"]
+            checks = dlg._content_selector.checks
             assert set(checks.keys()) == {a.number, b.number}, "beide Checkboxen muessen eigenstaendig existieren"
             checks[a.number].setChecked(False)
             assert dlg.included_roi_numbers() == {b.number}, "muss trotz gleichen Namens nur b auswaehlen"
@@ -4229,10 +4697,10 @@ def test_end_to_end_export_state_restoration_with_dynamic_roi_selection():
     out_png = OUT / "dyn_selection_export.png"
 
     def fake_exec_graphic(self):
-        checks = self._content_widgets["checks"]
+        checks = self._content_selector.checks
         for number, chk in checks.items():
             chk.setChecked(number == keep_number)
-        self._content_widgets["chk_live"].setChecked(True)
+        self._content_selector.chk_live.setChecked(True)
         return (self.accept(), QtWidgets.QDialog.DialogCode.Accepted)[1]
 
     orig_save = QtWidgets.QFileDialog.getSaveFileName
@@ -4260,10 +4728,10 @@ def test_end_to_end_export_state_restoration_with_dynamic_roi_selection():
         self.spin_start.setValue(1)
         self.spin_end.setValue(min(2, self.spin_end.maximum()))
         self.chk_show_graph.setChecked(True)
-        checks = self._content_widgets["checks"]
+        checks = self._content_selector.checks
         for number, chk in checks.items():
             chk.setChecked(number == keep_number)
-        self._content_widgets["chk_live"].setChecked(True)
+        self._content_selector.chk_live.setChecked(True)
         return (self.accept(), QtWidgets.QDialog.DialogCode.Accepted)[1]
 
     orig_get_dir = QtWidgets.QFileDialog.getExistingDirectory
@@ -4419,8 +4887,8 @@ def test_export_dialogs_block_accept_if_custom_axes_selected_but_not_configured(
         current_axis_state=win._gather_axis_state(win.timeseries_plot),
     )
     try:
-        assert dlg._axis_widgets is not None
-        dlg._axis_widgets["radio_custom"].setChecked(True)
+        assert dlg._axis_panel is not None
+        dlg._axis_panel.radio_custom.setChecked(True)
         dlg._on_accept()
         assert dlg.result() != QtWidgets.QDialog.DialogCode.Accepted, (
             "Dialog haette 'Eigene Achsen-Einstellungen' ohne konfigurierte Werte ablehnen muessen"
@@ -4461,7 +4929,7 @@ def test_graphic_export_applies_custom_axis_override_end_to_end():
     out_png = OUT / "axis_override_export.png"
 
     def fake_exec_graphic(self):
-        for chk in self._content_widgets["checks"].values():
+        for chk in self._content_selector.checks.values():
             chk.setChecked(True)
 
         def fake_exec_axis_settings(axis_self):
@@ -4470,8 +4938,8 @@ def test_graphic_export_applies_custom_axis_override_end_to_end():
             return (axis_self.accept(), QtWidgets.QDialog.DialogCode.Accepted)[1]
 
         with temp_dialog_exec(AxisSettingsDialog, fake_exec_axis_settings):
-            self._axis_widgets["radio_custom"].setChecked(True)
-            self._axis_widgets["btn_configure"].click()
+            self._axis_panel.radio_custom.setChecked(True)
+            self._axis_panel.btn_configure.click()
         assert self.use_custom_axes(), "Achsen-Uebernahme haette nach dem Sub-Dialog aktiv sein muessen"
         return (self.accept(), QtWidgets.QDialog.DialogCode.Accepted)[1]
 
@@ -4805,8 +5273,8 @@ def test_load_paths_retry_flow_after_import_format_mismatch():
 
         offer_calls = []
 
-        def fake_offer(sample_path, error_message):
-            offer_calls.append((sample_path, error_message))
+        def fake_offer(error_message):
+            offer_calls.append(error_message)
             return True
 
         fresh._offer_import_settings_retry = fake_offer
@@ -4862,7 +5330,7 @@ def test_load_paths_cancel_import_retry_shows_original_error():
         # Standard in der (fuer den gesamten Testlauf gemeinsamen, aber vom
         # echten System isolierten) QSettings-Instanz hinterlassen haben.
         fresh._import_settings = ImportSettings()
-        fresh._offer_import_settings_retry = lambda sample_path, error_message: False
+        fresh._offer_import_settings_retry = lambda error_message: False
         ok = fresh._load_paths([p])
         assert ok is False
         assert fresh.recording is None
@@ -4987,7 +5455,7 @@ def test_csv_column_dialog_rejects_duplicate_column_names():
         {"name": "ROI 1", "width_px": 30.0, "height_px": 20.0, "width_mm": None, "height_mm": None},
         {"name": "ROI 2", "width_px": 12.0, "height_px": 12.0, "width_mm": None, "height_mm": None},
     ]
-    dialog = CsvColumnDialog(win, entries)
+    dialog = CsvColumnDialog(win, entries, win._settings)
     try:
         accepted = []
         dialog.accept = lambda: accepted.append(True)
@@ -5170,7 +5638,7 @@ def test_export_video_graph_time_axis_follows_zeitanzeige_im_bild():
             self.spin_end.setValue(min(2, self.spin_end.maximum()))
             self.chk_show_graph.setChecked(True)
             overlay_setter(self)
-            for chk in self._content_widgets["checks"].values():
+            for chk in self._content_selector.checks.values():
                 chk.setChecked(True)
             return (self.accept(), QtWidgets.QDialog.DialogCode.Accepted)[1]
 
@@ -5353,6 +5821,71 @@ check(
 )
 
 
+def test_project_save_load_roundtrips_measurements():
+    # Punkt 8 (Nutzerwunsch): Messungen sollen wie Messbereiche zu einem
+    # Projekt gehoeren -- Name, Farbe, Position UND ein manuell verschobener
+    # Beschriftungs-Versatz (Punkt 9) muessen einen Speichern/Laden-Zyklus
+    # ueberstehen.
+    win._start_ruler_tool()
+    p1 = win.view_box.mapViewToScene(QtCore.QPointF(2, 2))
+    p2 = win.view_box.mapViewToScene(QtCore.QPointF(22, 2))
+    win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p1))
+    with ruler_length_input(20.0):
+        win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p2))
+    assert win._px_to_mm is not None
+
+    win._start_measurement_tool()
+    m1 = win.view_box.mapViewToScene(QtCore.QPointF(1, 1))
+    m2 = win.view_box.mapViewToScene(QtCore.QPointF(6, 1))
+    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, m1))
+    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, m2))
+    entry = win.measurements[-1]
+    win._on_measurement_name_changed(entry, "Rohrdurchmesser")
+    entry.set_color("#abcdef")
+    entry.text.setPos(entry.text.pos().x() + 3, entry.text.pos().y() + 4)
+    win._on_measurement_label_moved(entry)
+    assert entry.label_offset is not None
+    original_offset = (entry.label_offset.x(), entry.label_offset.y())
+    original_endpoints = [(p.x(), p.y()) for p in entry.endpoints()]
+    original_count = len(win.measurements)
+
+    path = OUT / "measurements_roundtrip.tvproj"
+    orig_save = QtWidgets.QFileDialog.getSaveFileName
+    try:
+        QtWidgets.QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (str(path), ""))
+        win._save_project()
+    finally:
+        QtWidgets.QFileDialog.getSaveFileName = orig_save
+
+    orig_open = QtWidgets.QFileDialog.getOpenFileName
+    try:
+        QtWidgets.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(path), ""))
+        win._load_project()
+    finally:
+        QtWidgets.QFileDialog.getOpenFileName = orig_open
+
+    assert len(win.measurements) == original_count, "Anzahl Messungen sollte unveraendert wiederhergestellt sein"
+    restored = win.measurements[-1]
+    assert restored.name == "Rohrdurchmesser"
+    assert restored.color == "#abcdef"
+    restored_offset = (restored.label_offset.x(), restored.label_offset.y())
+    assert abs(restored_offset[0] - original_offset[0]) < 1e-6
+    assert abs(restored_offset[1] - original_offset[1]) < 1e-6
+    restored_endpoints = [(p.x(), p.y()) for p in restored.endpoints()]
+    for (ox, oy), (rx, ry) in zip(original_endpoints, restored_endpoints):
+        assert abs(ox - rx) < 1e-6 and abs(oy - ry) < 1e-6
+
+    for m in list(win.measurements):
+        win._remove_measurement(m)
+    win._clear_ruler_scale()
+
+
+check(
+    "project save/load round-trips measurements (name/color/position/label offset)",
+    test_project_save_load_roundtrips_measurements,
+)
+
+
 def test_video_dialog_filename_preview_substitutes_timestamp_tokens_single_example():
     # Bugfix: die Vorschau zeigte bisher den ROHEN Platzhalter-Text
     # ("Frame_YYYY-MM-DD_1.png") statt eines tatsaechlichen Dateinamens,
@@ -5526,6 +6059,70 @@ def test_export_video_images_idx_token_places_running_number_explicitly():
 check(
     "image-stack export prefix token IDX places the running frame number explicitly, without an extra auto-appended one",
     test_export_video_images_idx_token_places_running_number_explicitly,
+)
+
+
+def test_export_video_images_lauf_token_places_runtime_in_chosen_unit():
+    # Punkt 6/11 (Nutzerwunsch): Platzhalter LAUFs/LAUFm/LAUFh fuer die
+    # verstrichene Aufnahmezeit im Bildstapel-Export-Dateiname-Muster -- der
+    # Buchstabe nach "LAUF" waehlt direkt Sekunden/Minuten/Stunden, KEIN
+    # separates Dropdown mehr im Dialog.
+    from thermal_viewer.dialogs import VideoExportDialog as RealVideoExportDialog
+
+    out_dir = OUT / "lauf_token_export_check"
+    out_dir.mkdir(exist_ok=True)
+
+    def fake_exec_minutes(self):
+        self.radio_output_images.setChecked(True)
+        self.spin_start.setValue(1)
+        self.spin_end.setValue(2)
+        self.edit_image_prefix.setText("Frame_IDX_LAUFm_")
+        return (self.accept(), QtWidgets.QDialog.DialogCode.Accepted)[1]
+
+    orig_get_dir = QtWidgets.QFileDialog.getExistingDirectory
+    try:
+        with temp_dialog_exec(RealVideoExportDialog, fake_exec_minutes):
+            QtWidgets.QFileDialog.getExistingDirectory = staticmethod(lambda *a, **k: str(out_dir))
+            win._export_video()
+    finally:
+        QtWidgets.QFileDialog.getExistingDirectory = orig_get_dir
+
+    produced = sorted(out_dir.glob("*.png"))
+    assert len(produced) == 2, [p.name for p in produced]
+    # Fixture-Datenset: Frames exakt 1 Minute auseinander (siehe
+    # generate_fixture_dataset) -> Frame 1 (Index 0) = 000min, Frame 2
+    # (Index 1) = 001min.
+    assert produced[0].name == "Frame_1_000min_.png", produced[0].name
+    assert produced[1].name == "Frame_2_001min_.png", produced[1].name
+    for f in produced:
+        f.unlink()
+
+    # Einheit "Stunden" -- reines Format pruefen (bei nur 1 Minute Abstand
+    # rundet Frame 1 auf "00h", das ist erwartet: LAUF garantiert bewusst
+    # KEINE Eindeutigkeit, siehe render_runtime_token-Docstring).
+    def fake_exec_hours(self):
+        self.radio_output_images.setChecked(True)
+        self.spin_start.setValue(1)
+        self.spin_end.setValue(1)
+        self.edit_image_prefix.setText("Frame_IDX_LAUFh_")
+        return (self.accept(), QtWidgets.QDialog.DialogCode.Accepted)[1]
+
+    try:
+        with temp_dialog_exec(RealVideoExportDialog, fake_exec_hours):
+            QtWidgets.QFileDialog.getExistingDirectory = staticmethod(lambda *a, **k: str(out_dir))
+            win._export_video()
+    finally:
+        QtWidgets.QFileDialog.getExistingDirectory = orig_get_dir
+
+    produced = sorted(out_dir.glob("*.png"))
+    assert len(produced) == 1, [p.name for p in produced]
+    assert produced[0].name == "Frame_1_00h_.png", produced[0].name
+    produced[0].unlink()
+
+
+check(
+    "image-stack export: new LAUF template placeholder inserts elapsed runtime in the chosen unit (min/h)",
+    test_export_video_images_lauf_token_places_runtime_in_chosen_unit,
 )
 
 
@@ -5788,6 +6385,68 @@ check(
 )
 
 
+def test_interp_frame_outside_evaluation_shows_dezent_non_blocking_warning():
+    # Punkt 2 (Nutzerwunsch): traegt man bei "über Zeit interpolieren" ein
+    # Start-/Endbild AUSSERHALB der aktuellen Auswertung (Auswertungsstart/
+    # -ende) ein, bleibt das weiterhin uneingeschraenkt moeglich -- ein
+    # dezenter Hinweis (kein modaler Dialog!) neben dem Eingabefeld macht nur
+    # darauf aufmerksam, siehe MainWindow._refresh_interp_range_warning.
+    n = win.recording.n_frames
+    assert n >= 4, "Test braucht mindestens 4 Frames"
+    entry = win._add_roi_entry()
+    prev_eval_start, prev_eval_end = win.spin_eval_start.value(), win.spin_eval_end.value()
+    try:
+        # Auswertung auf einen Unterbereich einschraenken, der NICHT bei
+        # Frame 1 beginnt -- der Interpolations-Standard (erstes Bild) liegt
+        # dadurch garantiert ausserhalb.
+        win.spin_eval_start.setValue(2)
+        win.spin_eval_end.setValue(n)
+
+        assert entry.lbl_interp_start_warning.isVisible() is False, "kein Hinweis ohne aktive Interpolation"
+        assert entry.spin_interp_start_frame.value() == 1, "Standard: erstes Bild"
+
+        entry.chk_interp.setChecked(True)
+        assert entry.lbl_interp_start_warning.isVisible() is True, "Start (Bild 1) liegt vor der Auswertung (ab 2)"
+        assert "außerhalb" in entry.lbl_interp_start_warning.toolTip()
+        assert entry.lbl_interp_end_warning.isVisible() is False, "Ende (Bild n) liegt innerhalb"
+
+        # Zurueck in den Bereich -> Hinweis verschwindet wieder, live beim
+        # Aendern der Spinbox (nicht erst bei erneutem Umschalten).
+        entry.spin_interp_start_frame.setValue(2)
+        assert entry.lbl_interp_start_warning.isVisible() is False
+
+        # Interpolation ausschalten blendet einen sonst sichtbaren Hinweis
+        # aus, auch wenn der Wert weiterhin ausserhalb der Auswertung liegt
+        # (Hinweis ist nur waehrend AKTIVER Interpolation relevant).
+        entry.spin_interp_start_frame.setValue(1)
+        assert entry.lbl_interp_start_warning.isVisible() is True
+        entry.chk_interp.setChecked(False)
+        assert entry.lbl_interp_start_warning.isVisible() is False
+        entry.chk_interp.setChecked(True)
+        assert entry.lbl_interp_start_warning.isVisible() is True
+
+        # Auswertung selbst erweitern (statt der Spinbox) aktualisiert
+        # ebenfalls bereits sichtbare Hinweise.
+        win.spin_eval_start.setValue(1)
+        assert entry.lbl_interp_start_warning.isVisible() is False
+    finally:
+        entry.chk_interp.setChecked(False)
+        win.spin_eval_start.setValue(prev_eval_start)
+        win.spin_eval_end.setValue(prev_eval_end)
+        orig_question = QtWidgets.QMessageBox.question
+        QtWidgets.QMessageBox.question = staticmethod(lambda *a, **k: QtWidgets.QMessageBox.StandardButton.Yes)
+        try:
+            win._on_roi_remove_clicked(entry)
+        finally:
+            QtWidgets.QMessageBox.question = orig_question
+
+
+check(
+    "interpolation start/end frame outside the current evaluation range shows a dezent, non-blocking warning label",
+    test_interp_frame_outside_evaluation_shows_dezent_non_blocking_warning,
+)
+
+
 def test_project_load_syncs_interp_frame_spinboxes_not_just_data_fields():
     # Bugfix: _load_project() setzte entry.interp_start_frame/-end_frame aus
     # der Datei, aber NIE die zugehoerigen Zahlenfelder (spin_interp_start_
@@ -5951,12 +6610,12 @@ def test_export_dialogs_reject_inverted_custom_color_range():
         current_level_mode="manual", current_min=0.0, current_max=50.0,
     )
     try:
-        graphic_dialog._color_widgets["radio_custom"].setChecked(True)
-        graphic_dialog._color_widgets["combo_level_mode"].setCurrentIndex(
-            graphic_dialog._color_widgets["combo_level_mode"].findData("manual")
+        graphic_dialog._color_panel.radio_custom.setChecked(True)
+        graphic_dialog._color_panel.combo_level_mode.setCurrentIndex(
+            graphic_dialog._color_panel.combo_level_mode.findData("manual")
         )
-        graphic_dialog._color_widgets["spin_min"].setValue(50.0)
-        graphic_dialog._color_widgets["spin_max"].setValue(10.0)
+        graphic_dialog._color_panel.spin_min.setValue(50.0)
+        graphic_dialog._color_panel.spin_max.setValue(10.0)
         with temp_dialog_exec(QtWidgets.QMessageBox, lambda self: QtWidgets.QMessageBox.StandardButton.Ok):
             graphic_dialog._on_accept()
         assert graphic_dialog.result() != QtWidgets.QDialog.DialogCode.Accepted, (

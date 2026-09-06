@@ -19,7 +19,7 @@ def bounds_px_for(x: float, y: float, w: float, h: float, grid_shape: tuple[int,
     """Liefert (row0, row1, col0, col1) als Integer-Grenzen, geclippt auf grid_shape.
 
     Eigenstaendige Funktion (statt nur Methode), damit auch fuer zeitlich
-    interpolierte ROI-Rechtecke (siehe RoiEntry.interp_rect in main_window.py),
+    interpolierte ROI-Rechtecke (siehe RoiEntry.interp_rect in roi_entry.py),
     die keinem echten ROI-Objekt entsprechen, dieselbe Grenzen-Logik gilt.
     """
     rows, cols = grid_shape
@@ -43,7 +43,7 @@ def _elliptical_mask_for_shape(h: int, w: int) -> np.ndarray:
     """Die eigentliche Ellipsen-Maskenberechnung -- haengt NUR von der
     Groesse (h, w) ab, nicht von der Position (row0/col0). Gecacht, weil
     ein zeitlich interpolierter, "als Kreis behandelter" Messbereich
-    (_recompute_curves in main_window.py) diese Maske sonst pro Frame
+    (_recompute_curves in main_window/roi_ops.py) diese Maske sonst pro Frame
     (potenziell tausende Male je Kurvenberechnung, z.B. bei jedem
     Zwischenschritt eines ROI-Drags) neu aus np.ogrid heraus aufbauen
     wuerde, obwohl die gerundete Pixel-Breite/-Hoehe ueber viele

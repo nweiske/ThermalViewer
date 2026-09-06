@@ -7,10 +7,11 @@ from __future__ import annotations
 import json
 
 import pytest
-from qtpy import QtGui, QtWidgets
+from qtpy import QtCore, QtGui, QtWidgets
 
 import thermal_viewer.main_window as mwmod
 from thermal_viewer.main_window import MainWindow, _StaysOpenMenu
+from thermal_viewer.widgets import UpwardSafeComboBox
 
 
 # ---------------------------------------------------------------- Design
@@ -28,34 +29,126 @@ def test_dark_palette_sets_all_fusion_shading_roles():
     assert palette.color(QtGui.QPalette.Window).lightness() < 128
 
 
-def test_dark_mode_toggle_switches_theme_but_graph_and_image_colors_stay_fixed(main_window):
+def test_window_theme_switch_leaves_graph_and_image_colors_fixed(main_window):
     # Nutzerwunsch: Graphen bleiben IMMER hell (wissenschaftlicher Standard),
     # das Thermobild bleibt IMMER dunkel (Kontrast zu Hotspots) --
-    # unabhaengig vom Hell-/Dunkelmodus-Schalter, der seither nur noch die
-    # uebrige App-Oberflaeche betrifft.
+    # unabhaengig vom Fenster-Farbschema, das nur die uebrige App-Oberflaeche
+    # betrifft (siehe _window_theme_actions).
     mw = main_window
-    mw._apply_theme("light")
-    assert mw._current_theme == "light"
+    mw._apply_window_theme("light")
+    assert mw._window_theme == "light"
     assert mw._graph_bg == "#ffffff"
     assert mw._image_bg == "#1e1e1e"
 
-    mw.act_dark_mode.trigger()
-    assert mw._current_theme == "dark"
-    assert mw.act_dark_mode.isChecked()
+    mw._window_theme_actions["dark"].trigger()
+    assert mw._window_theme == "dark"
+    assert mw._window_theme_actions["dark"].isChecked()
     assert mw._graph_bg == "#ffffff"
     assert mw._image_bg == "#1e1e1e"
 
-    mw.act_dark_mode.trigger()
-    assert mw._current_theme == "light"
-    assert not mw.act_dark_mode.isChecked()
+    mw._window_theme_actions["light"].trigger()
+    assert mw._window_theme == "light"
+    assert not mw._window_theme_actions["dark"].isChecked()
 
 
-def test_only_a_single_dark_mode_toggle_exists(main_window):
-    # Regression: getrennte "Design"/"Grafik-Darstellung"-Untermenues
-    # wurden zu einem einzigen Umschalter zusammengelegt.
+def test_apply_default_theme_sets_window_image_and_graph_together(main_window):
+    # Folgeanfrage: die beiden "Alles: Hell"/"Alles: Dunkel"-Knoepfe setzen
+    # Fenster-, Thermobild- UND Graph-Farbschema gemeinsam -- danach bleiben
+    # alle drei trotzdem weiterhin unabhaengig voneinander veraenderbar
+    # (siehe test_ansichts_manager_image_and_graph_theme_independent_and_
+    # persist_across_restart in smoke_test.py).
+    mw = main_window
+    try:
+        mw._apply_default_theme("dark")
+        assert mw._window_theme == "dark"
+        assert mw._image_theme == "dark"
+        assert mw._graph_theme == "dark"
+
+        mw._apply_default_theme("light")
+        assert mw._window_theme == "light"
+        assert mw._image_theme == "light"
+        assert mw._graph_theme == "light"
+
+        # Danach weiterhin unabhaengig einzeln veraenderbar.
+        mw._apply_graph_theme("dark")
+        assert mw._graph_theme == "dark"
+        assert mw._window_theme == "light"
+        assert mw._image_theme == "light"
+    finally:
+        mw._apply_image_theme("dark")
+        mw._apply_graph_theme("light")
+
+
+def test_no_leftover_single_dark_mode_toggle_attributes(main_window):
+    # Regression: der frühere einzelne "Dunkelmodus"-Umschalter (act_dark_mode)
+    # wurde durch die beiden "Alles: ..."-Knoepfe PLUS ein eigenstaendiges
+    # "Fenster-Farbschema"-Untermenue ersetzt -- diese alten, seitdem toten
+    # Attributnamen duerfen nicht wieder auftauchen. _image_theme_actions/
+    # _graph_theme_actions/_window_theme_actions sind KEIN Ruecksprung
+    # dahin: sie gehoeren zum bewusst UNABHAENGIGEN Ansichts-Manager
+    # (Punkt 5) fuer Fenster/Thermobild/Graph.
+    assert not hasattr(main_window, "act_dark_mode")
+    assert not hasattr(main_window, "_on_dark_mode_toggled")
     assert not hasattr(main_window, "_theme_actions")
-    assert not hasattr(main_window, "_graph_theme_actions")
     assert not hasattr(main_window, "_graph_theme_mode")
+
+
+def test_upward_safe_combo_box_flips_popup_above_when_it_would_overflow_bottom():
+    # Bugreport: "im Vollbild-Modus geht das Dropdown [der Zeitachse-Combobox
+    # unter den Kurven-Graphen] unten aus dem Bildschirm raus -- ich kann die
+    # letzte Option nicht auswaehlen, weil ich sie gar nicht sehe". Qt richtet
+    # die Popup-Liste einer QComboBox immer nach UNTEN aus, ohne das bei
+    # Platzmangel wie hier automatisch zu korrigieren.
+    class _FakeScreen:
+        def availableGeometry(self):
+            return QtCore.QRect(0, 0, 800, 600)
+
+    combo = UpwardSafeComboBox()
+    try:
+        combo.addItem("a")
+        combo.addItem("b")
+        combo.addItem("c")
+        combo.move(10, 590)  # nahe am unteren Rand des (gefakten) Bildschirms
+        combo.resize(100, 20)
+        combo.show()
+        combo.screen = lambda: _FakeScreen()
+        combo.showPopup()
+        popup = combo.view().window()
+        combo_top = combo.mapToGlobal(QtCore.QPoint(0, 0)).y()
+        assert popup.geometry().y() < combo_top, "Popup muss bei Platzmangel oberhalb der Combobox erscheinen"
+        combo.hidePopup()
+    finally:
+        combo.close()
+
+
+def test_upward_safe_combo_box_leaves_popup_untouched_when_it_fits():
+    # Gegenprobe: passt die Liste normal auf den (gefakten) Bildschirm, darf
+    # UpwardSafeComboBox NICHTS an Qts eigener Platzierung aendern (kein
+    # unnoetiges Umklappen) -- verglichen gegen eine normale QComboBox an
+    # exakt derselben Position, da die genaue Popup-Position unter der
+    # Offscreen-QPA-Plattform nicht mit der Combobox-Position selbst
+    # zusammenhaengt (kein echter Fensterserver).
+    class _FakeScreen:
+        def availableGeometry(self):
+            return QtCore.QRect(0, 0, 8000, 6000)  # riesig -> nie ein Ueberlauf
+
+    def popup_geometry(cls):
+        combo = cls()
+        try:
+            combo.addItem("a")
+            combo.addItem("b")
+            combo.move(10, 10)
+            combo.resize(100, 20)
+            combo.show()
+            combo.screen = lambda: _FakeScreen()
+            combo.showPopup()
+            geom = combo.view().window().geometry()
+            combo.hidePopup()
+            return geom
+        finally:
+            combo.close()
+
+    assert popup_geometry(UpwardSafeComboBox) == popup_geometry(QtWidgets.QComboBox)
 
 
 def test_timestamp_label_uses_font_not_stylesheet(main_window):
@@ -242,10 +335,10 @@ def test_export_graphic_requires_at_least_one_curve_selected(loaded_main_window,
         loaded_main_window, loaded_main_window._settings, default_dpi=150,
         colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
         current_level_mode="global", current_min=0.0, current_max=50.0,
-        current_time_axis_mode="clock", show_graph_source_choice=True, live_available=False,
+        show_graph_source_choice=True, live_available=False,
         roi_entries=[(1, "ROI 1")],
     )
-    dlg._content_widgets["checks"][1].setChecked(False)
+    dlg._content_selector.checks[1].setChecked(False)
     dlg._on_accept()
     assert dlg.result() != QtWidgets.QDialog.DialogCode.Accepted
     dlg.close()

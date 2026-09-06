@@ -2,7 +2,7 @@
 ausschliesslich pyqtgraph-Grafik-Items enthaelt)."""
 from __future__ import annotations
 
-from qtpy import QtGui, QtWidgets
+from qtpy import QtCore, QtGui, QtWidgets
 
 
 class LocaleTolerantDoubleSpinBox(QtWidgets.QDoubleSpinBox):
@@ -29,3 +29,32 @@ class LocaleTolerantDoubleSpinBox(QtWidgets.QDoubleSpinBox):
 
     def valueFromText(self, text: str) -> float:
         return super().valueFromText(self._normalized(text))
+
+
+class UpwardSafeComboBox(QtWidgets.QComboBox):
+    """QComboBox, deren Dropdown-Liste sich noetigenfalls NACH OBEN statt nach
+    unten oeffnet (Bugreport: "im Vollbild-Modus geht das Dropdown unten aus
+    dem Bildschirm raus -- ich kann die letzte Option nicht auswaehlen, weil
+    ich sie gar nicht sehe"). Betrifft vor allem Comboboxen nahe am unteren
+    Fensterrand, z.B. die "Zeitachse"-Auswahl direkt unterhalb der Kurven-
+    Graphen -- Qt richtet die Popup-Liste sonst IMMER nach unten aus und
+    verschiebt sie zwar bei Bedarf nach links/rechts (damit sie horizontal
+    auf den Bildschirm passt), aber nicht nach oben."""
+
+    def showPopup(self) -> None:
+        super().showPopup()
+        popup = self.view().window()
+        screen = self.screen() if hasattr(self, "screen") else None
+        if popup is None or screen is None:
+            return
+        available = screen.availableGeometry()
+        popup_geom = popup.geometry()
+        overflow = (popup_geom.y() + popup_geom.height()) - (available.y() + available.height())
+        if overflow <= 0:
+            return
+        # Combobox-Oberkante als untere Kante der nach oben geklappten Liste
+        # nehmen (direkt anschliessend, wie eine normale nach-unten-Liste
+        # direkt an der Unterkante ansetzt).
+        combo_top_global = self.mapToGlobal(QtCore.QPoint(0, 0)).y()
+        new_y = max(available.y(), combo_top_global - popup_geom.height())
+        popup.move(popup_geom.x(), new_y)

@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-09-03
+Stand: 2026-09-04
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
@@ -24,7 +24,7 @@ INHALT
  8. Zeitverlauf-Graph und Live-Graph
  9. Grafik und Werte exportieren
 10. Video / Bildstapel exportieren
-11. Maßstab (Lineal) und reale Größen in mm
+11. Maßstab (Lineal), Messungen und reale Größen in mm
 12. Projekt speichern und laden
 13. Fenster/Panels anordnen
 14. Hinweise und Problembehebung
@@ -213,18 +213,33 @@ Wiedergabe (auch ohne die Maus zu bewegen) - so laesst sich die
 Temperatur an einer fixierten Stelle live waehrend des Abspielens
 mitverfolgen.
 
-Ueber "Ansicht > Dunkelmodus" (ein einzelner an-/abwaehlbarer Menuepunkt)
-laesst sich zwischen hellem und dunklem Erscheinungsbild der uebrigen
-Oberflaeche (Fenster, Menues, Bedienelemente) wechseln. Die Wahl wird
-gespeichert und beim naechsten Start automatisch wieder eingestellt.
+Ueber "Ansicht > Alles: Hell" bzw. "Ansicht > Alles: Dunkel" laesst sich
+das Fenster, das Thermobild UND der Graph gemeinsam auf einen Schlag auf
+das jeweilige Erscheinungsbild umstellen -- praktisch als schneller
+Ausgangspunkt. Beide Knoepfe sind reine "Auf einen Schlag setzen"-Aktionen
+(kein an-/abwaehlbarer Dauerschalter): nach ihrem Klick lassen sich alle
+drei Bereiche ueber die drei eigenen Untermenues darunter jederzeit wieder
+GEZIELT UND UNABHAENGIG voneinander aendern.
 
-Thermobild und Kurven-Graphen (Zeitverlauf/Live) folgen diesem Schalter
-NICHT mehr, sondern haben je eine feste, davon unabhaengige Farbgebung:
-die Kurven-Graphen bleiben immer HELL (wissenschaftlicher Standard, gut
-lesbar auch beim Einfuegen in Berichte/Ausdrucke), das Thermobild bleibt
-immer DUNKEL (besserer Kontrast zu Hotspots) - unabhaengig davon, ob der
-Dunkelmodus gerade an oder aus ist. Das gilt auch fuer alle Exporte
-(Grafik-, Video-/Bildstapel-Export).
+ANSICHTS-MANAGER (Fenster/Thermobild/Graph unabhaengig hell/dunkel):
+Fenster-Oberflaeche, Thermobild und Kurven-Graphen (Zeitverlauf/Live)
+lassen sich UNABHAENGIG voneinander ueber drei eigene Untermenues im
+"Ansicht"-Menue zwischen Hell und Dunkel umschalten:
+
+  - "Ansicht > Fenster-Farbschema" -> Hintergrund-/Schriftfarbe von
+    Fenster, Menues und Bedienelementen (Standard: Hell).
+  - "Ansicht > Thermobild-Farbschema" -> Standard: Dunkel (besserer
+    Kontrast zu Hotspots).
+  - "Ansicht > Graph-Farbschema" -> Standard: Hell (wissenschaftlicher
+    Standard, gut lesbar auch beim Einfuegen in Berichte/Ausdrucke).
+
+Damit lassen sich Fenster, Thermobild und Graph vollstaendig frei UND
+unabhaengig voneinander im jeweils gewuenschten Erscheinungsbild
+darstellen. Alle drei Wahlen werden gespeichert und beim naechsten Start
+automatisch wieder eingestellt, UND das Thermobild-/Graph-Farbschema gilt
+auch fuer alle Exporte (Grafik-, Video-/Bildstapel-Export) -- ein im
+Hauptfenster auf "Hell" gestellter Graph erscheint z.B. auch im
+exportierten Video mit hellem Hintergrund, unabhaengig vom Thermobild.
 
 
 ================================================================
@@ -274,7 +289,7 @@ Tastatur-Shortcuts.txt (gleicher Ordner wie diese Datei).
 6. MESSBEREICHE (ROI) ANLEGEN UND BEARBEITEN
 ================================================================
 
-Im rechten Panel "ROI & Legende" gibt es links eine senkrechte Liste,
+Im rechten Panel "Messbereiche & Legende" gibt es links eine senkrechte Liste,
 einen Eintrag pro Messbereich, per Klick auswaehlbar -- rechts daneben
 die Detailansicht des jeweils ausgewaehlten Messbereichs. Das spart
 Platz, da ROI-Namen meist kurz sind. Standardmaessig sind fuenf
@@ -451,6 +466,18 @@ damit der gerade bearbeitete eindeutig im Fokus steht:
      zweiten Punkts eine Warnung -- der Messbereich bliebe sonst unbemerkt
      fuer die gesamte Aufnahme auf der Start-Position eingefroren.
 
+HINWEIS AUSSERHALB DER AUSWERTUNG: Liegt das in "Erstes Frame:" oder
+"Letztes Frame:" eingestellte Bild ausserhalb des aktuellen Auswertungs-
+start/-ende (siehe oben), erscheint bei aktivierter Interpolation ein
+kleines gelb-oranges "!" direkt neben dem betroffenen Zahlenfeld (Mauszeiger
+darauf halten zeigt Details). Das ist NUR ein dezenter Hinweis, kein
+blockierender Dialog -- die Interpolation funktioniert trotzdem
+uneingeschraenkt weiter, der Hinweis macht nur darauf aufmerksam, dass der
+Teil ausserhalb der Auswertung sich in Diagramm/Export nicht bemerkbar
+macht. Er verschwindet automatisch, sobald entweder das Zahlenfeld wieder
+innerhalb der Auswertung liegt, die Auswertung selbst passend erweitert
+wird, oder die Interpolation fuer diesen Messbereich ausgeschaltet wird.
+
 
 ================================================================
 7. LEGENDE / FARBSKALA
@@ -463,7 +490,7 @@ Rechts neben dem Bild liegt die Farbskala (Histogramm/Legende):
     (Kontrast) anzupassen (nur im Modus "Manuell", siehe unten).
   - Rechtsklick auf die Farbskala oeffnet ein Menue mit alternativen
     Farbverlaeufen.
-  - Im Panel "ROI & Legende" oben gibt es zusaetzlich:
+  - Im Panel "Messbereiche & Legende" oben gibt es zusaetzlich:
       * Dropdown "Farbverlauf"    -> Auswahl der Farbpalette: u.a.
                                       "Ironbow" (klassische Waermebild-
                                       Optik), "Inferno", "Plasma",
@@ -501,39 +528,32 @@ Rechts neben dem Bild liegt die Farbskala (Histogramm/Legende):
 8. ZEITVERLAUF-GRAPH UND LIVE-GRAPH
 ================================================================
 
-Rechts befinden sich zwei Reiter/Tabs (per Klick auf den Titel oben
-umschaltbar, oder als eigenes Fenster abtrennbar - siehe Abschnitt 13):
+Rechts befindet sich der Graph "Zeitverlauf" (als eigenes Fenster
+abtrennbar - siehe Abschnitt 13): zeigt fuer jeden platzierten und
+sichtbaren Messbereich den gemittelten Temperaturwert ueber alle
+geladenen Frames hinweg. Eine gestrichelte senkrechte Linie markiert
+den aktuell angezeigten Frame.
 
-  - "Zeitverlauf"   -> zeigt fuer jeden platzierten und sichtbaren
-                       Messbereich den gemittelten Temperaturwert ueber
-                       alle geladenen Frames hinweg. Eine gestrichelte
-                       senkrechte Linie markiert den aktuell
-                       angezeigten Frame.
+Checkbox "Live-Cursor-Kurve zusätzlich anzeigen" (Standard: AUS) blendet
+zusaetzlich die Live-Cursor-Kurve direkt in DIESEM Graphen mit ein --
+nuetzlich, um Messbereiche und eine frei gewaehlte Cursor-Stelle
+gemeinsam zu vergleichen. Unabhaengig von dieser Checkbox ist die
+Live-Cursor-Kurve beim Export dieses Graphen (Abschnitt 9) automatisch
+mit dabei, sofern gerade eine verfuegbar ist. (Ein frueherer, separater
+"Live (Cursor)"-Reiter mit identischem Inhalt wurde entfernt -- diese
+Checkbox deckt denselben Anwendungsfall bereits vollstaendig ab.)
 
-                       Checkbox "Live-Cursor-Kurve zusätzlich anzeigen"
-                       (Standard: AUS) blendet zusaetzlich die Live-
-                       Cursor-Kurve (siehe unten) direkt in DIESEM
-                       Graphen mit ein -- nuetzlich, um Messbereiche
-                       und eine frei gewaehlte Cursor-Stelle gemeinsam
-                       zu vergleichen. Unabhaengig von dieser Checkbox
-                       ist die Live-Cursor-Kurve beim Export dieses
-                       Graphen (Abschnitt 9) automatisch mit dabei,
-                       sofern gerade eine verfuegbar ist.
+LIVE-CURSOR (Temperaturverlauf am Mauszeiger):
+Solange die Maus ueber das Bild bewegt wird, zeigt die Live-Cursor-Kurve
+den Temperaturverlauf GENAU DES PIXELS unter dem Mauszeiger, ueber alle
+Frames hinweg. Sehr nuetzlich, um schnell einen einzelnen Bildpunkt zu
+inspizieren, ohne extra einen Messbereich anzulegen.
 
-  - "Live (Cursor)" -> solange die Maus ueber das Bild bewegt wird,
-                       zeigt dieser Graph den Temperaturverlauf GENAU
-                       DES PIXELS unter dem Mauszeiger, ueber alle
-                       Frames hinweg. Sehr nuetzlich, um schnell einen
-                       einzelnen Bildpunkt zu inspizieren, ohne extra
-                       einen Messbereich anzulegen.
-
-                       Linksklick ins Bild fixiert diese Stelle (ein
-                       Kreuz markiert das Pixel dauerhaft) - der Graph
-                       bleibt dann stehen und folgt der Maus nicht mehr,
-                       z.B. um den Wert in Ruhe abzulesen oder die
-                       Grafik zu exportieren (siehe Abschnitt 9).
-                       Rechtsklick ins Bild hebt die Fixierung wieder
-                       auf, der Graph folgt danach wieder der Maus.
+Linksklick ins Bild fixiert diese Stelle (ein Kreuz markiert das Pixel
+dauerhaft) - die Kurve bleibt dann stehen und folgt der Maus nicht mehr,
+z.B. um den Wert in Ruhe abzulesen oder die Grafik zu exportieren (siehe
+Abschnitt 9). Rechtsklick ins Bild hebt die Fixierung wieder auf, die
+Kurve folgt danach wieder der Maus.
 
 Standardmaessig wertet der Live-Graph einen 5x5-Pixel-Bereich um das
 Cursor-Pixel aus. Ueber "Werkzeuge > Live-Cursor-Bereichsgroesse" in der
@@ -547,11 +567,9 @@ Bei nur sehr wenigen Frames (z.B. nur 1-2) werden zusaetzlich kleine
 Punktmarker auf den Kurven angezeigt, da eine Linie erst ab zwei
 Punkten sichtbar waere.
 
-Unten rechts an beiden Graphen laesst sich per Dropdown "Zeitachse"
-zwischen "Uhrzeit" (echtes Datum/Uhrzeit, Standard) und "Laufzeit"
-(relative Zeit seit Aufnahmebeginn) umschalten. Beide Umschalter sind
-miteinander synchronisiert (beide Graphen zeigen immer denselben Modus),
-da sie dieselbe Zeitachse abbilden.
+Unten rechts am Graphen laesst sich per Dropdown "Zeitachse" zwischen
+"Uhrzeit" (echtes Datum/Uhrzeit, Standard) und "Laufzeit" (relative Zeit
+seit Aufnahmebeginn) umschalten.
 
 Direkt daneben ein zweites Dropdown fuer das FORMAT der Laufzeit-Anzeige
 (nur aktiv, solange links "Laufzeit" gewaehlt ist) -- "dritte Zeitachse"
@@ -565,10 +583,9 @@ mit frei waehlbarer Einheit:
     umrechnen zu muessen.
 
 Das Format gilt EINHEITLICH ueberall, wo die Laufzeit im Programm
-auftaucht: an beiden Graph-Achsen, im Video-/Bildstapel-Export (Zeit-
+auftaucht: an der Graph-Achse, im Video-/Bildstapel-Export (Zeit-
 anzeige im Bild, Abschnitt 10), im CSV-Export (Spalte "Laufzeit (...)",
-Abschnitt 9) und in der Statuszeile -- eine einmalige Auswahl an einem
-der beiden Graphen genuegt.
+Abschnitt 9) und in der Statuszeile.
 
 Daneben (links vom Dropdown) befinden sich zwei weitere Knoepfe:
 
@@ -595,8 +612,8 @@ Daneben (links vom Dropdown) befinden sich zwei weitere Knoepfe:
     Alle vier Einstellungen (X-Bereich, Y-Bereich, Y-Schrittweite) lassen
     sich unabhaengig voneinander auf Automatisch zurueckstellen.
 
-Per Rechtsklick direkt auf einen der beiden Graphen bietet pyqtgraph
-selbst zusaetzlich ein Kontextmenue (unabhaengig von der App) mit u.a.:
+Per Rechtsklick direkt auf den Graphen bietet pyqtgraph selbst
+zusaetzlich ein Kontextmenue (unabhaengig von der App) mit u.a.:
 
   - "View All" -- wie "Achsen zuruecksetzen" oben, nur an anderer Stelle.
   - "X axis"/"Y axis" -- je ein Untermenue mit "Auto"/"Manual"-Wahl fuer
@@ -635,6 +652,11 @@ exportiert (da es dafuer keine eigene Menue-Entsprechung gibt)
 weiterhin nur dieses eine Bild allein, mit demselben Fenster, aber ohne
 die Kombiniert/Getrennt-Auswahl.
 
+Der "Speichern"-Dialog jedes Export-Wegs (Grafik, Werte, Video/Bildstapel)
+startet automatisch im ZULETZT verwendeten Zielordner -- egal, ueber
+welchen der Export-Wege dieser Ordner zuletzt genutzt wurde. Beim ersten
+Export in einer neuen Programm-Sitzung gilt der jeweilige System-Standard.
+
 GRAFIK SPEICHERN (Thermobild + Kurve):
 Die exportierte Grafik zeigt das Thermobild mit der Position der
 Messbereiche zusammen mit dem zugehoerigen Temperaturverlauf, damit auf
@@ -670,14 +692,13 @@ die Temperatur dort entwickelt hat.
      denselben Dialog wie "Achsen einstellen…" im Hauptfenster (Abschnitt
      8): Wertebereich UND Tick-Abstand fuer X- (bei "Laufzeit") und
      Y-Achse frei waehlbar, NUR fuer diesen einen Export -- die Anzeige im
-     Hauptfenster bleibt danach unveraendert.
-  6. "Zeitachse:" (nur bei Export mit Kurve) -> "Uhrzeit", "Laufzeit" oder
-     "Beide" -- vorbelegt mit dem gerade im Hauptfenster aktiven
-     Umschalter (Abschnitt 8), unabhaengig davon aber frei aenderbar.
-     "Beide" fuegt eine ZWEITE Achse oben am Graphen hinzu, sodass Uhrzeit
-     UND Laufzeit gleichzeitig in EINER Grafik zu sehen sind (statt wie
-     sonst nur eine der beiden).
-  7. "Cursor-Position im Bild anzeigen" (Standard: AUS) -- blendet das
+     Hauptfenster bleibt danach unveraendert. Direkt in derselben Box
+     zusaetzlich "Zeitachse:" -> "Uhrzeit", "Laufzeit" oder "Beide"
+     (Standard: "Beide", unabhaengig vom gerade im Hauptfenster aktiven
+     Umschalter, Abschnitt 8, frei aenderbar). "Beide" fuegt eine ZWEITE
+     Achse oben am Graphen hinzu, sodass Uhrzeit UND Laufzeit gleichzeitig
+     in EINER Grafik zu sehen sind (statt wie sonst nur eine der beiden).
+  6. "Cursor-Position im Bild anzeigen" (Standard: AUS) -- blendet das
      Fadenkreuz samt Temperaturanzeige am fixierten/zuletzt angefahrenen
      Cursor-Pixel (siehe Abschnitt 8) im Thermobild mit ein. Bleibt der
      Haken leer, enthaelt die Grafik unabhaengig vom aktuellen
@@ -688,10 +709,10 @@ die Temperatur dort entwickelt hat.
      Cursor im Bild ist dagegen nicht sinnvoll: ein Anhaken von
      "Live-Cursor" aktiviert diese Option automatisch mit; ein
      nachtraegliches Abhaken hier deaktiviert dann auch die Kurve wieder.
-  8. Dateiname und -format waehlen: PNG, JPEG, BMP, TIFF, WebP oder SVG
+  7. Dateiname und -format waehlen: PNG, JPEG, BMP, TIFF, WebP oder SVG
      (Vektorgrafik - die Kurve bleibt darin als editierbarer Vektorpfad
      erhalten, das Thermobild selbst ist naturgemaess ein Rasterbild).
-  9. Zusaetzlich entsteht eine gleichnamige ".json"-Datei mit
+  8. Zusaetzlich entsteht eine gleichnamige ".json"-Datei mit
      Metadaten: Koordinaten, Groesse (px und, falls ein Massstab
      definiert ist, auch mm), Name und Farbe jedes Messbereichs,
      Quellordner, Anzahl der Frames, alle Zeitstempel und verwendete
@@ -721,10 +742,21 @@ frueher getrennter Exporte):
         zur Weiterverarbeitung in Skripten/Programmiersprachen.
   - Danach erscheint ein Auswahl-Dialog ("Werte exportieren"): links eine
     Checkbox je platziertem Messbereich, mit der er vom Export
-    ausgeschlossen werden kann (Standard: ALLE ausgewaehlt, ueber "Alle
-    auswaehlen"/"Keine auswaehlen" auch auf einen Schlag umschaltbar) -
-    nuetzlich, wenn z.B. bei "beliebig vielen" angelegten Messbereichen
-    nur ein Teil davon in die Datei soll. Ist gerade ein Live-Cursor-
+    ausgeschlossen werden kann (Standard: ALLE ausgewaehlt). Eine kleine
+    "ALLE"-Sammel-Checkbox in der Kopfzeile (genau wie "ALLE px"/"ALLE mm"
+    daneben) schaltet alle Zeilen auf einen Schlag um -- nuetzlich, wenn
+    z.B. bei "beliebig vielen" angelegten Messbereichen nur ein Teil davon
+    in die Datei soll.
+  - Direkt darunter, VOR der ersten Messbereichs-Zeile: die Option
+    "Zusätzliche fortlaufende Laufzeit-Spalte" (Standard: AN) fuegt NEBEN
+    der normalen "Laufzeit"-Spalte (siehe unten) eine weitere Spalte mit
+    der verstrichenen Aufnahmezeit als reine Dezimalzahl hinzu -- Einheit
+    (Sekunden/Minuten/Stunden) direkt daneben waehlbar, UNABHAENGIG vom an
+    den Graphen eingestellten Laufzeit-Format (Abschnitt 8). Praktisch, um
+    die Laufzeit direkt (z.B. zum Zeichnen) in anderer Software weiterzu-
+    verwenden, ohne sie dort selbst umrechnen zu muessen -- bei Bedarf
+    einfach abhaken, um wie frueher nur die normale "Laufzeit"-Spalte zu
+    exportieren. Ist gerade ein Live-Cursor-
     Pixel verfuegbar (Maus ueber dem Bild bewegt oder eine Stelle
     fixiert, siehe Abschnitt 8), erscheint zusaetzlich eine Zeile "Live
     (Cursor)" in derselben Liste -- so landen Messbereichs- UND Live-
@@ -744,14 +776,18 @@ frueher getrennter Exporte):
     (...)"/"Live X-Achse"/"Live Y-Achse" -- sonst erscheint beim Klick auf
     "OK" eine Warnung (bei doppelten Namen wuerde sonst z.B. beim JSON-
     Export eine Spalte stillschweigend eine andere ueberschreiben).
-  - Unabhaengig vom gewaehlten Format enthaelt die Datei genau ZWEI
+  - Unabhaengig vom gewaehlten Format enthaelt die Datei mindestens ZWEI
     Zeitspalten - "Zeitstempel" (echtes Datum/Uhrzeit aus dem Dateinamen)
     und "Laufzeit (...)" (relative Aufnahmedauer ab 00:00:00 -- Spaltenkopf
     und Werte richten sich nach dem an den Graphen gewaehlten Laufzeit-
-    Format, Standard "Laufzeit (HH:MM:SS)", siehe Abschnitt 8) - gefolgt
-    von einer Spalte je AUSGEWAEHLTEM Eintrag (bei
-    allen 5 Standard-Messbereichen plus Live-Cursor ohne Abwahl also
-    8 Spalten insgesamt). Ist die Zeile "Live (Cursor)" mit dabei, stehen
+    Format, Standard "Laufzeit (HH:MM:SS)", siehe Abschnitt 8), bei
+    aktivierter Option "Zusätzliche fortlaufende Laufzeit-Spalte" (siehe
+    oben, Standard: AN) eine DRITTE Zeitspalte "Laufzeit (fortlaufend,
+    Sekunden/Minuten/Stunden)" - gefolgt von einer Spalte je AUSGEWAEHLTEM
+    Eintrag (bei allen 5 Standard-Messbereichen plus Live-Cursor ohne
+    Abwahl also 9 Spalten insgesamt mit der von Haus aus aktivierten
+    zusaetzlichen Laufzeit-Spalte, 8 wenn sie abgehakt wird). Ist
+    die Zeile "Live (Cursor)" mit dabei, stehen
     davor zusaetzlich zwei feste Spalten "Live X-Achse"/"Live Y-Achse"
     mit der (ueber die gesamte Aufnahme konstanten) Pixel-Position des
     Cursors.
@@ -776,17 +812,34 @@ speichern - ganz oben im Dialog per "Ausgabeform" waehlbar:
     Zeitstempel-Platzhalter wie das Namensschema beim Laden (YYYY/MM/DD/
     hh/mm/ss, siehe Abschnitt 3), die mit dem ECHTEN Zeitstempel jedes
     einzelnen Frames gefuellt werden (sofern die Original-Daten diese
-    Information enthalten), sowie den Platzhalter "IDX" fuer die
-    fortlaufende, nullgefuellte Frame-Nummer. Enthaelt das Muster "IDX",
-    wird die Nummer GENAU DORT eingesetzt (frei platzierbar, z.B. VOR
-    einem Zeitstempel); enthaelt es "IDX" NICHT, bleibt das Muster fuer
-    jeden Frame exakt so stehen, wie eingegeben -- praktisch, wenn bereits
-    ein voller Zeitstempel (YYYY-MM-DD_hh-mm-ss) im Muster die Dateien
-    eindeutig unterscheidbar macht und eine zusaetzliche Nummer
-    ueberfluessig waere. Direkt darunter zeigt "Beispiel:" den
-    tatsaechlichen Dateinamen des ERSTEN exportierten Bildes live an (mit
-    bereits eingesetztem Zeitstempel/Index), waehrend getippt wird.
-    Beispiel bei 3 exportierten Frames:
+    Information enthalten), sowie zwei weitere Platzhalter:
+      * "IDX" -> die fortlaufende, nullgefuellte Frame-Nummer. Enthaelt
+        das Muster "IDX", wird die Nummer GENAU DORT eingesetzt (frei
+        platzierbar, z.B. VOR einem Zeitstempel); enthaelt es "IDX"
+        NICHT, bleibt das Muster fuer jeden Frame exakt so stehen, wie
+        eingegeben -- praktisch, wenn bereits ein voller Zeitstempel
+        (YYYY-MM-DD_hh-mm-ss) im Muster die Dateien eindeutig
+        unterscheidbar macht und eine zusaetzliche Nummer ueberfluessig
+        waere.
+      * "LAUFs" / "LAUFm" / "LAUFh" -> die verstrichene Aufnahmezeit
+        dieses Frames (ab Aufnahmebeginn) -- der Buchstabe direkt nach
+        "LAUF" waehlt die Einheit: "s" = Sekunden ("0125s", 4-stellig
+        nullgefuellt), "m" = Minuten ("003min", 3-stellig nullgefuellt),
+        "h" = Stunden ("03h", 2-stellig nullgefuellt). KEIN separates
+        Auswahlfeld daneben -- das Muster selbst legt die Einheit fest,
+        z.B. "Frame_IDX_LAUFm" statt "Frame_IDX_LAUFmin" (das "m" gehoert
+        zum Platzhalternamen, nicht zum spaeter angezeigten "min"-Suffix,
+        der wird beim Rendern automatisch ergaenzt). Praktisch, um Frames
+        anhand der Laufzeit statt der Bildnummer zu benennen. WICHTIG:
+        "LAUFs"/"LAUFm"/"LAUFh" allein macht Dateinamen NICHT zwingend
+        eindeutig, da mehrere Frames dieselbe gerundete Sekunde/Minute/
+        Stunde teilen koennen -- die Warnung unten erkennt das trotzdem
+        zuverlaessig, "IDX" zusaetzlich ins Muster aufzunehmen loest es
+        endgueltig.
+    Direkt darunter zeigt "Beispiel:" den tatsaechlichen Dateinamen des
+    ERSTEN exportierten Bildes live an (mit bereits eingesetztem
+    Zeitstempel/Index/Laufzeit), waehrend getippt wird.
+    Beispiel bei 3 exportierten Frames (je 1 Minute auseinander):
       Muster "Frame_YYYY-MM-DD_hh-mm-ss_" (ohne IDX, Zeitstempel machts
       bereits eindeutig):
         Frame_2026-01-01_12-00-00_.png
@@ -796,6 +849,10 @@ speichern - ganz oben im Dialog per "Ausgabeform" waehlbar:
         Frame_1_2026-01-01_.png
         Frame_2_2026-01-01_.png
         Frame_3_2026-01-01_.png
+      Muster "Frame_IDX_LAUFm" (mit IDX und LAUFm, Einheit Minuten):
+        Frame_1_000min.png
+        Frame_2_001min.png
+        Frame_3_002min.png
     (die Anzahl der Index-Ziffern richtet sich nach der Gesamtzahl der
     exportierten Frames). Ergibt das gewaehlte Muster fuer den gewaehlten
     Frame-Bereich KEINE eindeutigen Dateinamen (z.B. weil weder "IDX" noch
@@ -871,8 +928,8 @@ Alle uebrigen Einstellungen im Dialog:
   - "Zeitanzeige im Bild" -> blendet unten im Bild einen Streifen ein,
     waehlbar als 2x2-Auswahl (Namen bewusst wie im uebrigen Programm, mit
     Tooltip bei Laufzeit/Zeitstempel; Standard: "Beides"). Nicht zu
-    verwechseln mit "Zeitachse:" beim Grafik-Export (Abschnitt 9, Punkt 6)
-    -- dort geht es um die X-ACHSE des Kurven-Graphen, hier um einen Text/
+    verwechseln mit "Zeitachse:" beim Grafik-Export (Abschnitt 9, Punkt 5,
+    Teil der "Achsen"-Box) -- dort geht es um die X-ACHSE des Kurven-Graphen, hier um einen Text/
     Balken, der direkt in das Bild/Video eingebrannt wird:
       * "Laufzeit" -> Fortschrittsbalken mit gruener/roter Markierung
         an der TATSAECHLICHEN Position von Start/Ende des exportierten
@@ -909,12 +966,12 @@ auf den Anzeigezustand von vor dem Export zurueckgesetzt.
 
 
 ================================================================
-11. MASSSTAB (LINEAL) UND REALE GRÖSSEN IN MM
+11. MASSSTAB (LINEAL), MESSUNGEN UND REALE GRÖSSEN IN MM
 ================================================================
 
 Ueber "Werkzeuge > Massstab festlegen..." (oder den Knopf
-"Festlegen..." im Panel "Massstab") laesst sich eine Referenzlaenge im
-Bild definieren:
+"Festlegen..." im Panel "Massstab & Messungen") laesst sich eine
+Referenzlaenge im Bild definieren:
 
   1. Startpunkt der Referenzlinie im Bild anklicken - ab hier ist eine
      deutlich sichtbare Linie mit Punktmarkierung zu sehen (Standard-
@@ -926,13 +983,13 @@ Bild definieren:
 Die Referenzlinie bleibt danach direkt im Bild stehen, mit der
 eingegebenen mm-Laenge als kleiner Beschriftung darunter - so ist auf
 einen Blick nachvollziehbar, welche Strecke dem Massstab zugrunde
-liegt. Zusaetzlich zeigt das Panel "Massstab" den ermittelten
+liegt. Zusaetzlich zeigt das Panel "Massstab & Messungen" den ermittelten
 Umrechnungsfaktor (z.B. "1 px ≈ 0,42 mm") und bei jedem Messbereich
 erscheint zusaetzlich zur Pixel-Groesse die reale Groesse in mm (in
 Klammern). Die Handhabung der Messbereiche selbst bleibt weiterhin in
 Pixeln - der mm-Wert ist nur eine zusaetzliche Anzeige. Ueber den Knopf
-"Entfernen" im Massstab-Panel laesst sich die Umrechnung samt der
-eingezeichneten Referenzlinie wieder loeschen.
+"Entfernen" im Panel laesst sich die Umrechnung samt der eingezeichneten
+Referenzlinie wieder loeschen.
 
 Die fertige Referenzlinie muss NICHT geloescht und neu gezeichnet
 werden, um sie nachtraeglich anzupassen:
@@ -941,9 +998,19 @@ werden, um sie nachtraeglich anzupassen:
     Ziehpunkte an Start/Ende) -- die reale Laenge in mm bleibt dabei
     unveraendert, nur der Umrechnungsfaktor (px zu mm) wird automatisch
     aus der neuen Pixel-Distanz neu berechnet.
-  - Ein DOPPELKLICK auf die Linie oder ihre mm-Beschriftung oeffnet
-    erneut den Laengen-Dialog, um die reale Laenge selbst zu aendern --
-    hier bleiben umgekehrt die aktuellen Endpunkte unangetastet.
+  - Ein DOPPELKLICK auf die Linie oeffnet erneut den Laengen-Dialog, um
+    die reale Laenge selbst zu aendern -- hier bleiben umgekehrt die
+    aktuellen Endpunkte unangetastet. (Ein Doppelklick GENAU auf die
+    mm-Beschriftung selbst funktioniert dafuer nicht mehr, seit diese
+    frei verschiebbar ist, siehe unten -- ueber die Linie klappt es
+    weiterhin.)
+  - Die mm-Beschriftung laesst sich per Ziehen frei in der Naehe der
+    Linie positionieren (z.B. um Ueberlappungen mit anderen
+    Beschriftungen zu vermeiden) -- sie "merkt" sich danach ihren
+    Versatz zur Linienmitte und bleibt dort, auch wenn die Linie selbst
+    spaeter verschoben wird. Ein neu festgelegter Massstab (per
+    "Festlegen...") startet wieder mit der Beschriftung direkt an der
+    Linienmitte.
 
 Das kleine Farbfeld neben "Entfernen" oeffnet die Farbauswahl fuer die
 Referenzlinie -- nuetzlich, falls die Standardfarbe bei einem bestimmten
@@ -954,16 +1021,38 @@ Der Massstab wird beim Speichern eines Projekts (Abschnitt 12) mit
 gesichert und laesst sich beim CSV-Export als "mm"-Autofill fuer
 Spaltennamen nutzen (Abschnitt 9).
 
-Sobald ein Massstab definiert ist, steht zusaetzlich "Werkzeuge > Laenge
-messen..." (oder der Knopf "Messen..." im Panel "Massstab") zur
-Verfuegung: Start- und Endpunkt einer beliebigen Strecke im Bild anklicken,
-genau wie beim Festlegen des Massstabs -- NUR wird dabei NICHT erneut nach
-einer realen Laenge gefragt und der Massstab selbst bleibt unveraendert.
-Stattdessen erscheint sofort die anhand des bestehenden Massstabs
-berechnete Laenge in mm als Beschriftung an der gezeichneten (tuerkisen)
-Messlinie. Auch diese Messlinie laesst sich per Ziehen der Endpunkte
-nachtraeglich anpassen -- die mm-Anzeige aktualisiert sich live. Ohne
-definierten Massstab ist "Messen..." ausgegraut.
+MESSUNGEN (beliebig viele gleichzeitig):
+Sobald ein Massstab definiert ist, steht zusaetzlich der Knopf "Neue
+Messung" im Panel "Massstab & Messungen" zur Verfuegung: Start- und
+Endpunkt einer beliebigen Strecke im Bild anklicken, genau wie beim
+Festlegen des Massstabs -- NUR wird dabei NICHT nach einer realen Laenge
+gefragt und der Massstab selbst bleibt unveraendert. Stattdessen
+erscheint sofort die anhand des bestehenden Massstabs berechnete Laenge
+in mm als Beschriftung an der neu gezeichneten Messlinie UND als eigene
+Zeile im Panel darunter.
+
+Im Unterschied zum Massstab (immer genau EINER) lassen sich beliebig
+viele Messungen gleichzeitig anlegen -- praktisch, um z.B. mehrere
+Durchmesser desselben Objekts auf einmal im Bild zu behalten. Jede
+Messung erscheint als eigene Zeile im Panel mit:
+
+  - einem Farbfeld (Klick oeffnet die Farbauswahl, jede Messung bekommt
+    beim Anlegen automatisch eine eigene, gut unterscheidbare Farbe),
+  - einem frei editierbaren Namen (Standard "Messung 1", "Messung 2", ...
+    - Aenderungen wirken sofort auch auf die Beschriftung im Bild),
+  - dem aktuellen mm-Wert (aktualisiert sich live beim Ziehen der
+    Endpunkte),
+  - einem "✕"-Knopf, der GENAU diese eine Messung wieder entfernt (Bild
+    UND Panel-Zeile), ohne die anderen zu beeinfluessen.
+
+Jede Messlinie laesst sich per Ziehen der Endpunkte nachtraeglich
+anpassen -- die mm-Anzeige (im Bild UND im Panel) aktualisiert sich live.
+Genau wie beim Massstab laesst sich auch die Beschriftung jeder Messung
+per Ziehen frei in deren Naehe positionieren, um Ueberlappungen zu
+vermeiden (z.B. bei mehreren Messungen desselben Objekts) -- der Versatz
+zur Linienmitte bleibt danach erhalten. Ohne definierten Massstab ist
+"Neue Messung" ausgegraut. Messungen werden wie der Massstab beim
+Speichern eines Projekts (Abschnitt 12) mit gesichert.
 
 
 ================================================================
@@ -978,7 +1067,8 @@ mit den Rohdaten wieder oeffnet:
   - "Projekt speichern..." -> schreibt Position, Groesse, Name, Farbe
                               und Sichtbarkeit aller Messbereiche sowie
                               Farbverlauf, Legenden-Limits, Massstab
-                              (inkl. Referenzlinien-Farbe), Auswertungs-
+                              (inkl. Referenzlinien-Farbe), alle
+                              Messungen (Abschnitt 11), Auswertungs-
                               start/-ende UND den Quellordner der
                               Messreihe in eine Datei mit Endung
                               ".tvproj".
@@ -1006,22 +1096,28 @@ Bildaufloesung unterscheidet).
 13. FENSTER/PANELS ANORDNEN
 ================================================================
 
-Die drei rechten Panels ("ROI & Legende", "Zeitverlauf",
-"Live (Cursor)") lassen sich wie in professionellen Programmen ueblich:
+Die beiden rechten Panels ("Messbereiche & Legende", "Zeitverlauf") lassen
+sich in der Breite verstellen (Rand mit der Maus ziehen). "Messbereiche &
+Legende" zeigt zusaetzlich eine Titelzeile und laesst sich damit wie in
+professionellen Programmen ueblich:
 
-  - in der Breite verstellen (Rand mit der Maus ziehen)
   - links oder rechts andocken (am Titel packen und verschieben)
   - schliessen (X-Knopf oben am Panel) und ueber das Menue
     "Ansicht" wieder einblenden
   - als eigenes, frei verschiebbares Fenster abdocken (Titel packen
     und aus dem Hauptfenster herausziehen)
 
+Das Panel "Zeitverlauf" hat bewusst KEINE eigene Titelzeile ueber dem
+Graphen (redundant -- offensichtlich, worum es sich handelt); Ein-/
+Ausblenden funktioniert dafuer weiterhin ueber "Ansicht > Zeitverlauf".
+
 Das Menue "Ansicht" bleibt (anders als sonst in Qt-Menues ueblich) nach
-dem Anklicken einer Checkbox (Panel-Sichtbarkeit, Dunkelmodus) GEOEFFNET,
-statt sich sofort zu schliessen -- so lassen sich mehrere Haekchen
-nacheinander setzen, ohne das Menue jedes Mal neu aufklappen zu muessen.
-Es schliesst sich erst bei einem Klick ausserhalb des Menues oder auf
-einen nicht-ankreuzbaren Eintrag.
+dem Anklicken einer Checkbox (Panel-Sichtbarkeit, Fenster-/Thermobild-/
+Graph-Farbschema) GEOEFFNET, statt sich sofort zu schliessen -- so lassen
+sich mehrere Haekchen nacheinander setzen, ohne das Menue jedes Mal neu
+aufklappen zu muessen. Es schliesst sich erst bei einem Klick ausserhalb
+des Menues oder auf einen nicht-ankreuzbaren Eintrag (z.B. "Alles: Hell"/
+"Alles: Dunkel").
 
 
 ================================================================

@@ -19,7 +19,7 @@ import numpy as np
 # Excel/JavaScript/Moment.js: YYYY=Jahr, MM=Monat GROSS vs. mm=Minute klein,
 # um die sonst mehrdeutige Abkuerzung "MM" fuer Monat UND Minute eindeutig zu
 # machen) statt deutscher Buchstaben (JJJJ/...) -- siehe
-# FilenameTemplateDialog (dialogs.py) fuer die Nutzer-Erklaerung dazu.
+# FilenameTemplateDialog (dialogs/csv_dialog.py) fuer die Nutzer-Erklaerung dazu.
 FILENAME_TEMPLATE_TOKENS: dict[str, tuple[str, str]] = {
     "YYYY": (r"\d{4}", "%Y"),
     "MM": (r"\d{2}", "%m"),
@@ -616,7 +616,7 @@ def append_paths(
         )
 
     existing_frames = list(recording.frames) if recording.frames is not None else []
-    combined = list(zip(recording.paths, recording.timestamps, existing_frames)) + loaded
+    combined = list(zip(recording.paths, recording.timestamps, existing_frames, strict=True)) + loaded
     combined.sort(key=lambda entry: entry[1])
 
     paths = [p for p, _, _ in combined]

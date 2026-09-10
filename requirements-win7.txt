@@ -19,7 +19,31 @@ pyinstaller==5.13.2
 qtpy==2.4.3
 pytest==7.4.4
 
-# imageio/imageio-ffmpeg (Video-Export) sind hier bewusst NICHT gelistet:
-# main_window.py importiert sie nur lazy innerhalb der Export-Funktion, d.h.
-# ohne diese Pakete startet die App auf Windows 7 ganz normal, nur der
-# Video-Export zeigt dann einen Fehlerdialog statt eines Absturzes.
+# imageio/imageio-ffmpeg (Video-Export): die in pyproject.toml fuer den
+# modernen Stack gepinnte Version (imageio>=2.37.4) setzt Python>=3.10 voraus
+# und liesse sich unter Python 3.8 (Windows 7) gar nicht installieren -- hier
+# stattdessen die letzte zu Python 3.8 kompatible Version gepinnt. Geprueft:
+# echter imageio.get_writer(...)-Videoschreibvorgang (inkl. mitgeliefertem
+# ffmpeg-Binary) funktioniert unter diesem Stack einwandfrei. main_window.py
+# importiert das Paket weiterhin nur lazy innerhalb der Export-Funktion, d.h.
+# FEHLT es doch einmal (z.B. bei einer manuell unvollstaendigen Installation),
+# zeigt der Video-Export weiterhin einen Fehlerdialog statt abzustuerzen.
+imageio==2.35.1
+imageio-ffmpeg==0.5.1
+# pillow (transitive Abhaengigkeit von imageio) explizit gepinnt: die sonst
+# aufgeloeste neueste zu Python 3.8 kompatible Version (10.4.0) importiert
+# beim PyInstaller-Bau (ueber dessen Splash-Screen-Unterstuetzung, die PIL
+# lädt) numpy.typing.NDArray, was in der hier gepinnten numpy-Version
+# (1.24.4) nicht existiert -- Bugfix: "AttributeError: module 'numpy.typing'
+# has no attribute 'NDArray'" beim exe-Bau. Eine aeltere Pillow-Version ohne
+# diese Typannotation umgeht das; fuer imageios eigentliche Verwendung
+# (Bild-/Videoframes lesen/schreiben) reicht sie unveraendert aus.
+pillow==9.5.0
+
+# tifffile (TIFF-Import, siehe data.py load_tiff_grayscale/
+# tiff_crop_to_temperature): die per pyproject.toml aufgeloeste aktuelle
+# Version ist unter Python 3.8 nicht installierbar -- hier die letzte dazu
+# kompatible Version gepinnt. Der zugehoerige Menüpunkt ist derzeit
+# bewusst deaktiviert/ausgegraut (siehe ui_build.py), der Code UND seine
+# Tests bleiben aber auf allen Plattformen funktionsfaehig.
+tifffile==2023.7.10

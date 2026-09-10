@@ -32,7 +32,19 @@ class _RoiMixin:
         )
         if answer != QtWidgets.QMessageBox.StandardButton.Yes:
             return
+        self._remove_roi_entry(entry)
+        self._apply_interp_focus_visuals()
+        self._refresh_idle_guidance()
+        self.statusBar().showMessage(f"„{entry.name}“ entfernt.", 4000)
 
+    def _remove_roi_entry(self, entry: RoiEntry) -> None:
+        """Kernlogik zum endgueltigen Entfernen eines Messbereichs (Bild-
+        Objekte, Kurve/Legende, Panel-Zeile/-Listeneintrag, self.roi_entries)
+        -- OHNE Rueckfrage-Dialog, gemeinsam genutzt von _on_roi_remove_clicked
+        (fragt VORHER selbst per Dialog nach) und
+        _reset_state_for_new_recording (raeumt beim Laden einer weiteren
+        Aufnahme automatisch auf, siehe dort -- eine Rueckfrage pro
+        Messbereich waere dort nur laestig)."""
         if self._armed_entry is entry:
             self._armed_entry = None
         entry.remove_from_view_box(self.view_box)
@@ -50,8 +62,6 @@ class _RoiMixin:
             entry.list_item = None
 
         self.roi_entries.remove(entry)
-        self._apply_interp_focus_visuals()
-        self.statusBar().showMessage(f"„{entry.name}“ entfernt.", 4000)
 
     def _on_roi_color_clicked(self, entry: RoiEntry) -> None:
         color = QtWidgets.QColorDialog.getColor(
@@ -86,6 +96,8 @@ class _RoiMixin:
                 self._cancel_ruler_tool()
             if self._measurement_armed:
                 self._cancel_measurement_tool()
+            if self._cleaning_pick_armed:
+                self._cancel_cleaning_point_pick()
             self._armed_entry = entry
             self.statusBar().showMessage(f"{entry.name}: Klick ins Bild zum Platzieren.")
         elif self._armed_entry is entry:
@@ -106,6 +118,7 @@ class _RoiMixin:
         entry.place(entry.spin_x.value(), entry.spin_y.value(), entry.spin_width.value(), entry.spin_height.value())
         self._sync_roi_spinboxes(entry)
         self._recompute_curves(entries=[entry])
+        self._refresh_idle_guidance()
 
     def _on_roi_square_reset_clicked(self, entry: RoiEntry) -> None:
         if not entry.placed:
@@ -332,20 +345,49 @@ class _RoiMixin:
             return
         entries = entries if entries is not None else self.roi_entries
         unix = self.recording.unix_seconds()
-        shape = self.recording.shape
+        # Von der Rohdaten-Bereinigung ausgeblendete Bilder (siehe
+        # data_cleaning_ops.py) fliessen NICHT in die Kurven ein -- sie
+        # bleiben in self.recording unveraendert (samt Zeitstempel), werden
+        # hier nur beim Plotten uebersprungen, sodass die Kurve an ihrer
+        # Stelle eine (durch die echten Zeitstempel korrekt breite) Luecke
+        # zeigt statt eines verfaelschenden Ausreisser-Werts.
+        keep_mask = None
+        if self._excluded_frame_indices:
+            keep_mask = np.ones(len(unix), dtype=bool)
+            keep_mask[list(self._excluded_frame_indices)] = False
         for entry in entries:
             if not entry.placed:
                 continue
-            if entry.is_interp_ready():
-                values = np.empty(len(unix), dtype=np.float32)
-                for i in range(len(unix)):
-                    frac = self._interp_fraction(i, entry.interp_start_frame, entry.interp_end_frame)
-                    x, y, w, h = entry.interp_rect(frac)
-                    row0, row1, col0, col1 = bounds_px_for(x, y, w, h, shape)
-                    values[i] = entry.average(self.recording.frames[i, row0:row1, col0:col1], row0, row1, col0, col1)
+            # _roi_values_full() bewusst als eigene Methode (statt inline):
+            # export_csv.py braucht dieselben, UNGEFILTERTEN (volle
+            # Frame-Anzahl, per Frame-Index indizierbaren) Werte -- die Kurve
+            # selbst zeigt dagegen bewusst die gekuerzte (siehe keep_mask
+            # oben), ein direktes curve.getData() waere fuer den Export also
+            # nicht mehr Index-kompatibel zu self.recording.timestamps.
+            values = self._roi_values_full(entry)
+            if keep_mask is not None:
+                entry.curve.setData(unix[keep_mask], values[keep_mask])
             else:
-                row0, row1, col0, col1 = entry.bounds_px(shape)
-                values = entry.average(self.recording.frames[:, row0:row1, col0:col1], row0, row1, col0, col1)
-            entry.curve.setData(unix, values)
+                entry.curve.setData(unix, values)
             entry.curve.setVisible(entry.is_visible_checked())
+
+    def _roi_values_full(self, entry: RoiEntry) -> np.ndarray:
+        """Mittelwert von entry ueber JEDEN Frame der Aufnahme (volle Länge,
+        UNGEKÜRZT -- per Frame-Index 1:1 zu self.recording.timestamps/
+        unix_seconds() indizierbar), unabhängig von einer evtl. aktiven
+        Rohdaten-Bereinigung (siehe _recompute_curves/data_cleaning_ops.py,
+        die das Ausblenden je nach Verwendungszweck -- Kurve vs. Export --
+        unterschiedlich handhaben)."""
+        shape = self.recording.shape
+        unix = self.recording.unix_seconds()
+        if entry.is_interp_ready():
+            values = np.empty(len(unix), dtype=np.float32)
+            for i in range(len(unix)):
+                frac = self._interp_fraction(i, entry.interp_start_frame, entry.interp_end_frame)
+                x, y, w, h = entry.interp_rect(frac)
+                row0, row1, col0, col1 = bounds_px_for(x, y, w, h, shape)
+                values[i] = entry.average(self.recording.frames[i, row0:row1, col0:col1], row0, row1, col0, col1)
+            return values
+        row0, row1, col0, col1 = entry.bounds_px(shape)
+        return entry.average(self.recording.frames[:, row0:row1, col0:col1], row0, row1, col0, col1)
 

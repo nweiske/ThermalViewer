@@ -114,7 +114,14 @@ class _CsvExportMixin:
             if is_live:
                 y = self._live_cursor_series(self._hover_row, self._hover_col)
             else:
-                _, y = placed_entries[i].curve.getData()
+                # NICHT curve.getData(): die angezeigte Kurve laesst von der
+                # Rohdaten-Bereinigung ausgeblendete Bilder bereits weg (siehe
+                # _recompute_curves) und waere dadurch kuerzer als
+                # self.recording.timestamps -- y[i] unten braucht die VOLLE,
+                # ungekuerzte, per Frame-Index indizierbare Reihe (das
+                # Ausblenden erledigt diese Schleife selbst, siehe "continue"
+                # unten).
+                y = self._roi_values_full(placed_entries[i])
             value_arrays.append((i, y))
 
         # Rohwerte EINMAL aufbauen (Zeitstempel/Laufzeit als Text, Live-
@@ -128,6 +135,11 @@ class _CsvExportMixin:
         # statt 20.2).
         rows: list[list] = []
         for i, ts in enumerate(self.recording.timestamps):
+            if i in self._excluded_frame_indices:
+                # Von der Rohdaten-Bereinigung ausgeblendete Bilder (siehe
+                # data_cleaning_ops.py) NICHT mit exportieren -- Zeitstempel
+                # der uebrigen Zeilen bleiben unveraendert (kein Umnummerieren).
+                continue
             elapsed = (ts - t0).total_seconds()
             runtime = self._runtime_export_value(elapsed)
             row: list = [ts.strftime("%Y-%m-%d %H:%M:%S"), runtime]

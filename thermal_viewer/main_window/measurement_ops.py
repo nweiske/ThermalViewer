@@ -30,6 +30,8 @@ class _MeasurementMixin:
             self._armed_entry = None
         if self._measurement_armed:
             self._cancel_measurement_tool()
+        if self._cleaning_pick_armed:
+            self._cancel_cleaning_point_pick()
         self._ruler_armed = True
         self._ruler_start = None
         # Eine evtl. noch von der letzten Messung angezeigte, gueltige Linie/
@@ -306,6 +308,8 @@ class _MeasurementMixin:
             self._armed_entry = None
         if self._ruler_armed:
             self._cancel_ruler_tool()
+        if self._cleaning_pick_armed:
+            self._cancel_cleaning_point_pick()
         self._measurement_armed = True
         self._measurement_start = None
         self.statusBar().showMessage("Neue Messung: Startpunkt der Strecke im Bild anklicken.")

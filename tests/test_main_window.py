@@ -169,6 +169,94 @@ def test_ansicht_menu_stays_open_after_checkable_clicks(main_window):
     assert isinstance(view_menu, _StaysOpenMenu)
 
 
+# ------------------------------------------------- Aktivitaets-/Statusleiste
+
+def test_idle_guidance_reflects_current_state(loaded_main_window):
+    # Bugreport/Nutzerwunsch: "Anleitung/Anweisung, was User als naechstes
+    # machen muss" -- die permanente Aktivitaetsanzeige unten links soll bei
+    # jedem relevanten Zustandswechsel einen passenden Hinweis zeigen.
+    mw = loaded_main_window
+    assert not any(e.placed for e in mw.roi_entries)
+    assert "Messbereich platzieren" in mw._activity_label.text()
+
+    mw.roi_entries[0].place(2, 2, 3, 3)
+    mw._refresh_idle_guidance()
+    assert mw._activity_label.text() == "Bereit."
+
+    mw._watched_folder = mw.recording.paths[0].parent
+    mw._live_watch_timer.start()
+    try:
+        mw._refresh_idle_guidance()
+        assert "Live-Überwachung aktiv" in mw._activity_label.text()
+    finally:
+        mw._live_watch_timer.stop()
+        mw._watched_folder = None
+
+
+def test_idle_guidance_prioritizes_roi_hint_over_live_watch(loaded_main_window):
+    # Bugfix: Live-Ueberwachung startet nach "Ordner öffnen…" immer sofort
+    # automatisch (siehe _load_folder), bereits BEVOR ein Messbereich
+    # platziert wurde -- ohne diese Prioritaet waere der "Messbereich
+    # platzieren"-Hinweis (der eigentliche Kern des Nutzerwunschs: "was
+    # User als naechstes machen muss") in der Praxis nie sichtbar, weil er
+    # von der (fast immer gleichzeitig zutreffenden) Live-Ueberwachung-
+    # Meldung dauerhaft verdeckt wuerde.
+    mw = loaded_main_window
+    assert not any(e.placed for e in mw.roi_entries)
+    mw._watched_folder = mw.recording.paths[0].parent
+    mw._live_watch_timer.start()
+    try:
+        mw._refresh_idle_guidance()
+        assert "Messbereich platzieren" in mw._activity_label.text()
+    finally:
+        mw._live_watch_timer.stop()
+        mw._watched_folder = None
+
+
+def test_idle_guidance_shows_roi_hint_via_real_open_folder_flow(
+    main_window, synthetic_recording_folder, monkeypatch
+):
+    # End-zu-End-Regression fuer denselben Bug: die Fixture loaded_main_window
+    # laedt ueber _load_paths() DIREKT (ohne _load_folder), wodurch die
+    # Live-Ueberwachung in den uebrigen Tests nie automatisch mitstartet --
+    # der echte Weg ueber "Ordner öffnen…" (_open_folder -> _load_folder)
+    # startet sie dagegen IMMER sofort. Deckt genau die Zustandskombination
+    # ab, die den Bug tatsaechlich ausgeloest hat.
+    mw = main_window
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getExistingDirectory",
+        staticmethod(lambda *a, **k: str(synthetic_recording_folder)),
+    )
+    mw._open_folder()
+    assert mw._live_watch_timer.isActive()
+    assert not any(e.placed for e in mw.roi_entries)
+    assert "Messbereich platzieren" in mw._activity_label.text(), (
+        "der Live-Ueberwachung-Hinweis darf den Platzieren-Hinweis nicht sofort verdecken"
+    )
+
+
+def test_idle_guidance_shows_load_hint_without_a_recording(main_window):
+    assert main_window.recording is None
+    assert "Ordner öffnen" in main_window._activity_label.text()
+
+
+def test_activity_progress_shows_and_hides_the_progress_bar(main_window):
+    # isHidden() statt isVisible(): die Test-Fixture zeigt das Fenster nie
+    # per show() an, wodurch JEDES Kind-Widget isVisible()==False meldet,
+    # unabhaengig vom eigenen setVisible()-Aufruf -- isHidden() spiegelt
+    # dagegen den tatsaechlich per setVisible() gesetzten Zustand wider.
+    mw = main_window
+    assert mw._activity_progress.isHidden()
+
+    mw._set_activity_progress("Lade Frames… (3/10)", 0.3)
+    assert not mw._activity_progress.isHidden()
+    assert mw._activity_progress.value() == 300
+    assert mw._activity_label.text() == "Lade Frames… (3/10)"
+
+    mw._refresh_idle_guidance()
+    assert mw._activity_progress.isHidden()
+
+
 # -------------------------------------------------------- Live-Cursor
 
 @pytest.mark.parametrize("size", [1, 3, 5, 7, 9, 11, 13, 15])
@@ -342,6 +430,201 @@ def test_roi_label_shows_temperature_on_same_line_as_name(loaded_main_window):
     assert "\n" not in text
     assert entry.name in text
     assert "°C" in text
+
+
+# ---------------------------------------------------- Rohdaten-Bereinigung
+
+def test_cleaning_candidates_require_all_points_to_exceed_threshold(loaded_main_window):
+    # Nutzerentscheidung (Rueckfrage): ein Bild gilt nur als Ausreißer, wenn
+    # AN JEDEM markierten Punkt der Schwellenwert ueberschritten wird -- ein
+    # Bild, an dem nur EIN Punkt springt, darf NICHT markiert werden.
+    mw = loaded_main_window
+    frames = mw.recording.frames
+    # Frame 2: BEIDE Punkte springen (Ausreißer, kehrt bei Frame 3 zurueck --
+    # das erzeugt zwangslaeufig AUCH bei Frame 3 einen grossen dT-zum-
+    # Vorbild, siehe Docstring von _compute_cleaning_candidates).
+    frames[2, 1, 1] = 999.0
+    frames[2, 5, 5] = 999.0
+    # Frame 4: nur EIN Punkt springt -- darf nicht markiert werden.
+    frames[4, 1, 1] = 999.0
+
+    mw._cleaning_points = [(1, 1), (5, 5)]
+    mw._cleaning_threshold = 50.0
+    # Testet die AND-Logik, NICHT die Mittelungsbereich-Funktion (siehe
+    # test_cleaning_kernel_size_*) -- Einzelpixel-Verhalten hier bewusst
+    # unabhaengig vom aktuellen Standardwert von _cleaning_kernel_size fixiert.
+    mw._cleaning_kernel_size = 1
+    candidates = mw._compute_cleaning_candidates()
+    assert candidates == {2, 3}, candidates
+    assert 4 not in candidates
+
+
+def test_cleaning_kernel_size_defaults_to_three_by_three(main_window):
+    # Nutzerwunsch (auf Rueckfrage bestaetigt): NxN-Mittelung statt reinem
+    # Einzelpixel, robuster gegen Sensor-Rauschen an genau einem Pixel --
+    # Standard 3x3 statt 1x1.
+    assert main_window._cleaning_kernel_size == 3
+    assert main_window._cleaning_show_kernel_area is True
+
+
+def test_cleaning_kernel_size_dilutes_single_pixel_noise_but_catches_area_wide_spikes(loaded_main_window):
+    mw = loaded_main_window
+    frames = mw.recording.frames
+    frames[:] = 20.0
+    # Frame 2: NUR das exakte Punkt-Pixel springt (moderat, dT=20) --
+    # unter 3x3-Mittelung (8 unveraenderte Nachbarn) auf dT~2.2 verduennt,
+    # bleibt also unter dem Schwellenwert.
+    frames[2, 5, 5] = 40.0
+    mw._cleaning_points = [(5, 5)]
+    mw._cleaning_threshold = 15.0
+
+    mw._cleaning_kernel_size = 1
+    assert mw._compute_cleaning_candidates() == {2, 3}, (
+        "bei Einzelpixel (1x1) muss der Sprung weiterhin erkannt werden"
+    )
+
+    mw._cleaning_kernel_size = 3
+    assert mw._compute_cleaning_candidates() == set(), (
+        "bei 3x3-Mittelung muss ein Rauschen an nur EINEM Pixel verduennt werden"
+    )
+
+    # Springt dagegen der GESAMTE 3x3-Bereich um den Punkt, bleibt die
+    # Erkennung trotz Mittelung erhalten (kein Rauschen, echte Störung).
+    frames[3, 4:7, 4:7] = 40.0
+    assert mw._compute_cleaning_candidates() == {3, 4}
+
+
+def test_cleaning_point_bounds_clip_to_image_edges(loaded_main_window):
+    mw = loaded_main_window
+    mw._cleaning_kernel_size = 5
+    rows, cols = mw.recording.shape
+    row0, row1, col0, col1 = mw._cleaning_point_bounds(0, 0)
+    assert (row0, col0) == (0, 0), "am Bildrand darf der Bereich nicht ins Negative reichen"
+    assert row1 <= rows and col1 <= cols
+    row0, row1, col0, col1 = mw._cleaning_point_bounds(rows - 1, cols - 1)
+    assert row1 == rows and col1 == cols
+
+
+def test_draw_cleaning_point_markers_shows_area_rect_only_for_kernel_above_one(loaded_main_window):
+    mw = loaded_main_window
+    mw._cleaning_points = [(5, 5)]
+
+    mw._cleaning_kernel_size = 1
+    mw._draw_cleaning_point_markers()
+    # 1x1: nur Kreuz + Nummern-Label, kein zusaetzliches Bereichs-Rechteck.
+    assert len(mw._cleaning_point_markers) == 2
+
+    mw._cleaning_kernel_size = 3
+    mw._cleaning_show_kernel_area = True
+    mw._draw_cleaning_point_markers()
+    assert len(mw._cleaning_point_markers) == 3, "bei >1x1 UND aktiviertem Haken kommt das Bereichs-Rechteck dazu"
+
+    mw._cleaning_show_kernel_area = False
+    mw._draw_cleaning_point_markers()
+    assert len(mw._cleaning_point_markers) == 2, "abgeschaltet zeigt auch >1x1 kein Bereichs-Rechteck"
+
+
+def test_cleaning_dialog_kernel_combo_and_checkbox_update_main_window_state(loaded_main_window):
+    from thermal_viewer.dialogs import DataCleaningDialog
+
+    mw = loaded_main_window
+    dlg = DataCleaningDialog(mw)
+    try:
+        assert dlg.combo_kernel.currentData() == mw._cleaning_kernel_size == 3
+        assert dlg.chk_show_kernel_area.isChecked() == mw._cleaning_show_kernel_area is True
+
+        dlg.combo_kernel.setCurrentIndex(dlg._kernel_sizes.index(7))
+        assert mw._cleaning_kernel_size == 7
+
+        dlg.chk_show_kernel_area.setChecked(False)
+        assert mw._cleaning_show_kernel_area is False
+
+        # sync_kernel_size_combo() muss die Combobox nachziehen, OHNE dabei
+        # selbst wieder ein currentIndexChanged auszuloesen (sonst wuerde ein
+        # Projekt-Laden mit z.B. Groesse 1 die Combobox auf 1 stellen, was
+        # den Handler erneut aufriefe -- hier bereits identisch, aber die
+        # Absicherung soll trotzdem gelten).
+        mw._cleaning_kernel_size = 1
+        dlg.sync_kernel_size_combo()
+        assert dlg.combo_kernel.currentData() == 1
+    finally:
+        dlg.close()
+
+
+def test_apply_cleaning_exclusions_skips_frames_in_curves_and_restores(loaded_main_window):
+    mw = loaded_main_window
+    mw.roi_entries[0].place(center_x=3, center_y=3, width=2, height=2)
+    mw._recompute_curves()
+    x_before, _ = mw.roi_entries[0].curve.getData()
+    n = mw.recording.n_frames
+    assert len(x_before) == n
+
+    mw._apply_cleaning_exclusions({1, 2})
+    x_after, _ = mw.roi_entries[0].curve.getData()
+    assert len(x_after) == n - 2
+    assert mw._excluded_frame_indices == {1, 2}
+
+    # Wiederherstellen (leere Ausschluss-Menge) bringt die volle Kurve zurueck.
+    mw._apply_cleaning_exclusions(set())
+    x_restored, _ = mw.roi_entries[0].curve.getData()
+    assert len(x_restored) == n
+    assert mw._excluded_frame_indices == set()
+
+
+def test_excluded_frames_are_skipped_during_stepping_but_directly_reachable(loaded_main_window):
+    mw = loaded_main_window
+    mw._excluded_frame_indices = {2}
+    mw._show_frame(1)
+    mw._step_frame(1)
+    assert mw.current_index == 3, "Einzelschritt muss das ausgeblendete Bild 2 ueberspringen"
+
+    # Direktes Ansteuern (Schieberegler/Zahlenfeld -> _show_frame) bleibt
+    # bewusst moeglich, um ein ausgeblendetes Bild pruefen zu koennen.
+    mw._show_frame(2)
+    assert mw.current_index == 2
+
+
+def test_cleaning_point_pick_mode_is_mutually_exclusive_with_ruler(loaded_main_window):
+    mw = loaded_main_window
+    mw._start_cleaning_point_pick()
+    assert mw._cleaning_pick_armed is True
+
+    mw._start_ruler_tool()
+    assert mw._cleaning_pick_armed is False, "Lineal-Werkzeug muss den Punkt-Modus beenden"
+    mw._cancel_ruler_tool()
+
+    mw._start_cleaning_point_pick()
+    mw._on_roi_place_toggled(mw.roi_entries[0], True)
+    assert mw._cleaning_pick_armed is False, "ROI-Platzieren muss den Punkt-Modus beenden"
+    mw._on_roi_place_toggled(mw.roi_entries[0], False)
+
+
+def test_reload_clears_cleaning_points_and_exclusions(loaded_main_window, synthetic_recording_folder):
+    mw = loaded_main_window
+    mw._cleaning_points = [(1, 1)]
+    mw._excluded_frame_indices = {1}
+    # loaded_main_window hat bereits eine Aufnahme -- die neue Rueckfrage
+    # (_confirm_discard_current_recording, siehe project_io.py) wird hier
+    # als "Verwerfen" simuliert; ihr eigenes Verhalten prueft
+    # test_confirm_discard_current_recording_save_discard_cancel.
+    mw._confirm_discard_current_recording = lambda: True
+    assert mw._load_paths(sorted(synthetic_recording_folder.glob("*.csv")))
+    assert mw._cleaning_points == []
+    assert mw._excluded_frame_indices == set()
+
+
+def test_daten_menu_has_cleaning_and_disabled_tiff_import(main_window):
+    daten_menu = None
+    for action in main_window.menuBar().actions():
+        if action.text().replace("&", "") == "Daten":
+            daten_menu = action.menu()
+            break
+    assert daten_menu is not None
+    texts = [a.text() for a in daten_menu.actions() if not a.isSeparator()]
+    assert "Rohdaten säubern…" in texts
+    assert "TIFF-Bilder importieren…" in texts
+    tiff_action = next(a for a in daten_menu.actions() if a.text() == "TIFF-Bilder importieren…")
+    assert not tiff_action.isEnabled()
 
 
 # --------------------------------------------------------- Datei-Menue
@@ -537,3 +820,138 @@ def test_load_project_auto_loads_source_folder_without_prior_manual_load(
         assert fresh.recording.n_frames == loaded_main_window.recording.n_frames
     finally:
         fresh.close()
+
+
+def _click_msgbox_button(role_text):
+    """Simuliert per QMessageBox.exec-Patch den Klick auf den Knopf, dessen
+    Text role_text enthaelt -- fuer die eigens gebauten (nicht die
+    static-convenience-) QMessageBox-Rueckfragen dieser App, siehe
+    _confirm_discard_current_recording/_ask_filename_mismatch."""
+    def _exec(self):
+        for b in self.buttons():
+            if role_text in b.text():
+                b.click()
+                return self.result()
+        self.reject()
+        return self.result()
+    return _exec
+
+
+def test_confirm_discard_current_recording_skips_dialog_without_recording(main_window):
+    assert main_window.recording is None
+    assert main_window._confirm_discard_current_recording() is True
+
+
+def test_confirm_discard_current_recording_discard_and_cancel(loaded_main_window, monkeypatch):
+    mw = loaded_main_window
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", _click_msgbox_button("Verwerfen"))
+    assert mw._confirm_discard_current_recording() is True
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", _click_msgbox_button("Abbrechen"))
+    assert mw._confirm_discard_current_recording() is False
+
+
+def test_confirm_discard_current_recording_save_success_and_own_cancel(loaded_main_window, tmp_path, monkeypatch):
+    # Nutzerwunsch: vor dem Verwerfen der aktuellen Auswertung erst die
+    # Moeglichkeit bieten, sie als Projekt zu speichern.
+    mw = loaded_main_window
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", _click_msgbox_button("Speichern"))
+
+    proj_path = tmp_path / "vorher.tvproj"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(proj_path), "")),
+    )
+    assert mw._confirm_discard_current_recording() is True
+    assert proj_path.exists(), "der Speichern-Knopf haette das Projekt tatsaechlich schreiben muessen"
+
+    # Bricht der Nutzer den Speichern-Dialog SELBST ab (kein Pfad gewaehlt),
+    # gilt die gesamte Rueckfrage als Abbruch -- sonst wuerde die neue
+    # Messreihe geladen, obwohl der Nutzer eigentlich erst speichern wollte.
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: ("", "")),
+    )
+    assert mw._confirm_discard_current_recording() is False
+
+
+def test_save_and_load_project_roundtrips_cleaning_state(loaded_main_window, tmp_path, monkeypatch):
+    # Nutzerwunsch: "wenn ich ein Projekt speichere/lade [möchte ich]
+    # wirklich den VOLLSTÄNDIGEN Zustand des Programmes haben" -- betrifft
+    # auch die Rohdaten-Bereinigung (Referenzpunkte/Schwellenwert/
+    # ausgeblendete Bilder), nicht nur Messbereiche/Messungen/Maßstab.
+    mw = loaded_main_window
+    # (col, row) wie sie ein echter Bild-Klick liefert (_pixel_at_scene_pos
+    # gibt immer int zurueck, siehe mouse_ops.py) -- NICHT float, sonst
+    # bleibt der Bug unten (Regression) unentdeckt.
+    mw._cleaning_points = [(3, 4), (10, 2)]
+    mw._cleaning_kernel_size = 5
+    mw._draw_cleaning_point_markers()
+    mw._cleaning_threshold = 7.5
+    mw._excluded_frame_indices = {1, 3}
+    mw._recompute_curves()
+
+    proj_path = tmp_path / "cleaning.tvproj"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(proj_path), "")),
+    )
+    assert mw._save_project() is True
+
+    saved = json.loads(proj_path.read_text(encoding="utf-8"))
+    assert saved["bereinigung_punkte"] == [{"x": 3, "y": 4}, {"x": 10, "y": 2}]
+    assert saved["bereinigung_schwellenwert"] == 7.5
+    assert saved["bereinigung_kernel_groesse"] == 5
+    assert saved["bereinigung_ausgeblendete_frames"] == [1, 3]
+
+    mw._cleaning_points = []
+    mw._cleaning_kernel_size = 3
+    mw._draw_cleaning_point_markers()
+    mw._cleaning_threshold = 5.0
+    mw._excluded_frame_indices = set()
+    mw._recompute_curves()
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(proj_path), "")),
+    )
+    mw._load_project()
+
+    assert mw._cleaning_points == [(3, 4), (10, 2)]
+    assert mw._cleaning_kernel_size == 5
+    assert mw._cleaning_threshold == 7.5
+    assert mw._excluded_frame_indices == {1, 3}
+    # Regressionscheck: Bugfix -- ein aus der Projektdatei als float (statt
+    # int) wiederhergestellter Referenzpunkt liess _compute_cleaning_
+    # candidates() mit einem IndexError abstuerzen (numpy erlaubt keine
+    # Float-Indizierung von frames[:, r, c]). Muss nach dem Laden anstands-
+    # los durchlaufen, egal was die Kandidatenliste konkret enthaelt.
+    mw._compute_cleaning_candidates()
+
+
+def test_load_project_tolerates_non_integer_cleaning_points_in_file(loaded_main_window, tmp_path, monkeypatch):
+    # Direkte Regression fuer denselben Bug wie oben, diesmal mit einer
+    # handbearbeiteten/aelteren Projektdatei, die die Referenzpunkte als
+    # echte JSON-Floats enthaelt (z.B. "x": 3.0 statt "x": 3).
+    mw = loaded_main_window
+    proj_path = tmp_path / "float_points.tvproj"
+    proj_path.write_text(
+        json.dumps({
+            "format_version": 2,
+            "quellordner": str(mw.recording.paths[0].parent),
+            "bild_groesse_px": {"zeilen": mw.recording.shape[0], "spalten": mw.recording.shape[1]},
+            "bereinigung_punkte": [{"x": 3.0, "y": 4.7}],
+            "bereinigung_schwellenwert": 5.0,
+            "bereinigung_ausgeblendete_frames": [],
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(proj_path), "")),
+    )
+    mw._load_project()
+
+    assert mw._cleaning_points == [(3, 4)]
+    assert all(isinstance(v, int) for p in mw._cleaning_points for v in p)
+    mw._compute_cleaning_candidates()  # darf nicht mit IndexError abstuerzen

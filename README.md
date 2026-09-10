@@ -260,5 +260,6 @@ frischen Zielrechner ohne lokal installiertes `imageio` fehl.
 Die fertige exe liegt danach in `dist/ThermalViewer.exe`. Für den
 Windows-7-Build lokal `requirements-win7.txt` in eine Python-3.8-Umgebung
 installieren und denselben `pyinstaller`-Befehl dort (ohne `uv run`
-davor und ohne die beiden `--collect-all`-Flags, siehe
+davor, die beiden `--collect-all`-Flags bleiben -- auch der
+Windows-7-Build bündelt `imageio`/`imageio-ffmpeg` mit ein, siehe
 `requirements-win7.txt`) ausführen.

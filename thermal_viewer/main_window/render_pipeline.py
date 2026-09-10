@@ -396,6 +396,16 @@ class _RenderPipelineMixin:
         width, height = converted.width(), converted.height()
         bytes_per_line = converted.bytesPerLine()
         buffer = converted.constBits()
+        # PyQt5 (Windows-7-Legacy-Stack, siehe requirements-win7.txt) liefert
+        # hier ein sip.voidptr OHNE bekannte Groesse zurueck -- np.frombuffer
+        # wirft darauf "sip.voidptr object has an unknown size", bis dessen
+        # Groesse explizit gesetzt wird. PySide6 (moderner Stack) liefert
+        # dagegen direkt einen groessenbekannten Puffer und kennt kein
+        # setsize() -- qtpy vereinheitlicht diesen Unterschied nicht, daher
+        # hier von Hand abgefangen (Bugfix: Video-Export bricht auf dem
+        # Windows-7-Stack bei JEDEM Frame mit einem IndexError ab).
+        if hasattr(buffer, "setsize"):
+            buffer.setsize(bytes_per_line * height)
         arr = np.frombuffer(buffer, dtype=np.uint8, count=bytes_per_line * height)
         arr = arr.reshape(height, bytes_per_line)[:, : width * 3].reshape(height, width, 3)
         return arr.copy()

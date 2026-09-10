@@ -951,6 +951,17 @@ def test_live_cursor_kernel_size_menu_and_averaging():
     finally:
         win._on_live_cursor_kernel_selected(old_size)
         win._live_cursor_kernel_actions[old_size].setChecked(True)
+        # Aufraeumen: dieser Test setzt bewusst ein Live-Cursor-Pixel (siehe
+        # oben), das sonst als Seiteneffekt bis zu spaeteren Tests bestehen
+        # bleibt (z.B. macht es "Live-Cursor" im CSV-/Grafik-Export-Dialog
+        # ungewollt standardmaessig verfuegbar/angehakt). Frueher wurde das
+        # nur zufaellig durch einen spaeteren, unrelated _set_recording()-
+        # Aufruf im Ruler-Test mit-zurueckgesetzt -- jetzt explizit hier, wo
+        # es tatsaechlich hingehoert.
+        win._hover_row = None
+        win._hover_col = None
+        win.live_cursor_marker.setVisible(False)
+        win.live_cursor_label.setVisible(False)
 
 
 check(
@@ -989,32 +1000,78 @@ def test_ruler_persistence_and_reload():
         win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p2))
     assert win._ruler_line.isVisible()
 
-    # Dieselbe Erwartung gilt fuer Messungen (Punkt 8): eine bereits
-    # platzierte Messung darf beim Neuladen einer Messreihe nicht mit
-    # falschen Pixelkoordinaten sichtbar bleiben.
-    win._start_measurement_tool()
-    m1 = win.view_box.mapViewToScene(QtCore.QPointF(0, 0))
-    m2 = win.view_box.mapViewToScene(QtCore.QPointF(3, 0))
-    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, m1))
-    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, m2))
-    measurement_entry = win.measurements[-1]
-    assert measurement_entry.line.isVisible()
-
-    # Bugfix: Neuladen einer Messreihe muss die (jetzt auf falsche
-    # Pixelkoordinaten zeigende) Linie ausblenden, den Umrechnungsfaktor
-    # selbst aber bewusst bestehen lassen.
-    px_to_mm_before = win._px_to_mm
-    win._set_recording(win.recording)
-    assert not win._ruler_line.isVisible()
-    assert not win._ruler_text.isVisible()
-    assert not measurement_entry.line.isVisible(), "Messungen muessen beim Neuladen ebenfalls ausgeblendet werden"
-    assert win._px_to_mm == px_to_mm_before
-
-    win._remove_measurement(measurement_entry)
     win._clear_ruler_scale()
 
 
-check("ruler line survives cancel, hidden on overwrite/reload, px_to_mm persists", test_ruler_persistence_and_reload)
+check(
+    "ruler line: hides after re-click cancel, stays visible on no-op cancel",
+    test_ruler_persistence_and_reload,
+)
+
+
+def test_reload_wipes_rois_measurements_and_ruler():
+    # Bugfix (Nutzerwunsch): "wenn Daten neu geladen werden (und bereits ein
+    # anderer Datensatz eingeladen ist), dann alte Daten KOMPLETT
+    # rausschmeißen" -- Messbereiche, Messungen UND Maßstab beziehen sich auf
+    # Pixelkoordinaten/eine Kalibrierung der ALTEN Aufnahme und wuerden sonst
+    # unbemerkt mit falschen/bedeutungslosen Werten in die neue Aufnahme
+    # uebernommen (frueheres Verhalten: nur die Bild-Visualisierung wurde
+    # versteckt, die eigentlichen Werte/Platzierungen blieben bestehen --
+    # siehe _reset_state_for_new_recording). Eigenes, frisches MainWindow
+    # (statt des gemeinsam genutzten `win`), damit dieser Test den fuer den
+    # Rest dieses Skripts aufgebauten ROI-/Ruler-/Messungs-Zustand nicht
+    # zerstoert.
+    fresh = MainWindow()
+    try:
+        assert fresh._load_paths(paths)
+
+        p1 = fresh.view_box.mapViewToScene(QtCore.QPointF(2, 2))
+        p2 = fresh.view_box.mapViewToScene(QtCore.QPointF(12, 2))
+        fresh._start_ruler_tool()
+        fresh._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p1))
+        with ruler_length_input(20.0):
+            fresh._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p2))
+        assert fresh._px_to_mm is not None
+
+        fresh._start_measurement_tool()
+        m1 = fresh.view_box.mapViewToScene(QtCore.QPointF(0, 0))
+        m2 = fresh.view_box.mapViewToScene(QtCore.QPointF(3, 0))
+        fresh._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, m1))
+        fresh._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, m2))
+        assert len(fresh.measurements) == 1
+
+        fresh.roi_entries[0].place(center_x=2, center_y=2, width=2, height=2)
+        default_roi_count = len(fresh.roi_entries)
+        assert default_roi_count > 0 and fresh.roi_entries[0].placed
+
+        # "Neuladen" -- zweiter Aufruf von _load_paths auf demselben Fenster,
+        # genau wie beim echten "Ordner öffnen" ueber einen bereits gefuellten
+        # Zustand. Die neue Rueckfrage (_confirm_discard_current_recording,
+        # siehe project_io.py) simuliert hier "Verwerfen" -- das eigentliche
+        # Bestaetigungsverhalten selbst wird in einem eigenen Test geprueft.
+        orig_confirm = fresh._confirm_discard_current_recording
+        fresh._confirm_discard_current_recording = lambda: True
+        try:
+            assert fresh._load_paths(paths)
+        finally:
+            fresh._confirm_discard_current_recording = orig_confirm
+
+        assert fresh._px_to_mm is None, "Maßstab muss beim Neuladen komplett verworfen werden"
+        assert fresh.measurements == [], "Messungen muessen beim Neuladen komplett verworfen werden"
+        assert len(fresh.roi_entries) == default_roi_count, (
+            "Standard-Messbereichsbestand muss frisch aufgebaut werden"
+        )
+        assert all(not e.placed for e in fresh.roi_entries), (
+            "neu aufgebaute Messbereiche duerfen nicht mehr platziert sein"
+        )
+    finally:
+        fresh.close()
+
+
+check(
+    "reloading a recording completely discards ROIs/measurements/ruler from the previous one",
+    test_reload_wipes_rois_measurements_and_ruler,
+)
 
 
 def test_interp_capture_buttons():
@@ -2103,14 +2160,38 @@ def test_context_menu_export_routes_to_exact_same_method_as_menu():
     # war ohnehin nie das tatsaechlich exportierte Widget, siehe unten.)
     assert win.timeseries_plot.scene().contextMenu[0].text() == "Grafik speichern…"
 
-    calls = []
-    orig = win._export_graphic
-    win._export_graphic = lambda: calls.append("called")
+    # Bugfix (Test selbst): win._export_graphic = lambda: ... "intercepted"
+    # frueher scheinbar den Aufruf -- tatsaechlich haengt die QAction (siehe
+    # _bind_native_export) an dem zum Verbindungszeitpunkt gebundenen
+    # Methoden-Objekt, NICHT an einer live nachgeschlagenen Instanz-
+    # Eigenschaft. Unter PySide6 wird die Neuzuweisung zufaellig trotzdem
+    # wirksam, unter PyQt5 (Windows-7-Stack) NICHT -- dort lief bisher bei
+    # jedem Testlauf die ECHTE _export_graphic() durch, OHNE dass fuer sie
+    # ein getSaveFileName()-Mock aktiv war. Das rief den echten, nativen
+    # Datei-Dialog auf, der unter QT_QPA_PLATFORM=offscreen (kein echtes
+    # Fenster-Handle) nie zurueckkehrt -- ein stiller, unbegrenzter Haenger
+    # nur auf diesem Stack. Fix: die ECHTE Methode bewusst durchlaufen
+    # lassen (wie ein echter Rechtsklick es täte), dafuer aber wie bei den
+    # uebrigen Export-Tests dieser Datei ordentlich mocken und am
+    # tatsaechlich geschriebenen Ergebnis pruefen statt eine (bindings-
+    # abhaengige) Interception-Annahme zu verifizieren.
+    from thermal_viewer.main_window import GraphicExportDialog
+
+    out_path = OUT / "context_menu_export.png"
+    if out_path.exists():
+        out_path.unlink()
+    orig_save = QtWidgets.QFileDialog.getSaveFileName
+    QtWidgets.QFileDialog.getSaveFileName = staticmethod(
+        lambda *a, **k: (str(out_path), "PNG-Bild (*.png)")
+    )
     try:
-        win.timeseries_plot.scene().contextMenu[0].trigger()
-        assert calls == ["called"], calls
+        with temp_dialog_exec(GraphicExportDialog, lambda self: QtWidgets.QDialog.DialogCode.Accepted):
+            win.timeseries_plot.scene().contextMenu[0].trigger()
+        assert out_path.exists(), "Rechtsklick-Export haette wie der Menü-Weg eine Datei schreiben muessen"
+        assert out_path.stat().st_size > 0
     finally:
-        win._export_graphic = orig
+        QtWidgets.QFileDialog.getSaveFileName = orig_save
+        out_path.unlink(missing_ok=True)
 
 
 check(
@@ -2355,9 +2436,15 @@ def test_video_export_timeline_overlay_and_macro_block_alignment():
     # Der Streifen am unteren Bildrand muss sich zwischen erstem und
     # letztem Frame sichtbar unterscheiden (Fortschrittsbalken-Position/
     # Zeitstempel-Text aendern sich) -- sonst waere ueberhaupt kein Overlay
-    # gezeichnet worden.
-    strip0 = frame0[-40:, :, :]
-    strip_last = frame_last[-40:, :, :]
+    # gezeichnet worden. 140 (statt zuvor 40) Pixel: Schriftmetriken
+    # unterscheiden sich zwischen Qt5 (PyQt5, Windows-7-Legacy-Stack) und
+    # Qt6 (PySide6) sichtbar genug, dass derselbe Text auf dem Qt5-Stack
+    # etwas weiter oben im (ohnehin ~108px hohen, siehe overlay_height)
+    # Streifen zentriert landet -- ein zu knapp bemessener Ausschnitt (40px)
+    # traf dort in den ungenutzten Rand darunter und sah faelschlich
+    # "unveraendert" aus, obwohl der Streifen selbst korrekt gezeichnet wird.
+    strip0 = frame0[-140:, :, :]
+    strip_last = frame_last[-140:, :, :]
     assert not np.array_equal(strip0, strip_last), "Zeitanzeige-Streifen aendert sich nicht zwischen den Frames"
 
     # Ohne Overlay ("Keine", Standard) darf sich am Verhalten/an der
@@ -3455,7 +3542,22 @@ def test_enter_in_spinbox_does_not_auto_accept_export_dialogs():
     # Bugfix: ENTER in einem Zahlenfeld (z.B. Frame-Bereich beim Video-
     # Export) sollte NUR den Wert uebernehmen, nicht sofort den gesamten
     # Dialog schliessen und in den Speichern-Dialog weiterspringen.
-    from qtpy import QtTest
+    try:
+        from qtpy import QtTest
+    except ImportError:
+        # qtpy 2.4.3 stellt fuer PyQt5 (Windows-7-Legacy-Stack, siehe
+        # requirements-win7.txt) kein eigenes QtTest-Kompatibilitaets-Modul
+        # bereit (nur fuer PySide6) -- PyQt5.QtTest existiert und
+        # funktioniert einwandfrei, nur qtpys eigener Re-Export fehlt.
+        import qtpy as _qtpy
+        if _qtpy.PYQT5:
+            from PyQt5 import QtTest
+        elif _qtpy.PYQT6:
+            from PyQt6 import QtTest
+        elif _qtpy.PYSIDE2:
+            from PySide2 import QtTest
+        else:
+            raise
     from thermal_viewer.dialogs import VideoExportDialog, GraphicExportDialog, CsvColumnDialog
 
     dlg = VideoExportDialog(win, 100, COLORMAPS, 0, False, "per_frame", 20.0, 30.0, 10.0)
@@ -3715,10 +3817,15 @@ def test_live_folder_watch():
 
     orig_get_dir = QtWidgets.QFileDialog.getExistingDirectory
     QtWidgets.QFileDialog.getExistingDirectory = staticmethod(lambda *a, **k: str(live_watch_dir))
+    # `win` hat bereits eine Aufnahme geladen -- die neue Rueckfrage
+    # (_confirm_discard_current_recording) simuliert hier "Verwerfen".
+    orig_confirm = win._confirm_discard_current_recording
+    win._confirm_discard_current_recording = lambda: True
     try:
         win._open_folder()
     finally:
         QtWidgets.QFileDialog.getExistingDirectory = orig_get_dir
+        win._confirm_discard_current_recording = orig_confirm
     assert win.recording.n_frames == 2
     assert win._watched_folder == live_watch_dir
     # Laeuft nach "Ordner öffnen…" automatisch im Hintergrund -- keine
@@ -4612,8 +4719,12 @@ def test_open_folder_no_mismatch_dialog_when_names_match():
     calls = []
     orig_ask = win._ask_filename_mismatch
     orig_get_dir = QtWidgets.QFileDialog.getExistingDirectory
+    orig_confirm = win._confirm_discard_current_recording
     win._ask_filename_mismatch = lambda folder: (calls.append(folder), "cancel")[1]
     QtWidgets.QFileDialog.getExistingDirectory = staticmethod(lambda *a, **k: str(DATASET))
+    # `win` hat bereits eine Aufnahme geladen -- die neue Rueckfrage
+    # (_confirm_discard_current_recording) simuliert hier "Verwerfen".
+    win._confirm_discard_current_recording = lambda: True
     try:
         win._open_folder()
         assert calls == [], "bei passendem Namensschema darf keine Rueckfrage erscheinen"
@@ -4621,6 +4732,7 @@ def test_open_folder_no_mismatch_dialog_when_names_match():
     finally:
         win._ask_filename_mismatch = orig_ask
         QtWidgets.QFileDialog.getExistingDirectory = orig_get_dir
+        win._confirm_discard_current_recording = orig_confirm
 
 
 check(
@@ -4691,6 +4803,15 @@ def test_end_to_end_export_state_restoration_with_dynamic_roi_selection():
     win._update_live_cursor(4, 4)
     app.processEvents()
     win._settings.setValue("export/separate_images", False)
+
+    # Seit dem Bugfix "Daten neu laden wirft alte Messbereiche komplett weg"
+    # (siehe _reset_state_for_new_recording) bringt der zwischenzeitliche
+    # Ordnerwechsel in test_live_folder_watch keine mehr vorplatzierten ROIs
+    # mehr mit -- fuer diesen Test hier selbst zwei anlegen.
+    if len([e for e in win.roi_entries if e.placed]) < 2:
+        win.roi_entries[0].place(2, 2, 2, 2)
+        win.roi_entries[1].place(1, 1, 2, 2)
+        win._recompute_curves(entries=[win.roi_entries[0], win.roi_entries[1]])
 
     placed = [e for e in win.roi_entries if e.placed]
     assert len(placed) >= 2, "Test braucht mindestens 2 platzierte ROIs"
@@ -6533,51 +6654,58 @@ check(
 )
 
 
-def test_set_recording_clamps_stale_interp_keyframes_to_new_shorter_recording():
-    # Bugfix: beim Laden einer NEUEN (kuerzeren) Aufnahme blieben bereits
-    # gesetzte Interpolations-Keyframes (interp_start_frame/-end_frame) auf
-    # ihren alten, jetzt zu grossen Werten stehen -- _interp_fraction()
-    # bekam dadurch einen viel zu grossen Nenner und der Messbereich
-    # erreichte sein Ende innerhalb der neuen (kuerzeren) Aufnahme NIE.
+def test_reload_discards_stale_roi_interpolation_keyframes():
+    # Ersetzt einen frueheren "klemmen statt verwerfen"-Test: seit dem
+    # Bugfix ("wenn Daten neu geladen werden ... alte Daten KOMPLETT
+    # rausschmeißen") werden Messbereiche (inkl. Interpolations-Keyframes)
+    # beim Laden einer weiteren Aufnahme nicht mehr nur geklemmt, sondern
+    # komplett verworfen und frisch aufgebaut -- ein Interpolations-
+    # Keyframe der ALTEN (womoeglich laengeren) Aufnahme haette in der
+    # neuen sonst weiterhin auf eine falsche Frame-Position gezeigt.
+    # Eigenes, frisches MainWindow, um den fuer den Rest dieses Skripts
+    # aufgebauten Zustand von `win` nicht zu zerstoeren.
     import shutil
     import tempfile
 
-    entry = win.roi_entries[4]
     short_dir = Path(tempfile.mkdtemp(prefix="thermalviewer_short_", dir=OUT))
+    fresh = MainWindow()
     try:
+        assert fresh._load_paths(paths)
+        entry = fresh.roi_entries[4]
         entry.place(2, 2, 4, 4)
         entry.chk_interp.setChecked(True)
         entry.capture_interp_start(0)
-        entry.capture_interp_end(win.recording.n_frames - 1)  # z.B. Frame 7 bei 8 Frames
-        assert entry.interp_end_frame == win.recording.n_frames - 1
+        entry.capture_interp_end(fresh.recording.n_frames - 1)  # z.B. Frame 7 bei 8 Frames
+        assert entry.interp_end_frame == fresh.recording.n_frames - 1
 
         generate_fixture_dataset(short_dir, n_frames=3)
-        paths = sorted(short_dir.glob("*.csv"))
-        ok = win._load_paths(paths)
-        assert ok, "Testvoraussetzung: Laden der kuerzeren Aufnahme haette klappen sollen"
+        short_paths = sorted(short_dir.glob("*.csv"))
+        # Neuladen ueber eine bereits geladene Aufnahme -- die neue Rueckfrage
+        # (_confirm_discard_current_recording) simuliert hier "Verwerfen".
+        orig_confirm = fresh._confirm_discard_current_recording
+        fresh._confirm_discard_current_recording = lambda: True
+        try:
+            assert fresh._load_paths(short_paths), "Testvoraussetzung: Laden der kuerzeren Aufnahme haette klappen sollen"
+        finally:
+            fresh._confirm_discard_current_recording = orig_confirm
 
-        assert entry.interp_end_frame <= win.recording.n_frames - 1, (
-            "Ende-Keyframe haette auf die neue, kuerzere Aufnahme geklemmt werden muessen",
-            entry.interp_end_frame, win.recording.n_frames,
+        assert entry not in fresh.roi_entries, (
+            "der alte Messbereich (inkl. seiner Interpolations-Keyframes) haette komplett verworfen "
+            "werden muessen, nicht nur geklemmt weiterbestehen"
         )
-        # Am (jetzt kuerzeren) letzten Frame muss die Interpolation ihr Ziel
-        # tatsaechlich erreichen (frac == 1.0), nicht bei einem Bruchteil haengenbleiben.
-        frac = win._interp_fraction(win.recording.n_frames - 1, entry.interp_start_frame, entry.interp_end_frame)
-        assert frac == 1.0, frac
+        assert len(fresh.roi_entries) == 5, "frisch aufgebauter Standard-Messbereichsbestand"
+        assert all(
+            not e.placed and not e.interp_enabled and e.interp_start_frame is None and e.interp_end_frame is None
+            for e in fresh.roi_entries
+        ), "frisch aufgebaute Messbereiche duerfen keine Platzierung/Keyframes der alten Aufnahme erben"
     finally:
-        entry.chk_interp.setChecked(False)
-        entry.roi.setVisible(False)
-        entry.placed = False
-        entry.list_item.setCheckState(QtCore.Qt.CheckState.Checked)
-        # Urspruengliche (laengere) Test-Aufnahme fuer nachfolgende Tests wiederherstellen.
-        ok = win._load_paths(sorted(DATASET.glob("*.csv")))
-        assert ok, "Testreihe konnte nicht wiederhergestellt werden"
+        fresh.close()
         shutil.rmtree(short_dir, ignore_errors=True)
 
 
 check(
-    "loading a new, shorter recording clamps (not discards) stale ROI interpolation keyframes",
-    test_set_recording_clamps_stale_interp_keyframes_to_new_shorter_recording,
+    "reloading a shorter recording discards (not clamps) stale ROI interpolation keyframes",
+    test_reload_discards_stale_roi_interpolation_keyframes,
 )
 
 

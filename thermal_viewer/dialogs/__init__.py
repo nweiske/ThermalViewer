@@ -8,6 +8,7 @@ Namen unverändert, damit bestehender Code weiterhin einfach
 from __future__ import annotations
 
 from .csv_dialog import CsvColumnDialog, FilenameTemplateDialog
+from .data_cleaning import DataCleaningDialog
 from .export_dialogs import GraphicExportDialog, VideoExportDialog
 from .filename_tokens import (
     INDEX_TOKEN,
@@ -30,6 +31,7 @@ __all__ = [
     "AxisSettingsDialog",
     "ColorScaleOverridePanel",
     "CsvColumnDialog",
+    "DataCleaningDialog",
     "FilenameTemplateDialog",
     "GraphContentSelector",
     "GraphicExportDialog",

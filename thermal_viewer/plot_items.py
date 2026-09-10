@@ -341,9 +341,14 @@ class _LoadProgressReporter:
 
     _MIN_INTERVAL_S = 0.05
 
-    def __init__(self, dialog: QtWidgets.QProgressDialog) -> None:
+    def __init__(self, dialog: QtWidgets.QProgressDialog, extra_cb=None) -> None:
         self._dialog = dialog
         self._last_update = 0.0
+        # Zusaetzlich zum modalen Dialog auch die persistente Aktivitaets-
+        # anzeige unten links aktualisieren (siehe status_activity.py) --
+        # optional, damit dieselbe throttlte Update-Rate fuer beide gilt,
+        # ohne processEvents() zweimal aufzurufen.
+        self._extra_cb = extra_cb
 
     def __call__(self, done: int, total: int) -> None:
         now = time.monotonic()
@@ -351,4 +356,6 @@ class _LoadProgressReporter:
             return
         self._last_update = now
         self._dialog.setValue(done)
+        if self._extra_cb is not None:
+            self._extra_cb(done, total)
         QtWidgets.QApplication.processEvents()

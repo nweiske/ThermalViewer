@@ -618,14 +618,6 @@ class _UIBuildMixin:
         file_menu = self.menuBar().addMenu("&Datei")
         act_open_folder = file_menu.addAction("Ordner öffnen…")
         act_open_folder.triggered.connect(self._open_folder)
-        act_import_tiff = file_menu.addAction("TIFF-Bilder importieren…")
-        act_import_tiff.setToolTip(
-            "Wandelt einzelne Graustufen-TIFF-Bilder (z.B. ein unkoloriertes „Intensität (DL)“-"
-            "Rohbild ohne eingebettete Kalibrierung) in Messdateien im normalen Format um -- "
-            "erfordert eine MANUELL angegebene Min-/Max-Temperatur (unkalibrierte Schätzung, "
-            "Auswertung auf eigene Gefahr) sowie einen Bildausschnitt ohne Farbskala/Legende."
-        )
-        act_import_tiff.triggered.connect(self._import_tiff_images)
         file_menu.addSeparator()
         act_save_project = file_menu.addAction("Projekt speichern…")
         act_save_project.setToolTip(
@@ -643,6 +635,36 @@ class _UIBuildMixin:
         act_quit = file_menu.addAction("Beenden")
         act_quit.triggered.connect(self.close)
         self._requires_recording_actions.append(act_save_project)
+
+        # Eigenes Menue fuer alles, was die geladenen ROHDATEN selbst
+        # betrifft (nicht nur das FENSTER-Layout wie "Ansicht" oder
+        # Einzel-Werkzeuge wie "Werkzeuge") -- Nutzerwunsch: "ein neuer
+        # Menüpunkt oben in der Menüleiste ... 'Daten' ... wo man auch den
+        # Zugriff auf die ganzen TIFF-Import-Optionen hätte".
+        data_menu = self.menuBar().addMenu("&Daten")
+        act_clean_data = data_menu.addAction("Rohdaten säubern…")
+        act_clean_data.setToolTip(
+            "Erkennt einzelne Ausreißer-Bilder (z.B. durch eine kurze Kamera-/Übertragungsstörung) "
+            "anhand der Temperaturänderung zu frei markierten Referenzpunkten und blendet sie aus "
+            "Kurven/Wiedergabe/Export aus -- ohne sie oder ihre Zeitstempel zu löschen, jederzeit "
+            "einzeln wieder einblendbar."
+        )
+        act_clean_data.triggered.connect(self._open_data_cleaning_dialog)
+        self._requires_recording_actions.append(act_clean_data)
+        data_menu.addSeparator()
+        act_import_tiff = data_menu.addAction("TIFF-Bilder importieren…")
+        # Vorerst deaktiviert (Nutzerwunsch: "ausgrauen und erstmal tot liegen
+        # lassen") -- Funktion/Code bleiben unangetastet fuer eine spaetere
+        # Ueberarbeitung, nur der Menuepunkt ist bis dahin nicht anklickbar.
+        act_import_tiff.setEnabled(False)
+        act_import_tiff.setToolTip(
+            "Vorübergehend deaktiviert.\n\n"
+            "Wandelt einzelne Graustufen-TIFF-Bilder (z.B. ein unkoloriertes „Intensität (DL)“-"
+            "Rohbild ohne eingebettete Kalibrierung) in Messdateien im normalen Format um -- "
+            "erfordert eine MANUELL angegebene Min-/Max-Temperatur (unkalibrierte Schätzung, "
+            "Auswertung auf eigene Gefahr) sowie einen Bildausschnitt ohne Farbskala/Legende."
+        )
+        act_import_tiff.triggered.connect(self._import_tiff_images)
 
         # _StaysOpenMenu (statt einer per addMenu(str) erzeugten normalen
         # QMenu): dieses Menue enthaelt mehrere unabhaengige Checkboxen

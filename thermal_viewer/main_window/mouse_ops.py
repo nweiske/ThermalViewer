@@ -18,6 +18,10 @@ class _MouseMixin:
             self._handle_measurement_click(event)
             return
 
+        if self._cleaning_pick_armed:
+            self._handle_cleaning_point_click(event)
+            return
+
         if event.double() and self._ruler_hit_test(event.scenePos()):
             self._edit_ruler_length()
             return
@@ -38,6 +42,7 @@ class _MouseMixin:
             entry.btn_place.setChecked(False)
             self._armed_entry = None
             self._recompute_curves(entries=[entry])
+            self._refresh_idle_guidance()
             return
 
         if event.button() == QtCore.Qt.RightButton:
@@ -168,6 +173,8 @@ class _MouseMixin:
             (self.recording.timestamps[idx] - self.recording.timestamps[0]).total_seconds()
         )
         msg = f"Frame {idx + 1}/{self.recording.n_frames}  |  {ts}  |  Laufzeit: {runtime}"
+        if idx in self._excluded_frame_indices:
+            msg += "  |  ⚠ Von der Rohdaten-Bereinigung ausgeblendet (Kurven/Export überspringen es)."
         if self._hover_row is not None and self._hover_col is not None:
             val = self._live_cursor_value(idx, self._hover_row, self._hover_col)
             msg += f"  |  Cursor: Zeile {self._hover_row}, Spalte {self._hover_col} = {val:.2f} °C"

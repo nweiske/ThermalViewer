@@ -11,6 +11,7 @@ from ..data import (
 )
 from ..roi import bounds_px_for
 from ..roi_entry import (
+    ROI_COLORS,
     RoiEntry,
 )
 from .constants import (
@@ -21,16 +22,56 @@ from .constants import (
 
 
 class _FrameNavMixin:
+    def _reset_state_for_new_recording(self) -> None:
+        """Wirft beim Laden einer WEITEREN Aufnahme (nicht beim allerersten
+        Laden nach Programmstart) den kompletten alten Auswertungs-Zustand
+        weg, bevor die neue Aufnahme uebernommen wird (Bugreport: "wenn Daten
+        neu geladen werden ... dann alte Daten KOMPLETT rausschmeißen").
+        Messbereiche, Messungen UND Maßstab beziehen sich auf Pixel-
+        Koordinaten/eine Kalibrierung der ALTEN Aufnahme -- vorher blieben
+        ihre tatsaechlichen Werte/Platzierungen nach einem Neuladen bestehen
+        (nur die Bild-Visualisierung von Maßstab/Messungen wurde versteckt),
+        wodurch sie unbemerkt mit falschen/bedeutungslosen Werten in die neue
+        Aufnahme uebernommen wurden. Baut danach den urspruenglichen
+        Standard-Bestand an Messbereichen frisch auf (wie beim
+        Programmstart), damit die App nach dem Laden nicht ganz ohne
+        Messbereiche steht."""
+        for entry in list(self.measurements):
+            self._remove_measurement(entry)
+        for entry in list(self.roi_entries):
+            self._remove_roi_entry(entry)
+        self._clear_ruler_scale()
+        self._armed_entry = None
+        self._roi_next_number = 1
+        self._measurement_next_number = 1
+        for _ in range(len(ROI_COLORS)):
+            self._add_roi_entry()
+        # Rohdaten-Bereinigung (siehe data_cleaning_ops.py): Referenzpunkte
+        # sind Pixelkoordinaten der ALTEN Aufnahme, ausgeblendete Bild-Indizes
+        # beziehen sich auf deren Frame-Anzahl -- beides fuer die neue
+        # Aufnahme bedeutungslos.
+        self._cancel_cleaning_point_pick()
+        self._clear_cleaning_point_markers()
+        self._cleaning_points = []
+        self._excluded_frame_indices = set()
+        if self._cleaning_dialog is not None:
+            self._cleaning_dialog.refresh_points()
+
     def _set_recording(self, recording: Recording) -> None:
+        had_previous_recording = self.recording is not None
         self.recording = recording
+        if had_previous_recording:
+            self._reset_state_for_new_recording()
         n = recording.n_frames
         rows, cols = recording.shape
 
         # Eine evtl. noch eingezeichnete Referenzlinie bezieht sich auf
         # Pixel-Koordinaten der ALTEN Aufnahme und waere auf dem neuen Bild
         # irrefuehrend platziert -- der Umrechnungsfaktor selbst (_px_to_mm)
-        # bleibt bewusst bestehen (siehe Hinweis weiter unten), nur die
-        # Visualisierung wird ausgeblendet.
+        # wurde oben (bei einer WEITEREN Aufnahme) bereits komplett
+        # zurueckgesetzt (siehe _reset_state_for_new_recording); hier nur
+        # noch der ganz normale Sicherheitsschritt, falls doch noch etwas
+        # sichtbar war.
         self._hide_ruler_visuals()
         self._cancel_measurement_tool()
         self._hide_measurement_visuals()
@@ -117,11 +158,13 @@ class _FrameNavMixin:
         self._apply_time_display_mode(self._time_display_mode)
 
         message = f"{n} Frame(s) geladen aus {recording.paths[0].parent}"
-        if self._px_to_mm is not None:
-            # Ein Massstab bleibt bewusst ueber einen Neuladevorgang hinweg
-            # bestehen (z.B. gleicher Pruefstand/gleiche Kamera-Optik) -- bei
-            # einer anderen Messreihe koennte er aber nicht mehr passen.
-            message += "  |  Hinweis: Es ist noch ein zuvor definierter Maßstab aktiv, bitte auf Gültigkeit prüfen."
+        if had_previous_recording:
+            # Siehe _reset_state_for_new_recording: Messbereiche, Messungen
+            # und Maßstab der vorherigen Aufnahme wurden dabei bereits
+            # vollstaendig verworfen (bezogen sich auf deren Pixel-
+            # Koordinaten/Kalibrierung, waeren fuer diese neue Aufnahme
+            # bedeutungslos).
+            message += "  |  Vorherige Messbereiche/Messungen/Maßstab wurden verworfen."
         if recording.had_duplicate_timestamps:
             message += (
                 "  |  Achtung: mehrere Dateien hatten denselben Zeitstempel im "
@@ -150,13 +193,33 @@ class _FrameNavMixin:
                 f"{details}",
             )
         self.statusBar().showMessage(message)
+        self._refresh_idle_guidance()
 
     # --------------------------------------------------------- Frame-Nav
     def _step_frame(self, delta: int) -> None:
         if self.recording is None or self.recording.n_frames == 0:
             return
         new_index = max(0, min(self.current_index + delta, self.recording.n_frames - 1))
+        new_index = self._skip_excluded_frame_index(new_index, 1 if delta >= 0 else -1)
         self.frame_slider.setValue(new_index)
+
+    def _skip_excluded_frame_index(self, index: int, step: int) -> int:
+        """Rueckt index in Richtung step ueber von der Rohdaten-Bereinigung
+        ausgeblendete Bilder hinweg (siehe data_cleaning_ops.py) -- Play/
+        Einzelschritt sollen ausgeblendete Bilder NIE anzeigen. Direktes
+        Springen per Schieberegler/Zahlenfeld ist davon bewusst NICHT
+        betroffen (siehe _on_slider_changed/_on_frame_spin_changed) -- ein
+        ausgeblendetes Bild bleibt darueber weiterhin gezielt ansteuerbar,
+        z.B. um es ueber "Daten > Rohdaten säubern…" wieder einzublenden."""
+        if not self._excluded_frame_indices or self.recording is None:
+            return index
+        n = self.recording.n_frames
+        idx = index
+        while 0 <= idx < n and idx in self._excluded_frame_indices:
+            idx += step
+        if 0 <= idx < n:
+            return idx
+        return max(0, min(index, n - 1))
 
     def _jump_to_first_frame(self) -> None:
         """Springt zum Auswertungsstart (Standard: erster Frame, per Spinbox
@@ -421,6 +484,8 @@ class _FrameNavMixin:
             return
         n = self.recording.n_frames
         nxt = self.current_index + 1
+        while nxt < n and nxt in self._excluded_frame_indices:
+            nxt += 1
         if self._play_clamped:
             end_idx = self._eval_end_index if self._eval_end_index is not None else n - 1
             if nxt > end_idx:

@@ -121,12 +121,20 @@ jobs:
         run: python -m pytest
 
       - name: Windows-7-exe bauen
+        # --collect-all imageio_ffmpeg/imageio: siehe Kommentar im
+        # "build-windows"-Job -- seit requirements-win7.txt eine zu Python 3.8
+        # kompatible imageio/imageio-ffmpeg-Version mitbringt (siehe dort),
+        # unterstuetzt auch der Windows-7-Build den Video-Export; ohne dieses
+        # Bundling wuerde PyInstaller die von imageio-ffmpeg zur Laufzeit
+        # nachgeladene ffmpeg.exe nicht automatisch mit einpacken.
+        #
         # --noupx: siehe Kommentar im "build-windows"-Job (Bugreport "Failed
         # to extract VCRUNTIME140.dll") -- betrifft --onefile-Builds generell.
         run: >
           pyinstaller --noconfirm --clean --windowed --onefile --noupx
           --name ThermalViewer --icon thermal_viewer/resources/icon.ico
-          --add-data "thermal_viewer/resources/icon.ico;resources" run.py
+          --add-data "thermal_viewer/resources/icon.ico;resources"
+          --collect-all imageio_ffmpeg --collect-all imageio run.py
 
       - name: Release-Archiv schnüren
         shell: pwsh

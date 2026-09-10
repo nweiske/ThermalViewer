@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-09-04
+Stand: 2026-09-10
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
@@ -30,6 +30,7 @@ INHALT
 14. Hinweise und Problembehebung
 15. Technische Details zum Dateiformat
 16. TIFF-Bilder importieren
+17. Rohdaten säubern (Ausreißer-Bilder erkennen/ausblenden)
 
 
 ================================================================
@@ -93,6 +94,36 @@ Die Reihenfolge der Frames ergibt sich automatisch aus dem Zeitstempel
 im Dateinamen (siehe Abschnitt 15). Nach dem Laden erscheint der erste
 Frame im Bildbereich, und die Statuszeile unten zeigt an, wie viele
 Frames geladen wurden.
+
+AKTIVITAETSANZEIGE (unten links, dauerhaft sichtbar): zeigt, was gerade
+im Hintergrund passiert (z.B. "Lade Frames… (120/500)" mit Fortschritts-
+balken waehrend des Ladens) -- läuft gerade nichts, erscheint statt-
+dessen ein kurzer Hinweis, was als Nächstes zu tun ist: "Kein Ordner
+geladen…" (noch keine Messreihe geladen), danach so lange "…jetzt einen
+Messbereich platzieren", bis mindestens einer platziert ist -- erst
+DANACH zeigt sie stattdessen "Live-Überwachung aktiv: …", solange ein
+beobachteter Ordner auf neue Dateien geprüft wird (was nach "Ordner
+öffnen…" immer sofort automatisch startet, siehe Abschnitt 3). Unabhängig
+von den kurzlebigen Einzelmeldungen in der übrigen Statuszeile (z.B.
+"Frame X geladen"), die diese Anzeige nicht überschreiben.
+
+WAR BEREITS EINE ANDERE MESSREIHE GELADEN: Beim Laden einer WEITEREN
+Messreihe (egal ob ueber "Ordner öffnen…" erneut oder aus einem anderen
+Ordner) werden alle Messbereiche, Ad-hoc-Messungen, ein zuvor definierter
+Maßstab UND die Rohdaten-Bereinigung (siehe Abschnitt 17) der vorherigen
+Messreihe vollständig verworfen und durch den ursprünglichen Standard-
+Bestand an Messbereichen ersetzt -- sie bezogen sich auf Pixelkoordinaten/
+eine Kalibrierung des ALTEN Bilds und wären für die neue Messreihe
+bedeutungslos bzw. irreführend.
+
+Da das ein endgültiger Verlust der bisherigen Auswertung ist, erscheint
+vorher eine Rückfrage mit drei Möglichkeiten: "Speichern & fortfahren…"
+(öffnet zuerst "Projekt speichern…", danach wird die neue Messreihe
+geladen -- bricht der Speichern-Dialog selbst ab, bleibt alles beim
+Alten), "Verwerfen" (lädt sofort, ohne zu speichern) oder "Abbrechen"
+(lädt gar nicht, alles bleibt wie es war). Beim allerersten Laden nach
+dem Programmstart erscheint diese Rückfrage nicht, da noch nichts zu
+verwerfen ist.
 
 HINWEIS: Tragen mehrere Dateien exakt denselben Zeitstempel im Namen
 (z.B. weil eine Datei per Windows-Kopie vervielfaeltigt und nicht
@@ -1078,9 +1109,14 @@ mit den Rohdaten wieder oeffnet:
                               Farbverlauf, Legenden-Limits, Massstab
                               (inkl. Referenzlinien-Farbe), alle
                               Messungen (Abschnitt 11), Auswertungs-
-                              start/-ende UND den Quellordner der
-                              Messreihe in eine Datei mit Endung
-                              ".tvproj".
+                              start/-ende, die Rohdaten-Bereinigung
+                              (Referenzpunkte, Schwellenwert und
+                              ausgeblendete Bilder, siehe Abschnitt 17)
+                              UND den Quellordner der Messreihe in eine
+                              Datei mit Endung ".tvproj" -- damit gibt
+                              "Projekt speichern/laden" den vollstaen-
+                              digen Auswertungs-Zustand wieder, nicht
+                              nur die Messbereiche.
   - "Projekt laden..."     -> wendet eine zuvor gespeicherte
                               ".tvproj"-Datei an.
 
@@ -1218,7 +1254,11 @@ Aenderungszeit der Datei im Dateisystem verwendet.
 16. TIFF-BILDER IMPORTIEREN
 ================================================================
 
-Ueber "Datei > TIFF-Bilder importieren..." lassen sich einzelne
+HINWEIS: Dieser Menüpunkt ist derzeit deaktiviert (ausgegraut) und
+vorübergehend nicht nutzbar. Die folgende Beschreibung gilt für eine
+spätere Reaktivierung.
+
+Ueber "Daten > TIFF-Bilder importieren..." lassen sich einzelne
 GRAUSTUFEN-TIFF-Bilder (z.B. ein unkoloriertes "Intensitaet (DL)"-
 Rohbild-Export einer Waermebildkamera, OHNE eingebettete Farbskala/
 Kalibrierung) in Messdateien im normalen Format umwandeln, die sich
@@ -1261,3 +1301,77 @@ Original-Dateinamen enthalten dazu keine auswertbare Information),
 sondern kuenstliche, sekundengenau aufsteigende Zeitstempel in der
 Reihenfolge der Dateiauswahl -- die zeitliche Abfolge im Viewer ist damit
 nur eine Hilfskonstruktion, keine echte Aufnahmezeit.
+
+
+================================================================
+17. ROHDATEN SÄUBERN (AUSREISSER-BILDER ERKENNEN/AUSBLENDEN)
+================================================================
+
+Über "Daten > Rohdaten säubern…" lassen sich einzelne Ausreißer-Bilder
+erkennen (z.B. durch eine kurze Kamera-/Übertragungsstörung) und aus
+Kurven, Wiedergabe UND allen Exporten (Grafik/Werte, Video/Bildstapel)
+ausblenden -- OHNE sie oder ihre Zeitstempel wirklich zu löschen: die
+übrigen (behaltenen) Bilder behalten exakt ihre echten Zeitstempel,
+ausgeblendete Bilder bleiben im Hintergrund erhalten und lassen sich
+jederzeit wieder einzeln einblenden.
+
+Das (nicht-modale, also während offen weiterhin bedienbare) Fenster
+öffnet sich automatisch direkt nach jedem "Ordner öffnen…" -- kann aber
+ohne Bereinigung einfach geschlossen werden -- und lässt sich danach
+jederzeit über "Daten > Rohdaten säubern…" erneut öffnen, um die Auswahl
+anzupassen.
+
+Ablauf:
+
+  1. "Punkt hinzufügen (Bild anklicken)" anklicken, dann eine Stelle im
+     Thermobild anklicken, an der eine plötzliche, unrealistisch große
+     Temperaturänderung zuverlässig auf eine Störung hindeutet (z.B. ein
+     Bereich, der sich unter normalen Umständen kaum verändert). Beliebig
+     viele Punkte möglich (nummerierte gelbe Kreuze im Bild), einzeln über
+     die Liste wieder entfernbar.
+  2. Mittelungsbereich je Punkt wählen (Standard: 3×3 Pixel): statt nur des
+     einen exakt angeklickten Pixels wird der Mittelwert über die gewählte
+     Fläche um den Punkt herum betrachtet -- macht die Erkennung robuster
+     gegen Rauschen an genau einem einzelnen Sensor-Pixel, das sonst
+     fälschlich als Störung gelten könnte. "1×1 Pixel" schaltet zurück auf
+     das exakte Einzelpixel. Bei aktivierter Checkbox "Bereich im Bild
+     anzeigen" wird die gewählte Fläche als gestricheltes Rechteck um jeden
+     Punkt eingezeichnet (nur ab 3×3 sichtbar, bei 1×1 entfällt es).
+  3. Schwellenwert (°C) eingeben: wie groß die Temperaturänderung zum
+     JEWEILS VORHERIGEN Bild an einem Punkt (bzw. dessen Mittelungsbereich)
+     mindestens sein muss, um als Störung zu zählen.
+  4. Ein Bild gilt nur dann als Ausreißer, wenn AN JEDEM markierten Punkt
+     gleichzeitig der Schwellenwert überschritten wird -- eine Störung nur
+     an einem einzelnen Punkt (z.B. lokale Reflexion) reicht absichtlich
+     NICHT aus, das macht die Erkennung robuster gegen falschen Alarm.
+  5. Die Liste unten zeigt automatisch alle betroffenen Bilder (Nummer,
+     Zeitstempel) als angehakte Checkboxen -- einzelne Haken lassen sich
+     vor dem Anwenden wieder entfernen, um ein bestimmtes Bild doch zu
+     behalten. Bereits zuvor ausgeblendete Bilder erscheinen ebenfalls
+     hier (Kennzeichnung "bereits ausgeblendet") und lassen sich durch
+     Abhaken wieder einblenden.
+  6. "Anwenden" übernimmt die angehakten Bilder als neue Ausblende-Auswahl.
+
+HINWEIS: Ein einzelnes, kurz aufblitzendes Störbild erzeugt naturgemäß
+sowohl beim Übergang HINEIN als auch beim Übergang ZURÜCK (zum jeweils
+nächsten Bild) eine große Temperaturänderung -- es werden also típischer-
+weise BEIDE angrenzenden Bilder vorgeschlagen. Vor dem Anwenden prüfen
+und bei Bedarf einzeln abhaken.
+
+Ein ausgeblendetes Bild lässt sich weiterhin gezielt ansteuern (Schiebe-
+regler/Zahlenfeld), nur die automatische Wiedergabe (Play) und die
+Einzelschritt-Tasten überspringen es. Die Statuszeile zeigt bei einem
+gerade angezeigten, ausgeblendeten Bild einen Warnhinweis.
+
+Wird eine WEITERE Messreihe geladen, werden alle markierten Punkte UND
+alle Ausblendungen verworfen (siehe Abschnitt 3) -- sie bezogen sich auf
+Pixelkoordinaten/Bildanzahl der ALTEN Messreihe. Vorher erscheint dazu
+eine Rückfrage mit der Möglichkeit, die aktuelle Auswertung als Projekt
+zu speichern.
+
+Referenzpunkte, Mittelungsbereich, Schwellenwert UND die aktuelle
+Ausblende-Auswahl werden beim "Projekt speichern…" mit gespeichert und bei
+"Projekt laden…" wiederhergestellt (siehe Abschnitt 12) -- ein gespeichertes
+Projekt gibt damit den vollständigen Auswertungs-Zustand wieder, nicht nur
+die Messbereiche. Die Checkbox "Bereich im Bild anzeigen" ist eine reine
+Anzeige-Einstellung und wird NICHT mitgespeichert.

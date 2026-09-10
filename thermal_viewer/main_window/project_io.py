@@ -26,16 +26,52 @@ from ..roi_entry import (
 
 
 class _ProjectMixin:
-    def _save_project(self) -> None:
+    def _confirm_discard_current_recording(self) -> bool:
+        """Rueckfrage vor dem Laden einer WEITEREN Messreihe, waehrend
+        bereits eine andere geladen ist -- siehe _reset_state_for_new_
+        recording (frame_nav.py): Messbereiche, Messungen, Maßstab und die
+        Rohdaten-Bereinigung der aktuellen Auswertung wuerden dabei
+        vollstaendig verworfen. Nutzerwunsch: vorher fragen, ob der aktuelle
+        Stand als Projekt gespeichert werden soll, statt das kommentarlos
+        geschehen zu lassen. Gibt zurueck, ob der Ladevorgang fortgesetzt
+        werden soll (True bei "Verwerfen" oder erfolgreichem "Speichern",
+        False bei "Abbrechen" oder abgebrochenem Speichern-Dialog)."""
+        if self.recording is None:
+            return True
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        box.setWindowTitle("Aktuelle Auswertung verwerfen?")
+        box.setText(
+            "Es ist bereits eine Messreihe geladen. Messbereiche, Messungen, Maßstab und die "
+            "Rohdaten-Bereinigung dieser Auswertung gehen beim Laden einer neuen Messreihe "
+            "vollständig verloren, wenn sie nicht vorher als Projekt gespeichert werden.\n\n"
+            "Wie möchtest du fortfahren?"
+        )
+        btn_save = box.addButton("Speichern & fortfahren…", QtWidgets.QMessageBox.ButtonRole.ActionRole)
+        btn_discard = box.addButton("Verwerfen", QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
+        btn_cancel = box.addButton("Abbrechen", QtWidgets.QMessageBox.ButtonRole.RejectRole)
+        # Bewusst "Abbrechen" als Default (statt z.B. "Verwerfen"): ein
+        # versehentliches Enter/Leertaste soll nicht die destruktive Aktion
+        # ausloesen.
+        box.setDefaultButton(btn_cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is btn_discard:
+            return True
+        if clicked is btn_save:
+            return self._save_project()
+        return False
+
+    def _save_project(self) -> bool:
         if self.recording is None:
             QtWidgets.QMessageBox.information(self, "Keine Daten", "Bitte zuerst eine Messreihe laden.")
-            return
+            return False
 
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, "Projekt speichern", "Projekt.tvproj", "Projekt-Datei (*.tvproj)"
         )
         if not path:
-            return
+            return False
         if not Path(path).suffix:
             path += ".tvproj"
 
@@ -101,15 +137,24 @@ class _ProjectMixin:
             "auswertungsende_frame": self._eval_end_index,
             "rois": rois,
             "messungen": measurements,
+            # Rohdaten-Bereinigung (siehe data_cleaning_ops.py) -- Nutzerwunsch:
+            # "wenn ich ein Projekt speichere/lade [möchte ich] wirklich den
+            # VOLLSTÄNDIGEN Zustand des Programmes haben". Referenzpunkte sind
+            # Pixelkoordinaten (x=col, y=row, siehe _handle_cleaning_point_click).
+            "bereinigung_punkte": [{"x": x, "y": y} for x, y in self._cleaning_points],
+            "bereinigung_schwellenwert": self._cleaning_threshold,
+            "bereinigung_kernel_groesse": self._cleaning_kernel_size,
+            "bereinigung_ausgeblendete_frames": sorted(self._excluded_frame_indices),
         }
 
         try:
             Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         except OSError as exc:
             QtWidgets.QMessageBox.critical(self, "Fehler", f"Projekt konnte nicht gespeichert werden:\n{exc}")
-            return
+            return False
 
         self.statusBar().showMessage(f"Projekt gespeichert: {path}")
+        return True
 
     @staticmethod
     def _parse_interp_point(
@@ -481,6 +526,66 @@ class _ProjectMixin:
         # waeren ohne px-zu-mm-Umrechnung bedeutungslos, werden also nicht
         # wiederhergestellt -- kein Fehlerfall, daher keine Warnung.
 
+        # -- Rohdaten-Bereinigung (Nutzerwunsch: vollstaendiger Programmzustand
+        # beim Speichern/Laden eines Projekts, siehe _save_project) -- alte
+        # Punkte/Markierungen verwerfen, aus der Datei neu aufbauen.
+        self._cancel_cleaning_point_pick()
+        points_data = data.get("bereinigung_punkte")
+        cleaning_points: list[tuple[int, int]] = []
+        if isinstance(points_data, list):
+            for p in points_data:
+                if not isinstance(p, dict):
+                    continue
+                try:
+                    # int (nicht float): Referenzpunkte sind Pixel-Indizes
+                    # (siehe _handle_cleaning_point_click) -- ein float-Wert
+                    # wuerde _compute_cleaning_candidates() spaeter mit einem
+                    # IndexError abstuerzen lassen (numpy erlaubt keine
+                    # Float-Indizierung von frames[:, r, c]). int(float(...))
+                    # statt direktem int(...): akzeptiert sowohl "10" als
+                    # auch "10.0"/"10.7" aus (z.B. handbearbeiteten)
+                    # Projektdateien gleichermassen.
+                    cleaning_points.append((int(float(p["x"])), int(float(p["y"]))))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        self._cleaning_points = cleaning_points
+
+        threshold = data.get("bereinigung_schwellenwert")
+        if isinstance(threshold, (int, float)) and not isinstance(threshold, bool):
+            self._cleaning_threshold = float(threshold)
+
+        kernel_size = data.get("bereinigung_kernel_groesse")
+        if (
+            isinstance(kernel_size, int) and not isinstance(kernel_size, bool)
+            and kernel_size in (1, 3, 5, 7, 9)
+        ):
+            self._cleaning_kernel_size = kernel_size
+
+        # ERST NACH dem Setzen von _cleaning_kernel_size: die Markierungen
+        # (inkl. des gestrichelten Mittelungsbereich-Rechtecks, siehe
+        # _draw_cleaning_point_markers) muessen die aus DIESER Datei
+        # geladene Kernel-Groesse zeigen, nicht die vorherige.
+        self._draw_cleaning_point_markers()
+
+        excluded_data = data.get("bereinigung_ausgeblendete_frames")
+        n_frames = self.recording.n_frames if self.recording is not None else 0
+        if isinstance(excluded_data, list):
+            self._excluded_frame_indices = {
+                int(i) for i in excluded_data
+                if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < n_frames
+            }
+        else:
+            self._excluded_frame_indices = set()
+        self._recompute_curves()
+        self._update_status_bar()
+
+        if self._cleaning_dialog is not None:
+            self._cleaning_dialog.spin_threshold.blockSignals(True)
+            self._cleaning_dialog.spin_threshold.setValue(self._cleaning_threshold)
+            self._cleaning_dialog.spin_threshold.blockSignals(False)
+            self._cleaning_dialog.sync_kernel_size_combo()
+            self._cleaning_dialog.refresh_points()
+
         message = f"Projekt geladen: {path}"
         if failed_indices:
             message += f"  |  {len(failed_indices)} Messbereich-Eintrag/Einträge übersprungen (fehlerhaft)."
@@ -510,6 +615,8 @@ class _ProjectMixin:
         if not paths:
             QtWidgets.QMessageBox.warning(self, "Keine Dateien", "Es wurden keine CSV-Dateien gefunden.")
             return False
+        if not self._confirm_discard_current_recording():
+            return False
         pattern = self._filename_pattern if pattern is None else pattern
         strptime_fmt = self._filename_strptime_fmt if strptime_fmt is None else strptime_fmt
         import_settings = self._import_settings
@@ -524,7 +631,12 @@ class _ProjectMixin:
             progress.setWindowModality(QtCore.Qt.WindowModal)
             progress.setMinimumDuration(300)
 
-            progress_cb = _LoadProgressReporter(progress)
+            progress_cb = _LoadProgressReporter(
+                progress,
+                extra_cb=lambda done, total: self._set_activity_progress(
+                    f"Lade Frames… ({done}/{total})", done / total if total else None
+                ),
+            )
             try:
                 # progress_cb() pumpt hier wiederholt processEvents() -- siehe
                 # _paused_background_timers zum Grund, warum Live-Watch/
@@ -539,6 +651,7 @@ class _ProjectMixin:
                 recording = None
                 error = exc
             progress.close()
+            self._refresh_idle_guidance()
 
             if error is None:
                 break

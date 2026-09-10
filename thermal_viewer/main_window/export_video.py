@@ -193,7 +193,20 @@ class _VideoExportMixin:
         prev_histogram_visible = self.histogram.isVisible()
         prev_level_state = self._capture_level_widgets_state()
 
-        frame_indices = list(range(start_idx, end_idx + 1))
+        # Von der Rohdaten-Bereinigung ausgeblendete Bilder (siehe
+        # data_cleaning_ops.py) werden NICHT mit exportiert -- sie bleiben in
+        # self.recording unveraendert (samt Zeitstempel) und lassen sich dort
+        # jederzeit wieder einblenden, sollen aber wie in den Kurven auch im
+        # Export/in der Wiedergabe uebersprungen werden.
+        frame_indices = [i for i in range(start_idx, end_idx + 1) if i not in self._excluded_frame_indices]
+        if not frame_indices:
+            QtWidgets.QMessageBox.information(
+                self, "Keine Bilder",
+                "Alle Bilder im gewählten Bereich sind von der Rohdaten-Bereinigung ausgeblendet "
+                "(„Daten > Rohdaten säubern…“) -- bitte einzelne davon dort wieder einblenden oder "
+                "einen anderen Bereich wählen."
+            )
+            return
         progress_label = "Video wird erstellt…" if output_mode == "video" else "Bildstapel wird erstellt…"
         progress = QtWidgets.QProgressDialog(progress_label, "Abbrechen", 0, len(frame_indices), self)
         progress.setWindowModality(QtCore.Qt.WindowModal)

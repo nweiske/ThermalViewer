@@ -34,7 +34,13 @@ class _ImportMixin:
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Ordner mit CSV-Messreihe wählen")
         if not folder:
             return
-        self._load_folder(Path(folder))
+        if self._load_folder(Path(folder)):
+            # Nutzerwunsch: "Direkt wenn ich die Daten einlade soll sich so
+            # ein Dialog-Fenster öffnen" -- nicht-modal (siehe
+            # DataCleaningDialog), der Nutzer kann ihn jederzeit ohne
+            # Bereinigung schliessen; danach weiterhin ueber
+            # "Daten > Rohdaten säubern…" erreichbar.
+            self._open_data_cleaning_dialog()
 
     def _import_tiff_images(self) -> None:
         """Wandelt einzelne Graustufen-TIFF-Bilder (siehe TiffImportDialog
@@ -196,6 +202,7 @@ class _ImportMixin:
         # dafuer eine extra Einstellung gesetzt werden muss.
         self._watched_folder = folder_path
         self._live_watch_timer.start()
+        self._refresh_idle_guidance()
         return True
 
     def _resolve_folder_and_pattern(self, folder: Path) -> tuple[Path, re.Pattern, str] | None:

@@ -25,6 +25,7 @@ from .constants import (
 from .export_common import _ExportCommonMixin
 from .export_csv import _CsvExportMixin
 from .export_image import _ImageExportMixin
+from .data_cleaning_ops import _DataCleaningMixin
 from .export_video import _VideoExportMixin
 from .frame_nav import _FrameNavMixin
 from .import_ops import _ImportMixin
@@ -34,6 +35,7 @@ from .project_io import _ProjectMixin
 from .render_pipeline import _RenderPipelineMixin
 from .roi_ops import _RoiMixin
 from .roi_panel_build import _RoiPanelBuildMixin
+from .status_activity import _StatusActivityMixin
 from .theming import _ThemeMixin
 from .ui_build import _UIBuildMixin
 
@@ -43,12 +45,14 @@ pg.setConfigOptions(imageAxisOrder="row-major", antialias=True)
 class MainWindow(
     _UIBuildMixin,
     _RoiPanelBuildMixin,
+    _StatusActivityMixin,
     _ThemeMixin,
     _ImportMixin,
     _ProjectMixin,
     _FrameNavMixin,
     _RoiMixin,
     _MeasurementMixin,
+    _DataCleaningMixin,
     _MouseMixin,
     _ExportCommonMixin,
     _RenderPipelineMixin,
@@ -158,6 +162,31 @@ class MainWindow(
         self._measurement_armed = False
         self._measurement_start: tuple[float, float] | None = None
         self._measurement_preview_marker: pg.PlotDataItem | None = None
+        # Rohdaten-Bereinigung (Nutzerwunsch: "vor der eigentlichen Auswertung
+        # säubern" -- einzelne Ausreißer-Bilder, z.B. durch eine kurze
+        # Kamera-/Übertragungsstörung, per dT-Schwellenwert an frei markierten
+        # Referenzpunkten erkennen und aus Kurven/Wiedergabe/Export ausblenden,
+        # OHNE sie oder ihre Zeitstempel wirklich zu loeschen -- jederzeit über
+        # "Daten > Rohdaten säubern…" einzeln wieder einblendbar). Siehe
+        # data_cleaning_ops.py für die vollständige Logik.
+        self._cleaning_pick_armed = False
+        self._cleaning_points: list[tuple[int, int]] = []
+        self._cleaning_point_markers: list[pg.ScatterPlotItem] = []
+        self._cleaning_threshold = 5.0
+        # Kantenlaenge (ungerade Pixelzahl, wie beim Live-Cursor -- siehe
+        # _live_cursor_kernel_size in mouse_ops.py, aber bewusst EIGENSTAENDIG
+        # statt gemeinsam genutzt, da unterschiedliche Zwecke) des um jeden
+        # Referenzpunkt gemittelten Bereichs: Standard 3x3 statt eines reinen
+        # Einzelpixels -- robuster gegen Sensor-Rauschen an genau EINEM Pixel
+        # (Nutzerwunsch, auf Rueckfrage bestaetigt).
+        self._cleaning_kernel_size = 3
+        # Rein visuelle Einstellung (nicht in .tvproj gespeichert): zeigt den
+        # gemittelten Bereich als gestricheltes Rechteck um jeden Punkt an,
+        # sofern _cleaning_kernel_size > 1 -- bei 1x1 gäbe es nichts
+        # zusätzlich zum Punkt-Kreuz selbst zu zeigen.
+        self._cleaning_show_kernel_area = True
+        self._excluded_frame_indices: set[int] = set()
+        self._cleaning_dialog = None
         # Zeitachsen-Anzeige beider Kurven-Graphen: "clock" (echte Uhrzeit,
         # Standard) oder "runtime" (relative Laufzeit ab Aufnahmebeginn) --
         # ueber je einen Umschalter unten rechts an beiden Graphen wählbar,
@@ -213,6 +242,7 @@ class MainWindow(
         self._build_docks()
         self._build_menu()
         self._build_shortcuts()
+        self._build_status_activity()
         self._connect_scene_events()
 
         # Fuer die beiden Kurven-Graphen soll ein Rechtsklick "Exportieren"
@@ -292,6 +322,4 @@ class MainWindow(
         # dasselbe Format weiterverwenden).
         self._import_settings = self._load_import_settings()
         self._active_import_settings = self._import_settings
-
-        self.statusBar().showMessage("Bereit. Bitte Ordner oder Dateien laden (Datei-Menü oder Symbolleiste).")
 

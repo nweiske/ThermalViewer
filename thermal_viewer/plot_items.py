@@ -31,10 +31,43 @@ def _fraction_of(index: int, last_index: int) -> float:
     return max(0.0, min(1.0, index / last_index))
 
 
+def _reliable_svg_export(self, fileName=None, toBytes=False, copy=False):
+    """Ersatz fuer pg_exporters.SVGExporter.export (siehe _patch_pg_exporters
+    unten) -- eigene Modul-Funktion statt in _patch_pg_exporters verschachtelt,
+    da sie keine Variablen von dort erfasst (self ist ihr eigener erster
+    Parameter, wie bei jeder gebundenen Methode) und damit unabhaengig
+    lesbar/testbar bleibt."""
+    if fileName is None and not toBytes and not copy:
+        self.fileSaveDialog(filter="Scalable Vector Graphics (*.svg)")
+        return None
+    source_rect = self.getSourceRect()
+    target_rect = self.getTargetRect()
+    width = max(1, int(round(target_rect.width())))
+    height = max(1, int(round(target_rect.height())))
+    generator = QtSvg.QSvgGenerator()
+    generator.setSize(QtCore.QSize(width, height))
+    generator.setViewBox(QtCore.QRect(0, 0, width, height))
+    generator.setTitle("Thermo-Sequenz-Viewer Export")
+    buf = None
+    if toBytes:
+        buf = QtCore.QBuffer()
+        buf.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
+        generator.setOutputDevice(buf)
+    else:
+        generator.setFileName(fileName)
+    painter = QtGui.QPainter(generator)
+    self.render(painter, QtCore.QRectF(target_rect), source_rect)
+    painter.end()
+    if toBytes:
+        return bytes(buf.data())
+    return None
+
+
 def _patch_pg_exporters() -> None:
     """Entfernt den defekten/unerwuenschten "Matplotlib Window"-Export aus
     pyqtgraphs nativem Rechtsklick-Export-Menü und ersetzt den eigenen
-    SVG-Exporter durch eine zuverlaessigere QSvgGenerator-basierte Variante.
+    SVG-Exporter durch die obige, zuverlaessigere QSvgGenerator-basierte
+    Variante.
 
     pyqtgraphs eingebauter SVGExporter serialisiert Pfade per Hand in XML und
     wirft dabei bei unseren Kurven-Plots (Legende + Datumsachse) reproduzierbar
@@ -56,32 +89,6 @@ def _patch_pg_exporters() -> None:
         ]
     except AttributeError:
         pass
-
-    def _reliable_svg_export(self, fileName=None, toBytes=False, copy=False):
-        if fileName is None and not toBytes and not copy:
-            self.fileSaveDialog(filter="Scalable Vector Graphics (*.svg)")
-            return None
-        source_rect = self.getSourceRect()
-        target_rect = self.getTargetRect()
-        width = max(1, int(round(target_rect.width())))
-        height = max(1, int(round(target_rect.height())))
-        generator = QtSvg.QSvgGenerator()
-        generator.setSize(QtCore.QSize(width, height))
-        generator.setViewBox(QtCore.QRect(0, 0, width, height))
-        generator.setTitle("Thermo-Sequenz-Viewer Export")
-        buf = None
-        if toBytes:
-            buf = QtCore.QBuffer()
-            buf.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
-            generator.setOutputDevice(buf)
-        else:
-            generator.setFileName(fileName)
-        painter = QtGui.QPainter(generator)
-        self.render(painter, QtCore.QRectF(target_rect), source_rect)
-        painter.end()
-        if toBytes:
-            return bytes(buf.data())
-        return None
 
     try:
         pg_exporters.SVGExporter.export = _reliable_svg_export

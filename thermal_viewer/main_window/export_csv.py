@@ -20,12 +20,14 @@ class _CsvExportMixin:
             return
         placed_entries = [e for e in self.roi_entries if e.placed]
         live_available = self._hover_row is not None and self._hover_col is not None
-        if not placed_entries and not live_available:
+        shrinkage_available = self._shrinkage_result is not None
+        if not placed_entries and not live_available and not shrinkage_available:
             QtWidgets.QMessageBox.information(
                 self,
                 "Keine Daten",
                 "Es ist weder ein Messbereich platziert noch ein Live-Cursor-Pixel gewählt "
-                "(Maus über das Bild bewegen oder eine Stelle fixieren).",
+                "(Maus über das Bild bewegen oder eine Stelle fixieren) noch eine "
+                "Schwindungsmessung berechnet.",
             )
             return
 
@@ -46,7 +48,9 @@ class _CsvExportMixin:
         # immer mit dabei, damit sich ROI- und Live-Daten in EINER Datei
         # exportieren lassen, statt zwingend zwei separate Exporte zu
         # benoetigen.
+        live_index = None
         if live_available:
+            live_index = len(dialog_entries)
             k = float(self._live_cursor_kernel_size)
             k_mm = k * self._px_to_mm if self._px_to_mm is not None else None
             dialog_entries.append({
@@ -55,6 +59,28 @@ class _CsvExportMixin:
                 "height_px": k,
                 "width_mm": k_mm,
                 "height_mm": k_mm,
+            })
+        shrinkage_index = None
+        if shrinkage_available:
+            shrinkage_index = len(dialog_entries)
+            # width_px/height_px sind hier nur der informative Referenzwert
+            # (erstes Bild der Messung), KEINE echte feste Box wie bei
+            # ROIs/Live-Cursor -- der eigentliche Wert ist pro Bild
+            # unterschiedlich (das ist ja gerade der Messwert). Name/Einheit
+            # haengen von der gewaehlten Messart ab (siehe shrinkage_ops.py).
+            is_area = self._shrinkage_result["mode"] == "area"
+            key = "areas_px" if is_area else "widths_px"
+            ref_value_px = float(self._shrinkage_result[key][0])
+            scale = (self._px_to_mm ** 2 if is_area else self._px_to_mm) if self._px_to_mm is not None else None
+            ref_value_mm = ref_value_px * scale if scale is not None else None
+            unit_suffix = ("mm²" if is_area else "mm") if self._px_to_mm is not None else ("px²" if is_area else "px")
+            dialog_entries.append({
+                "name": "Schwindung (Fläche)" if is_area else "Schwindung (Breite)",
+                "width_px": ref_value_px,
+                "height_px": ref_value_px,
+                "width_mm": ref_value_mm,
+                "height_mm": ref_value_mm,
+                "unit_suffix": unit_suffix,
             })
         runtime_column_labels = {"hhmmss": "HH:MM:SS", "s": "s", "min": "min", "h": "h"}
         runtime_header = f"Laufzeit ({runtime_column_labels[self._runtime_unit]})"
@@ -94,12 +120,13 @@ class _CsvExportMixin:
         t0 = self.recording.timestamps[0]
         # dialog_entries/names/included sind alle in derselben Reihenfolge
         # aufgebaut (echte Messbereiche zuerst, optional gefolgt von der
-        # synthetischen Live-Cursor-Zeile) -- Index i identifiziert daher
-        # eindeutig, ob Spalte i aus einem echten ROI oder dem Live-Cursor
-        # stammt. Fuer den Live-Cursor kommen zusaetzlich seine (ueber die
-        # gesamte Aufnahme konstante) Pixel-Koordinaten als eigene Spalten
-        # dazu -- frueher nur im separaten "Live-Werte als CSV"-Export
-        # enthalten, jetzt Teil desselben einen Export-Fensters.
+        # synthetischen Live-Cursor-Zeile, optional gefolgt von der
+        # Schwindungsmessung) -- live_index/shrinkage_index identifizieren
+        # daher eindeutig, aus welcher der drei Quellen Spalte i stammt.
+        # Fuer den Live-Cursor kommen zusaetzlich seine (ueber die gesamte
+        # Aufnahme konstante) Pixel-Koordinaten als eigene Spalten dazu --
+        # frueher nur im separaten "Live-Werte als CSV"-Export enthalten,
+        # jetzt Teil desselben einen Export-Fensters.
         header = ["Zeitstempel", runtime_header]
         if include_extra_runtime:
             header.append(extra_runtime_header)
@@ -107,13 +134,20 @@ class _CsvExportMixin:
         for i, (name, inc) in enumerate(zip_strict(names, included)):
             if not inc:
                 continue
-            is_live = i >= len(placed_entries)
-            if is_live:
+            if i == live_index:
                 header.extend(["Live X-Achse", "Live Y-Achse"])
-            header.append(name)
-            if is_live:
+                header.append(name)
                 y = self._live_cursor_series(self._hover_row, self._hover_col)
+            elif i == shrinkage_index:
+                header.append(name)
+                # Wie bei ROIs/Live-Cursor die VOLLE, ungekuerzte Reihe --
+                # areas_px/widths_px sind bereits ueber alle Frames (0..n-1)
+                # berechnet, das Ausblenden erledigt die Zeilen-Schleife
+                # unten selbst.
+                shrinkage_key = "areas_px" if self._shrinkage_result["mode"] == "area" else "widths_px"
+                y = self._shrinkage_result[shrinkage_key]
             else:
+                header.append(name)
                 # NICHT curve.getData(): die angezeigte Kurve laesst von der
                 # Rohdaten-Bereinigung ausgeblendete Bilder bereits weg (siehe
                 # _recompute_curves) und waere dadurch kuerzer als
@@ -152,7 +186,7 @@ class _CsvExportMixin:
                 divisor = _RUNTIME_UNIT_DIVISORS[extra_runtime_unit]
                 row.append(round(max(0.0, elapsed) / divisor, 3))
             for entry_idx, y in value_arrays:
-                if entry_idx >= len(placed_entries):
+                if entry_idx == live_index:
                     row.extend([self._hover_col, self._hover_row])
                 row.append(round(float(y[i]), 3))
             rows.append(row)

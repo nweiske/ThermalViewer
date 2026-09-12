@@ -20,6 +20,9 @@ from .constants import (
 class _RoiMixin:
     def _on_add_roi_clicked(self) -> None:
         self._add_roi_entry()
+        # Ebenen-Tabs (Nutzerwunsch): "+ Messbereich" springt automatisch auf
+        # die passende Ebene (siehe layer_tabs_ops.py).
+        self._set_active_layer_tab("roi")
 
     def _on_roi_remove_clicked(self, entry: RoiEntry) -> None:
         answer = QtWidgets.QMessageBox.question(

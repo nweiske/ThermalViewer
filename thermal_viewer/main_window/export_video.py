@@ -51,6 +51,7 @@ class _VideoExportMixin:
             settings=self._settings,
             ruler_available=self._px_to_mm is not None,
             measurement_entries=[(e.number, e.name) for e in self.measurements],
+            has_excluded_frames=bool(self._excluded_frame_indices),
         )
         # Schleife statt einmaligem exec() (Punkt 3): bricht der Nutzer den
         # NACHFOLGENDEN Datei-/Ordner-Dialog ab (z.B. weil ihm ein Fehler im
@@ -81,6 +82,7 @@ class _VideoExportMixin:
             use_custom = dialog.use_custom_settings()
             overlay_mode = dialog.timeline_overlay_mode()
             include_cursor = dialog.export_cursor_position()
+            freeze_excluded_pixels = dialog.freeze_excluded_frame_pixels()
             include_scale_ruler = dialog.include_scale_ruler()
             selected_scale_numbers = dialog.included_scale_measurement_numbers()
             graph_widget = None
@@ -194,11 +196,52 @@ class _VideoExportMixin:
         prev_level_state = self._capture_level_widgets_state()
 
         # Von der Rohdaten-Bereinigung ausgeblendete Bilder (siehe
-        # data_cleaning_ops.py) werden NICHT mit exportiert -- sie bleiben in
-        # self.recording unveraendert (samt Zeitstempel) und lassen sich dort
-        # jederzeit wieder einblenden, sollen aber wie in den Kurven auch im
-        # Export/in der Wiedergabe uebersprungen werden.
-        frame_indices = [i for i in range(start_idx, end_idx + 1) if i not in self._excluded_frame_indices]
+        # data_cleaning_ops.py) werden im Regelfall NICHT mit exportiert --
+        # sie bleiben in self.recording unveraendert (samt Zeitstempel) und
+        # lassen sich dort jederzeit wieder einblenden, sollen aber wie in
+        # den Kurven auch im Export/in der Wiedergabe uebersprungen werden.
+        # Punkt 4 (Nutzerwunsch, NUR Video-Export): mit aktivierter
+        # "Lücke füllen"-Option (freeze_excluded_pixels) bleibt JEDER Index
+        # im Bereich erhalten (Frame-Anzahl/Zeitstempel im Video bleiben
+        # dadurch unveraendert) -- pixel_source_for liefert stattdessen pro
+        # ausgeblendetem Index den zuletzt SICHTBAREN Index, dessen Bilddaten
+        # angezeigt werden sollen (Fallback vorwaerts, falls die Aufnahme mit
+        # ausgeblendeten Bildern beginnt).
+        pixel_source_for: dict[int, int] = {}
+        if freeze_excluded_pixels:
+            frame_indices = list(range(start_idx, end_idx + 1))
+            # Sucht rueckwaerts UEBER DIE GESAMTE AUFNAHME (nicht nur
+            # innerhalb des Exportbereichs) nach dem letzten sichtbaren Bild
+            # VOR dem Bereich -- ohne diesen Seed wuerden ausgeblendete
+            # Bilder ganz am ANFANG des Exportbereichs (oder ein komplett
+            # ausgeblendeter Exportbereich, dessen sichtbare Nachbar-Bilder
+            # ausserhalb liegen) mangels "vorherigem" Bild innerhalb des
+            # Bereichs unaufgeloest bleiben und faelschlich ihre EIGENEN
+            # (eigentlich ausgeblendeten) Pixel zeigen wuerden.
+            last_visible = None
+            if start_idx > 0:
+                seed = self._skip_excluded_frame_index(start_idx - 1, -1)
+                if seed not in self._excluded_frame_indices:
+                    last_visible = seed
+            pending: list[int] = []  # ausgeblendete Indizes ohne bisher bekanntes vorheriges Bild
+            for i in frame_indices:
+                if i not in self._excluded_frame_indices:
+                    last_visible = i
+                    for p in pending:
+                        pixel_source_for[p] = i  # kein vorheriges sichtbares Bild -> naechstes danach
+                    pending = []
+                elif last_visible is not None:
+                    pixel_source_for[i] = last_visible
+                else:
+                    pending.append(i)
+            # pending bleibt nur dann unaufgeloest, wenn WEDER vor noch
+            # innerhalb des Exportbereichs irgendein sichtbares Bild
+            # existiert (sichtbare Bilder liegen dann ausschliesslich NACH
+            # dem Bereich) -- dann zeigt der Aufrufer (siehe unten) mangels
+            # sinnvollem Ersatz die eigenen (ausgeblendeten) Pixel dieses
+            # Frames.
+        else:
+            frame_indices = [i for i in range(start_idx, end_idx + 1) if i not in self._excluded_frame_indices]
         if not frame_indices:
             QtWidgets.QMessageBox.information(
                 self, "Keine Bilder",
@@ -290,7 +333,11 @@ class _VideoExportMixin:
                 # _render_video_frame fuer den Grund (sonst leicht
                 # unterschiedliche Bildgroessen zwischen Frames bei
                 # automatischer Farbskalierung).
-                self._show_frame(frame_indices[0])
+                first_idx = frame_indices[0]
+                if first_idx in pixel_source_for:
+                    self._show_frame(first_idx, pixel_source_for[first_idx])
+                else:
+                    self._show_frame(first_idx)
                 segments = self._tight_glw_segments()
                 if output_mode == "video":
                     with imageio.get_writer(path, **video_writer_kwargs) as writer:
@@ -298,7 +345,14 @@ class _VideoExportMixin:
                             if progress.wasCanceled():
                                 cancelled = True
                                 break
-                            self._show_frame(idx)
+                            # Nur bei tatsaechlicher Ersatz-Pixelquelle (Punkt 4,
+                            # "Lücke füllen") den zweiten Parameter mitgeben --
+                            # der weitaus haeufigere Normalfall (kein Ausschluss)
+                            # bleibt bewusst der bisherige Ein-Parameter-Aufruf.
+                            if idx in pixel_source_for:
+                                self._show_frame(idx, pixel_source_for[idx])
+                            else:
+                                self._show_frame(idx)
                             image = self._render_video_frame(
                                 scale, bg, overlay_mode, idx, frame_indices, unix, segments,
                                 graph_widget, graph_position, foreground=fg, graph_background=graph_bg,

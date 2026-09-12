@@ -57,6 +57,29 @@ DEFAULT_FILENAME_TEMPLATE = "Record_YYYY-MM-DD_hh-mm-ss"
 _FILENAME_TOKEN_CHARS = frozenset("YMDhms")
 
 
+def _solve_token_run(
+    pos: int, run: str, tokens_longest_first: list[str], memo: dict[int, list[str] | None],
+) -> list[str] | None:
+    """Rekursiver, memoisierter Backtracking-Schritt fuer _decompose_token_run
+    unten -- eigene Modul-Funktion statt dort verschachtelt, damit sie wie
+    die uebrigen Bausteine dieser Datei unabhaengig lesbar/testbar bleibt.
+    memo/tokens_longest_first werden je Aufruf von _decompose_token_run neu
+    angelegt bzw. berechnet, sind also NIE ueber mehrere runs hinweg
+    gueltig/geteilt."""
+    if pos == len(run):
+        return []
+    if pos in memo:
+        return memo[pos]
+    for tok in tokens_longest_first:
+        if run.startswith(tok, pos):
+            rest = _solve_token_run(pos + len(tok), run, tokens_longest_first, memo)
+            if rest is not None:
+                memo[pos] = [tok] + rest
+                return memo[pos]
+    memo[pos] = None
+    return None
+
+
 def _decompose_token_run(run: str) -> list[str] | None:
     """Zerlegt einen Lauf aus reinen Platzhalter-Buchstaben (Y/M/D/H/m/s)
     per Backtracking (laengste Tokens zuerst probiert) VOLLSTAENDIG in eine
@@ -65,22 +88,17 @@ def _decompose_token_run(run: str) -> list[str] | None:
     nicht restlos zerlegen laesst (z.B. "MMM" oder "MD")."""
     tokens_longest_first = sorted(FILENAME_TEMPLATE_TOKENS, key=len, reverse=True)
     memo: dict[int, list[str] | None] = {}
+    return _solve_token_run(0, run, tokens_longest_first, memo)
 
-    def solve(pos: int) -> list[str] | None:
-        if pos == len(run):
-            return []
-        if pos in memo:
-            return memo[pos]
-        for tok in tokens_longest_first:
-            if run.startswith(tok, pos):
-                rest = solve(pos + len(tok))
-                if rest is not None:
-                    memo[pos] = [tok] + rest
-                    return memo[pos]
-        memo[pos] = None
-        return None
 
-    return solve(0)
+def _flush_literal_buffer(pieces: list[tuple[str, str]], literal_buf: list[str]) -> None:
+    """Haengt den gesammelten literalen Text (falls vorhanden) als ein Stueck
+    an pieces an und leert literal_buf -- eigene Modul-Funktion statt in
+    _tokenize_filename_template verschachtelt (siehe _solve_token_run oben);
+    mutiert pieces/literal_buf in place, braucht daher keinen Rueckgabewert."""
+    if literal_buf:
+        pieces.append(("literal", "".join(literal_buf)))
+        literal_buf.clear()
 
 
 def _tokenize_filename_template(template: str) -> list[tuple[str, str]]:
@@ -104,11 +122,6 @@ def _tokenize_filename_template(template: str) -> list[tuple[str, str]]:
     n = len(template)
     i = 0
 
-    def flush_literal() -> None:
-        if literal_buf:
-            pieces.append(("literal", "".join(literal_buf)))
-            literal_buf.clear()
-
     while i < n:
         ch = template[i]
         if ch in _FILENAME_TOKEN_CHARS:
@@ -120,7 +133,7 @@ def _tokenize_filename_template(template: str) -> list[tuple[str, str]]:
             before_ok = i == 0 or not template[i - 1].isalpha()
             after_ok = j == n or not template[j].isalpha()
             if decomposition is not None and before_ok and after_ok:
-                flush_literal()
+                _flush_literal_buffer(pieces, literal_buf)
                 pieces.extend(("token", tok) for tok in decomposition)
             else:
                 literal_buf.append(run)
@@ -128,7 +141,7 @@ def _tokenize_filename_template(template: str) -> list[tuple[str, str]]:
         else:
             literal_buf.append(ch)
             i += 1
-    flush_literal()
+    _flush_literal_buffer(pieces, literal_buf)
     return pieces
 
 

@@ -32,6 +32,7 @@ class _MeasurementMixin:
             self._cancel_measurement_tool()
         if self._cleaning_pick_armed:
             self._cancel_cleaning_point_pick()
+        self._set_active_layer_tab("scale")
         self._ruler_armed = True
         self._ruler_start = None
         # Eine evtl. noch von der letzten Messung angezeigte, gueltige Linie/
@@ -171,7 +172,7 @@ class _MeasurementMixin:
         self._ruler_preview_marker.setVisible(False)
         self._ruler_label_offset = None  # neue Linie -> Beschriftung startet wieder am Mittelpunkt
         self._create_or_move_ruler_line(start, end)
-        self._ruler_line.setVisible(self._scale_visuals_visible)
+        self._ruler_line.setVisible(self._scale_visuals_visible and self._is_layer_tab_active("scale"))
         self._px_to_mm = mm_value / pixel_distance
         self._ruler_mm_value = mm_value
         self._update_ruler_text_position()
@@ -310,6 +311,7 @@ class _MeasurementMixin:
             self._cancel_ruler_tool()
         if self._cleaning_pick_armed:
             self._cancel_cleaning_point_pick()
+        self._set_active_layer_tab("scale")
         self._measurement_armed = True
         self._measurement_start = None
         self.statusBar().showMessage("Neue Messung: Startpunkt der Strecke im Bild anklicken.")
@@ -390,7 +392,7 @@ class _MeasurementMixin:
         color = roi_color_for_number(number)
         entry = MeasurementEntry(number, color, self.view_box, start, end, self._on_measurement_label_moved)
         entry.line.sigRegionChangeFinished.connect(partial(self._on_measurement_line_dragged, entry))
-        entry.line.setVisible(self._scale_visuals_visible)
+        entry.line.setVisible(self._scale_visuals_visible and self._is_layer_tab_active("scale"))
         entry.mm_value = pixel_distance * self._px_to_mm
         entry.update_text_position()
         self.measurements.append(entry)
@@ -486,10 +488,19 @@ class _MeasurementMixin:
         bleibt unabhängig von dieser Checkbox versteckt, statt mit veralteten
         Bild-Koordinaten der vorherigen Aufnahme wieder aufzutauchen."""
         self._scale_visuals_visible = checked
+        self._apply_scale_visuals_visibility()
+
+    def _apply_scale_visuals_visibility(self) -> None:
+        """Wendet self._scale_visuals_visible ("Anzeigen"-Checkbox) UND-
+        verknuepft mit dem aktiven Ebenen-Tab (layer_tabs_ops.py) auf Maßstab-
+        Linie und alle Messungen an -- eigene Methode, damit sowohl die
+        Checkbox selbst (_on_toggle_scale_visuals) als auch ein Tab-Wechsel
+        (_apply_layer_tab_visibility) dieselbe Sichtbarkeits-Logik nutzen."""
+        effective = self._scale_visuals_visible and self._is_layer_tab_active("scale")
         if self._ruler_line is not None and self._ruler_mm_value is not None:
-            self._ruler_line.setVisible(checked)
+            self._ruler_line.setVisible(effective)
             self._update_ruler_text_position()
         for entry in self.measurements:
-            entry.line.setVisible(checked)
+            entry.line.setVisible(effective)
             entry.update_text_position()
 

@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-09-10
+Stand: 2026-09-12
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
@@ -31,6 +31,8 @@ INHALT
 15. Technische Details zum Dateiformat
 16. TIFF-Bilder importieren
 17. Rohdaten säubern (Ausreißer-Bilder erkennen/ausblenden)
+18. Schwindungsmessung (experimentell)
+19. Ebenen-Tabs (Bereiche über dem Thermobild ein-/ausblenden)
 
 
 ================================================================
@@ -229,6 +231,11 @@ sonst fragt eine Dateiauswahl danach.
 
 Im linken, zentralen Bereich wird der aktuelle Frame als Falschfarben-
 bild dargestellt. Rechts daneben liegt die Legende (Farbskala).
+
+Direkt OBERHALB des Bildes liegen fünf Registerkarten ("Ebenen-Tabs":
+Alle / Bereinigung / Temperatur-Messung / Schwindungsmessung / Maßstab) --
+siehe Abschnitt 19 für Details, wie sie helfen, das Bild bei vielen
+gleichzeitig genutzten Werkzeugen übersichtlich zu halten.
 
 Das Bild selbst laesst sich absichtlich NICHT mit der Maus verschieben
 oder zoomen - alle relevanten Messdaten befinden sich immer vollstaendig
@@ -597,6 +604,13 @@ Panel, sondern als eigenes Menue oben.
 Bei nur sehr wenigen Frames (z.B. nur 1-2) werden zusaetzlich kleine
 Punktmarker auf den Kurven angezeigt, da eine Linie erst ab zwei
 Punkten sichtbar waere.
+
+KOORDINATENANZEIGE BEIM HOVERN: solange die Maus ueber einem der beiden
+Graphen (Zeitverlauf oder Live) steht, zeigt eine kleine Einblendung unten
+rechts im Graphen die genaue Position unter dem Mauszeiger an -- Zeit
+(passend zur aktuell gewaehlten Uhrzeit-/Laufzeit-Anzeige, siehe unten)
+und Temperatur in °C. Verschwindet automatisch, sobald die Maus den
+Graphen wieder verlaesst.
 
 Unten rechts am Graphen laesst sich per Dropdown "Zeitachse" zwischen
 "Uhrzeit" (echtes Datum/Uhrzeit, Standard) und "Laufzeit" (relative Zeit
@@ -1111,9 +1125,11 @@ mit den Rohdaten wieder oeffnet:
                               Messungen (Abschnitt 11), Auswertungs-
                               start/-ende, die Rohdaten-Bereinigung
                               (Referenzpunkte, Schwellenwert und
-                              ausgeblendete Bilder, siehe Abschnitt 17)
-                              UND den Quellordner der Messreihe in eine
-                              Datei mit Endung ".tvproj" -- damit gibt
+                              ausgeblendete Bilder, siehe Abschnitt 17),
+                              die Schwindungsmessung (Boxen, Messart,
+                              Schwellenwert, Startbild, siehe Abschnitt
+                              18) UND den Quellordner der Messreihe in
+                              eine Datei mit Endung ".tvproj" -- damit gibt
                               "Projekt speichern/laden" den vollstaen-
                               digen Auswertungs-Zustand wieder, nicht
                               nur die Messbereiche.
@@ -1328,7 +1344,12 @@ Ablauf:
      Temperaturänderung zuverlässig auf eine Störung hindeutet (z.B. ein
      Bereich, der sich unter normalen Umständen kaum verändert). Beliebig
      viele Punkte möglich (nummerierte gelbe Kreuze im Bild), einzeln über
-     die Liste wieder entfernbar.
+     die Liste wieder entfernbar. Ein Punkt lässt sich jederzeit direkt im
+     Bild per Maus an eine andere Stelle ZIEHEN (Kreuz anfassen und
+     verschieben) -- die Erkennung berücksichtigt danach automatisch die
+     neue Position. Auswahl eines Punkts in der Liste hebt ihn im Bild
+     hervor (alle anderen Punkte treten zurück), erleichtert das Zuordnen
+     bei mehreren nah beieinander liegenden Punkten.
   2. Mittelungsbereich je Punkt wählen (Standard: 3×3 Pixel): statt nur des
      einen exakt angeklickten Pixels wird der Mittelwert über die gewählte
      Fläche um den Punkt herum betrachtet -- macht die Erkennung robuster
@@ -1340,28 +1361,37 @@ Ablauf:
   3. Schwellenwert (°C) eingeben: wie groß die Temperaturänderung zum
      JEWEILS VORHERIGEN Bild an einem Punkt (bzw. dessen Mittelungsbereich)
      mindestens sein muss, um als Störung zu zählen.
-  4. Ein Bild gilt nur dann als Ausreißer, wenn AN JEDEM markierten Punkt
-     gleichzeitig der Schwellenwert überschritten wird -- eine Störung nur
-     an einem einzelnen Punkt (z.B. lokale Reflexion) reicht absichtlich
-     NICHT aus, das macht die Erkennung robuster gegen falschen Alarm.
+  4. Verknüpfung mehrerer Punkte wählen: "Alle Punkte (UND)" (Standard) --
+     ein Bild gilt nur als Ausreißer, wenn AN JEDEM markierten Punkt
+     gleichzeitig der Schwellenwert überschritten wird, eine Störung nur an
+     einem einzelnen Punkt reicht dann NICHT aus. "Mindestens ein Punkt
+     (ODER)" markiert ein Bild schon, wenn EIN EINZIGER Punkt anschlägt --
+     sinnvoll, wenn Störungen typischerweise nur lokal an irgendeiner
+     Stelle im Bild auftreten statt gleichzeitig überall.
   5. Die Liste unten zeigt automatisch alle betroffenen Bilder (Nummer,
-     Zeitstempel) als angehakte Checkboxen -- einzelne Haken lassen sich
-     vor dem Anwenden wieder entfernen, um ein bestimmtes Bild doch zu
-     behalten. Bereits zuvor ausgeblendete Bilder erscheinen ebenfalls
-     hier (Kennzeichnung "bereits ausgeblendet") und lassen sich durch
-     Abhaken wieder einblenden.
-  6. "Anwenden" übernimmt die angehakten Bilder als neue Ausblende-Auswahl.
+     Zeitstempel) als angehakte Checkboxen. JEDER Haken wirkt SOFORT --
+     Thermobild, Kurven und Status aktualisieren sich augenblicklich, ein
+     separater "Anwenden"-Knopf ist nicht mehr nötig. Bereits zuvor
+     ausgeblendete Bilder erscheinen ebenfalls hier (Kennzeichnung "bereits
+     ausgeblendet") und lassen sich durch Abhaken wieder einblenden.
+  6. Ein beliebiges Bild OHNE automatische Erkennung von Hand ausblenden:
+     unten im Fenster die gewünschte Bildnummer eintragen und "Bild
+     ausblenden" klicken -- wirkt ebenfalls sofort und erscheint danach in
+     der Liste (wieder einblendbar durch Abhaken).
 
 HINWEIS: Ein einzelnes, kurz aufblitzendes Störbild erzeugt naturgemäß
 sowohl beim Übergang HINEIN als auch beim Übergang ZURÜCK (zum jeweils
 nächsten Bild) eine große Temperaturänderung -- es werden also típischer-
-weise BEIDE angrenzenden Bilder vorgeschlagen. Vor dem Anwenden prüfen
-und bei Bedarf einzeln abhaken.
+weise BEIDE angrenzenden Bilder vorgeschlagen. Vor dem Abhaken prüfen und
+bei Bedarf einzeln wieder einblenden.
 
-Ein ausgeblendetes Bild lässt sich weiterhin gezielt ansteuern (Schiebe-
-regler/Zahlenfeld), nur die automatische Wiedergabe (Play) und die
-Einzelschritt-Tasten überspringen es. Die Statuszeile zeigt bei einem
-gerade angezeigten, ausgeblendeten Bild einen Warnhinweis.
+Ein ausgeblendetes Bild ist GARANTIERT aus der gesamten Auswertung
+verschwunden -- Thermobild-Anzeige (Schieberegler, Zahlenfeld, Sprung zu
+Start/Ende, automatische Wiedergabe, Einzelschritt), Kurven UND alle
+Exporte (Grafik/Werte, Video/Bildstapel) lassen es konsequent aus, bis es
+gezielt über die Checkbox-Liste oben wieder abgehakt wird. Frame-Indizes
+und Zeitstempel der ÜBRIGEN Bilder verschieben sich dabei nie -- kein Bild
+wird umnummeriert, nur ausgeblendete Bilder werden übersprungen.
 
 Wird eine WEITERE Messreihe geladen, werden alle markierten Punkte UND
 alle Ausblendungen verworfen (siehe Abschnitt 3) -- sie bezogen sich auf
@@ -1369,9 +1399,177 @@ Pixelkoordinaten/Bildanzahl der ALTEN Messreihe. Vorher erscheint dazu
 eine Rückfrage mit der Möglichkeit, die aktuelle Auswertung als Projekt
 zu speichern.
 
-Referenzpunkte, Mittelungsbereich, Schwellenwert UND die aktuelle
-Ausblende-Auswahl werden beim "Projekt speichern…" mit gespeichert und bei
-"Projekt laden…" wiederhergestellt (siehe Abschnitt 12) -- ein gespeichertes
-Projekt gibt damit den vollständigen Auswertungs-Zustand wieder, nicht nur
-die Messbereiche. Die Checkbox "Bereich im Bild anzeigen" ist eine reine
-Anzeige-Einstellung und wird NICHT mitgespeichert.
+Referenzpunkte, Mittelungsbereich, Schwellenwert, UND/ODER-Verknüpfung
+UND die aktuelle Ausblende-Auswahl werden beim "Projekt speichern…" mit
+gespeichert und bei "Projekt laden…" wiederhergestellt (siehe Abschnitt
+12) -- ein gespeichertes Projekt gibt damit den vollständigen Auswertungs-
+Zustand wieder, nicht nur die Messbereiche. Die Checkbox "Bereich im Bild
+anzeigen" ist eine reine Anzeige-Einstellung und wird NICHT mitgespeichert.
+
+Video-Export -- Lücke statt Auslassen füllen: standardmäßig lässt der
+Video-Export (Abschnitt 10) ausgeblendete Bilder komplett aus (kürzeres
+Video). Sind Bilder ausgeblendet, bietet der Video-Export-Dialog
+zusätzlich die Option "Ausgeblendete Bilder durch das vorherige Bild
+ersetzen (statt Lücke zu überspringen)" -- damit bleibt die Gesamtzahl der
+Frames im Video unverändert (jedes ausgeblendete Bild zeigt stattdessen
+den Bildinhalt des vorherigen, sichtbaren Bildes, behält aber seinen
+EIGENEN echten Zeitstempel im Overlay). Gilt nur für den Video-Export,
+nicht für den Bildstapel (dort werden ausgeblendete Bilder weiterhin immer
+ausgelassen).
+
+
+18. SCHWINDUNGSMESSUNG (EXPERIMENTELL)
+================================================================
+
+ACHTUNG -- EXPERIMENTELLE FUNKTION: typische Schwindungswerte liegen laut
+Erfahrung aus anderen Messungen bei unter 10%, häufig sogar unter 1%. Ob
+sich das bei der jeweiligen Kamera-Auflösung überhaupt zuverlässig messen
+lässt, ist offen -- dieses Werkzeug ist ein erster, bewusst einfach
+gehaltener Versuch dazu, kein ausgereiftes Präzisionsinstrument.
+
+Automatische Schwindungsmessung einer Probe über die Zeit -- im rechten
+Panel unter "Schwindungsmessung (experimentell)". Zwei UNABHÄNGIGE,
+gegenseitig exklusive Messarten (wie beim Maßstab-Werkzeug immer nur EIN
+aktives Ergebnis gleichzeitig -- Umschalten verwirft ein vorhandenes
+Ergebnis der jeweils anderen Messart):
+
+  - "Breite": per Kantenverfolgung, zwei Flanken-Boxen (siehe unten).
+  - "Fläche": EIN Bereich, Kontur wird je Bild gezählt (siehe weiter unten).
+    Anders als die Breite von Haus aus geometrieunabhängig (funktioniert
+    gleichermaßen für eckige wie runde Proben), da nicht an einzelnen
+    Kanten, sondern über die ganze segmentierte Fläche gemessen wird.
+    Fachlich ist das eine verwandte, aber andere Kenngröße als die Breite:
+    bei gleichmäßiger (isotroper) Schrumpfung gilt näherungsweise
+    Flächen-Schwindung ≈ 2 × Breiten-Schwindung (Fläche skaliert mit
+    Länge²) -- bei ungleichmäßiger Schrumpfung können beide unterschiedliche
+    Bilder zeigen.
+
+  1. "Aktivieren" ankreuzen -- blendet die zur aktuell gewählten Messart
+     passenden Bereiche im Thermobild ein.
+  2. Messart wählen ("Breite" oder "Fläche").
+  3. Schwellenwert (°C) und Richtung ("Probe wärmer/kälter als
+     Hintergrund") passend zur eigenen Messung einstellen -- gilt für
+     BEIDE Messarten: die Kante bzw. der zur Probe gehörende Bereich wird
+     dort erkannt, wo die Temperatur über (bzw. unter) diesen Wert liegt.
+
+BREITE (zwei Flanken-Boxen, mit Kantenverfolgung):
+
+  4. Blendet drei Bereiche ein: gelb (linke Flanke der Probe), blau
+     (rechte Flanke) und ein gestrichelter, rein zur groben Orientierung
+     dienender Rahmen (fließt NICHT in die Berechnung ein). Alle drei
+     Bereiche lassen sich direkt im Bild an den Eckgriffen ziehen/
+     skalieren (wie ein Messbereich). Die gelbe und blaue Box jeweils so
+     über die tatsächliche Kante der Probe ziehen, dass beide Seiten
+     (Untergrund UND ein Stück der Probe selbst) mit drin liegen.
+  5. Probengeometrie wählen -- die Breitenmessung IST geometrieabhängig:
+     "quaderförmig/rechteckig" (Standard) nimmt je Box den Median der
+     Kantenspalte über die Boxzeilen, was bei geraden, parallelen Kanten
+     die richtige Breite liefert. Bei einer runden/zylindrischen Probe
+     wölbt sich die Kontur zur Bildmitte hin -- dort würde derselbe Median
+     die Breite unterschätzen, deshalb sucht "rund/zylindrisch"
+     stattdessen die breiteste Stelle (den "Äquator") innerhalb der sich
+     überlappenden Zeilen beider Boxen. Ein echt geometrieunabhängiger
+     Algorithmus ist mit zwei einfachen Flanken-Boxen nicht zuverlässig
+     möglich, daher diese zwei wählbaren Fälle statt eines "universellen"
+     (siehe stattdessen ggf. die Messart "Fläche" oben).
+  6. Bei dem Bild, ab dem die Verfolgung beginnen soll, "Startbild für
+     Konturerkennung festlegen" klicken -- muss NICHT das erste Bild der
+     Aufnahme sein.
+  7. "Berechnen" klickt sich von dort aus durch ALLE Bilder (vorwärts UND
+     rückwärts ab dem Startbild): die beiden Such-Bereiche wandern dabei
+     automatisch mit der zuletzt gefundenen Kante mit, folgen also einer
+     wandernden/schrumpfenden Probe. Wird an einer Stelle keine Kante
+     gefunden (z.B. zu wenig Kontrast), bleibt dort der zuletzt erkannte
+     Wert stehen, statt die Messung abzubrechen. Ergebnis erscheint als
+     eigene Kurve "Schwindung (Breite)" im Zeitverlauf-Graphen (in mm,
+     falls ein Maßstab definiert ist, siehe Abschnitt 11 -- sonst in
+     Pixel) sowie als kurze Zusammenfassung (Breite erstes/letztes Bild,
+     Schwindung in %) unter dem Knopf.
+
+FLÄCHE (ein Bereich, Kontur wird gezählt, kein Startbild nötig):
+
+  4. Blendet EINEN (grünen) Bereich im Thermobild ein -- diesen über die
+     GESAMTE Probe (mit etwas Rand) ziehen. Anders als bei der Breite wird
+     dieser Bereich NICHT nachgeführt: er muss die Probe über die gesamte
+     Aufnahme hinweg umschließen (unkritisch, da die Probe laut Aufgabe
+     nur schrumpft, nicht wächst).
+  5. "Berechnen" wertet JEDES Bild unabhängig aus (kein Startbild, keine
+     Verfolgung nötig): gezählt wird die Pixelzahl innerhalb des Bereichs,
+     die über- (bzw. unterhalb) des Schwellenwerts liegt. Ergebnis
+     erscheint als eigene Kurve "Schwindung (Fläche)" im Zeitverlauf-
+     Graphen (in mm², falls ein Maßstab definiert ist -- sonst in Pixel²)
+     sowie als kurze Zusammenfassung unter dem Knopf.
+
+Von der Rohdaten-Bereinigung (Abschnitt 17) ausgeblendete Bilder fehlen
+in beiden Kurven. Bei der Breitenmessung werden sie zusätzlich von der
+Kantenverfolgung selbst übersprungen (die Such-Boxen wandern also NICHT
+anhand eines ausgeblendeten, typischerweise gestörten Bildes weiter) --
+so kann eine einzelne Störung nicht die Erkennung aller nachfolgenden,
+eigentlich guten Bilder verfälschen. Wird eine WEITERE Messreihe geladen,
+werden Boxen,
+Startbild und Ergebnis verworfen (wie bei Messbereichen/Bereinigung,
+siehe Abschnitt 3) und die Boxen neu (Standardposition) platziert -- die
+gewählte Messart selbst bleibt (wie Schwellenwert/Richtung) erhalten.
+
+Boxen-Position, Messart, Schwellenwert, Richtung, Probengeometrie,
+Startbild UND der Aktivieren-Haken werden beim "Projekt speichern…" mit
+gespeichert und bei "Projekt laden…" wiederhergestellt (siehe Abschnitt
+12) -- das eigentliche Ergebnis (die Kurve) selbst wird dabei nicht als
+Rohwerte abgelegt, sondern aus diesen wiederhergestellten Einstellungen
+automatisch neu berechnet.
+
+Nach einer berechneten Messung steht der Wert auch im Werte-Export
+(Abschnitt 9, "Werte exportieren...") als zusätzliche, wählbare Spalte
+zur Verfügung -- "Schwindung (Breite)" bzw. "Schwindung (Fläche)", je
+nach zuletzt berechneter Messart (in mm/mm² bzw. px/px², wie in der
+Kurve) -- auch dann, wenn kein Messbereich platziert oder Live-Cursor-
+Pixel gewählt ist.
+
+
+19. EBENEN-TABS (BEREICHE ÜBER DEM THERMOBILD EIN-/AUSBLENDEN)
+================================================================
+
+Je mehr Werkzeuge gleichzeitig genutzt werden (Messbereiche, Bereinigungs-
+Referenzpunkte, Schwindungsmessung, Maßstab/Messungen), desto voller wird
+das Thermobild. Fünf Registerkarten direkt OBERHALB des Thermobilds lösen
+das: "Alle" / "Bereinigung" / "Temperatur-Messung" / "Schwindungsmessung" /
+"Maßstab".
+
+Eine aktive Ebene (z.B. "Temperatur-Messung") blendet NUR die dazu
+gehörigen Bereiche im Bild UND den passenden Abschnitt im rechten Panel
+ein -- alle anderen Werkzeuge verschwinden vorübergehend aus dem Weg,
+bleiben aber unverändert bestehen (nichts wird gelöscht oder zurück-
+gesetzt, nur ausgeblendet). "Alle" zeigt -- wie das bisherige Verhalten --
+wieder alles gleichzeitig.
+
+Zuordnung:
+
+  - "Bereinigung": die Referenzpunkte im Bild UND der (weiterhin
+    eigenständige) Bereinigungs-Dialog (Abschnitt 17) -- der Dialog öffnet
+    sich automatisch mit diesem Tab und verschwindet wieder, sobald ein
+    anderer Tab gewählt wird. Schließt man den Dialog von Hand, springt
+    die Tab-Auswahl automatisch zurück auf "Alle".
+  - "Temperatur-Messung": alle Messbereiche (ROIs) im Bild sowie die
+    ROI-Liste samt Details im rechten Panel (Abschnitt 6).
+  - "Schwindungsmessung": die Boxen der Schwindungsmessung im Bild sowie
+    deren Panel-Abschnitt (Abschnitt 18) -- wirkt zusätzlich zur
+    "Aktivieren"-Checkbox dort (beides muss gleichzeitig zutreffen, damit
+    die Boxen sichtbar sind).
+  - "Maßstab": die Maßstab-Linie und alle Freihand-Messungen im Bild sowie
+    deren Panel-Abschnitt (Abschnitt 11) -- wirkt zusätzlich zur
+    "Anzeigen"-Checkbox dort.
+
+Die "Legende" (Farbverlauf/Level-Modus, Abschnitt 7) bleibt auf JEDEM Tab
+sichtbar, da sie die Bilddarstellung selbst betrifft, nicht ein einzelnes
+Mess-Werkzeug. Der Zeitverlauf-Graph (Abschnitt 8) bleibt ebenfalls
+unverändert und zeigt immer alle Kurven, unabhängig vom gewählten Tab.
+
+AUTOMATISCHES UMSCHALTEN: wird ein Werkzeug über seinen eigenen Knopf
+gestartet, springt die Tab-Auswahl von selbst dorthin -- "+ Messbereich"
+wechselt auf "Temperatur-Messung", die "Aktivieren"-Checkbox der
+Schwindungsmessung auf "Schwindungsmessung" (nur beim Anschalten, nicht
+beim Abschalten), "Festlegen…"/"Neue Messung" auf "Maßstab", und
+"Rohdaten säubern…" (Menü "Daten") ebenso wie der "Bereinigung"-Tab selbst
+öffnen den Bereinigungs-Dialog. So landet man beim Start einer Aktion
+automatisch auf der dazu passenden Ansicht, ohne den Tab von Hand
+mitziehen zu müssen.

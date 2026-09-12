@@ -56,6 +56,16 @@ class _FrameNavMixin:
         self._excluded_frame_indices = set()
         if self._cleaning_dialog is not None:
             self._cleaning_dialog.refresh_points()
+        # Bugreport: nach dem Laden einer NEUEN Aufnahme wirkte das Thermobild
+        # so, "als wuerde es sich nicht aktualisieren" -- Ursache: im Level-
+        # Modus "Manuell" bleiben die Min/Max-Werte auf den Temperaturbereich
+        # der ALTEN Aufnahme kalibriert. Weicht der Bereich der neuen Aufnahme
+        # stark davon ab, wird das Bild dadurch komplett gesaettigt/einfarbig
+        # dargestellt. "Global" (App-Standard) ermittelt seinen Bereich immer
+        # frisch aus der jeweils geladenen Aufnahme, siehe _set_recording weiter
+        # unten (_global_level_range).
+        if self._level_mode() == "manual":
+            self._set_level_mode("global")
 
     def _set_recording(self, recording: Recording) -> None:
         had_previous_recording = self.recording is not None
@@ -136,6 +146,12 @@ class _FrameNavMixin:
         self.live_curve.setSymbol(symbol)
         self.timeseries_live_curve.setSymbol(symbol)
 
+        # Schwindungsmessung (siehe shrinkage_ops.py): Boxen/Ergebnis der
+        # VORHERIGEN Aufnahme sind fuer eine andere Bildgroesse/Frame-Anzahl
+        # bedeutungslos -- gleiche Invariante wie bei ROIs/Messungen/
+        # Bereinigung oben.
+        self._reset_shrinkage_state_for_recording()
+
         self._hover_row = None
         self._hover_col = None
         self._live_pinned = False
@@ -205,12 +221,15 @@ class _FrameNavMixin:
 
     def _skip_excluded_frame_index(self, index: int, step: int) -> int:
         """Rueckt index in Richtung step ueber von der Rohdaten-Bereinigung
-        ausgeblendete Bilder hinweg (siehe data_cleaning_ops.py) -- Play/
-        Einzelschritt sollen ausgeblendete Bilder NIE anzeigen. Direktes
-        Springen per Schieberegler/Zahlenfeld ist davon bewusst NICHT
-        betroffen (siehe _on_slider_changed/_on_frame_spin_changed) -- ein
-        ausgeblendetes Bild bleibt darueber weiterhin gezielt ansteuerbar,
-        z.B. um es ueber "Daten > Rohdaten säubern…" wieder einzublenden."""
+        ausgeblendete Bilder hinweg (siehe data_cleaning_ops.py) -- ausgeblendete
+        Bilder sollen NIRGENDS in der GUI auftauchen, weder bei Play/Einzelschritt
+        noch bei direktem Springen per Schieberegler/Zahlenfeld (siehe
+        _on_slider_changed/_on_frame_spin_changed, die dieselbe Funktion
+        nutzen). Das gezielte Ansteuern eines ausgeblendeten Bildes zum
+        Wieder-Einblenden laeuft stattdessen ausschliesslich ueber die
+        eigenen Index-Eingabefelder im Dialog "Daten > Rohdaten säubern…"
+        (siehe data_cleaning.py: spin_manual_frame), nicht ueber die
+        Haupt-Bildnavigation."""
         if not self._excluded_frame_indices or self.recording is None:
             return index
         n = self.recording.n_frames
@@ -292,10 +311,30 @@ class _FrameNavMixin:
         # daneben zeigt dem Nutzer wie die Statuszeile ("Frame 1/8") bewusst
         # 1-basierte Frame-Nummern, um Verwirrung zu vermeiden. Beide Widgets
         # werden zentral in _show_frame() synchron gehalten.
-        self._show_frame(value)
+        #
+        # Von der Rohdaten-Bereinigung ausgeblendete Bilder (siehe
+        # data_cleaning_ops.py) sollen GARANTIERT nirgends mehr in der GUI
+        # auftauchen (Nutzerwunsch) -- auch nicht durch direktes Ziehen des
+        # Reglers auf genau diese Stelle. _skip_excluded_frame_index rueckt
+        # in der Richtung weiter, aus der der Regler kam (Play/Einzelschritt
+        # nutzen dieselbe Funktion bereits, siehe _step_frame/_advance_frame).
+        step = 1 if value >= self.current_index else -1
+        corrected = self._skip_excluded_frame_index(value, step)
+        if corrected != value:
+            self.frame_slider.blockSignals(True)
+            self.frame_slider.setValue(corrected)
+            self.frame_slider.blockSignals(False)
+        self._show_frame(corrected)
 
     def _on_frame_spin_changed(self, value: int) -> None:
-        self._show_frame(value - 1)
+        idx = value - 1
+        step = 1 if idx >= self.current_index else -1
+        corrected = self._skip_excluded_frame_index(idx, step)
+        if corrected != idx:
+            self.frame_spin.blockSignals(True)
+            self.frame_spin.setValue(corrected + 1)
+            self.frame_spin.blockSignals(False)
+        self._show_frame(corrected)
 
     def _level_mode(self) -> str:
         if self.radio_level_manual.isChecked():
@@ -418,7 +457,13 @@ class _FrameNavMixin:
             temperature = float(entry.average(self.recording.frames[idx, row0:row1, col0:col1], row0, row1, col0, col1))
             entry.update_temperature_label(temperature)
 
-    def _show_frame(self, idx: int) -> None:
+    def _show_frame(self, idx: int, pixel_source_idx: int | None = None) -> None:
+        """pixel_source_idx: nur fuer den Video-Export mit aktivierter
+        "Lücke füllen"-Option (Punkt 4, Nutzerwunsch) -- zeigt die
+        BILDDATEN eines ANDEREN (des zuletzt sichtbaren) Frames, waehrend
+        Zeitstempel/Marker/Status weiterhin zum echten idx gehoeren. self.
+        recording selbst bleibt dabei unveraendert (siehe data_cleaning_ops.py:
+        Frame-Indizes/Zeitstempel verschieben sich nie)."""
         if self.recording is None or self.recording.n_frames == 0:
             return
         idx = max(0, min(idx, self.recording.n_frames - 1))
@@ -433,7 +478,7 @@ class _FrameNavMixin:
         self.frame_spin.blockSignals(True)
         self.frame_spin.setValue(idx + 1)
         self.frame_spin.blockSignals(False)
-        frame = self.recording.frames[idx]
+        frame = self.recording.frames[idx if pixel_source_idx is None else pixel_source_idx]
 
         self._apply_levels_for_frame(frame)
 

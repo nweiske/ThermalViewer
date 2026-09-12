@@ -23,11 +23,17 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         reserved_names: list[str] | None = None,
     ):
         # entries: [{"name": str, "width_px": float, "height_px": float,
-        #            "width_mm": float | None, "height_mm": float | None}, ...]
+        #            "width_mm": float | None, "height_mm": float | None,
+        #            "unit_suffix": str}, ...] ("unit_suffix" optional,
+        #            Standard "°C")
         # Kann neben echten Messbereichen (Punkt 5) auch eine synthetische
         # "Live (Cursor)"-Zeile enthalten (width_px/height_px = Kantenlaenge
         # des Live-Cursor-Mittelungsfensters) -- fuer diese Zeile gilt exakt
         # dieselbe Auswahl-/Autofill-Logik wie fuer echte Messbereiche.
+        # Ebenso kann eine Schwindungsmessungs-Zeile enthalten sein, deren
+        # Wert kein Temperaturwert ist -- daher "unit_suffix" statt fest
+        # "°C" (width_px/height_px sind dort nur die informative
+        # Referenzbreite, keine echte Box).
         # reserved_names: die vom Aufrufer FEST vorangestellten Spalten
         # (z.B. "Zeitstempel", "Laufzeit (...)", "Live X-Achse"/"Live
         # Y-Achse") -- gegen diese wird zusaetzlich zur Eindeutigkeit unter
@@ -143,7 +149,7 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             chk.toggled.connect(partial(self._sync_all_checkbox, self.chk_all, self._checks))
 
             grid.addWidget(QtWidgets.QLabel(entry["name"]), row, 1)
-            edit = QtWidgets.QLineEdit(f'{entry["name"]} (°C)')
+            edit = QtWidgets.QLineEdit(f'{entry["name"]} ({entry.get("unit_suffix", "°C")})')
             chk.toggled.connect(edit.setEnabled)
             grid.addWidget(edit, row, 2)
             self._edits.append(edit)
@@ -336,7 +342,7 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             h = f'{entry["height_mm"]:.1f}'.replace(".", ",")
             parts.append(f"{w}x{h} mm")
         suffix = f" ({', '.join(parts)})" if parts else ""
-        edit.setText(f'{entry["name"]}{suffix} (°C)')
+        edit.setText(f'{entry["name"]}{suffix} ({entry.get("unit_suffix", "°C")})')
 
     def included(self) -> list[bool]:
         return [chk.isChecked() for chk in self._checks]

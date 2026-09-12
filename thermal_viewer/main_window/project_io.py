@@ -25,6 +25,38 @@ from ..roi_entry import (
 )
 
 
+def _shrink_box_data(roi) -> dict:
+    """Position/Groesse einer Schwindungsmessungs-Box (roi_shrink_*, siehe
+    shrinkage_ops.py) als JSON-faehiges dict fuer _save_project -- eigene
+    Modul-Funktion statt in _save_project verschachtelt, damit sie wie
+    _parse_interp_point unabhaengig lesbar/testbar bleibt."""
+    x, y = roi.pos()
+    w, h = roi.size()
+    return {"x": float(x), "y": float(y), "breite_px": float(w), "hoehe_px": float(h)}
+
+
+def _apply_shrink_box_data(roi, box, rows: int, cols: int) -> None:
+    """Gegenstueck zu _shrink_box_data fuer _load_project -- setzt Position/
+    Groesse aus einem geladenen box-dict, auf die aktuelle Bildgroesse
+    geklemmt (siehe size_mismatch-Behandlung weiter oben in _load_project).
+    Ungueltige/fehlende Werte werden stillschweigend uebersprungen (die Box
+    behaelt dann ihre bisherige Position), wie bei anderen tolerant
+    geparsten Projektdatei-Feldern in dieser Datei."""
+    if not isinstance(box, dict):
+        return
+    try:
+        x, y = float(box["x"]), float(box["y"])
+        w, h = float(box["breite_px"]), float(box["hoehe_px"])
+    except (KeyError, TypeError, ValueError):
+        return
+    w = max(1.0, min(w, cols))
+    h = max(1.0, min(h, rows))
+    x = max(0.0, min(x, cols - w))
+    y = max(0.0, min(y, rows - h))
+    roi.setPos((x, y), update=False)
+    roi.setSize((w, h))
+
+
 class _ProjectMixin:
     def _confirm_discard_current_recording(self) -> bool:
         """Rueckfrage vor dem Laden einer WEITEREN Messreihe, waehrend
@@ -144,7 +176,26 @@ class _ProjectMixin:
             "bereinigung_punkte": [{"x": x, "y": y} for x, y in self._cleaning_points],
             "bereinigung_schwellenwert": self._cleaning_threshold,
             "bereinigung_kernel_groesse": self._cleaning_kernel_size,
+            "bereinigung_logik": self._cleaning_logic,
             "bereinigung_ausgeblendete_frames": sorted(self._excluded_frame_indices),
+            # Schwindungsmessung (siehe shrinkage_ops.py) -- wie bei der
+            # Rohdaten-Bereinigung Nutzerwunsch "vollstaendiger Programm-
+            # zustand". Das berechnete ERGEBNIS selbst (widths_px/areas_px)
+            # wird bewusst NICHT gespeichert (abgeleitete Daten, wie die
+            # ROI-Kurven auch) -- beim Laden wird es aus den hier
+            # gespeicherten Eingaben neu berechnet (siehe _load_project).
+            "schwindung": {
+                "aktiviert": self._shrinkage_enabled,
+                "messart": self._shrinkage_mode,
+                "schwellenwert": self.spin_shrinkage_threshold.value(),
+                "waermer": self.radio_shrinkage_warmer.isChecked(),
+                "geometrie": "round" if self.radio_shrinkage_round.isChecked() else "rect",
+                "startbild": self._shrinkage_ref_frame,
+                "box_links": _shrink_box_data(self.roi_shrink_left),
+                "box_rechts": _shrink_box_data(self.roi_shrink_right),
+                "box_referenzrahmen": _shrink_box_data(self.roi_shrink_width),
+                "box_flaeche": _shrink_box_data(self.roi_shrink_area),
+            },
         }
 
         try:
@@ -193,39 +244,77 @@ class _ProjectMixin:
             QtWidgets.QMessageBox.critical(self, "Fehler", f"Projekt konnte nicht geladen werden:\n{exc}")
             return
 
-        if self.recording is None:
-            # Moeglichst wenige Klicks, um ein Projekt OHNE bereits geladene
-            # Messreihe zu oeffnen (Bugreport: "Keine Daten"-Fehler zwang
-            # dazu, ERST manuell den Ordner zu laden): der im Projekt
-            # gespeicherte Quellordner (siehe _save_project) wird dafuer
-            # automatisch nachgeladen, sofern er noch existiert -- nur wenn
-            # das nicht klappt, muss der Ordner einmalig manuell gewaehlt
-            # werden.
-            saved_folder = data.get("quellordner")
-            saved_folder_exists = isinstance(saved_folder, str) and Path(saved_folder).is_dir()
-            loaded = saved_folder_exists and self._load_folder(Path(saved_folder))
-            if not loaded:
-                # Zwei unterschiedliche Gruende sauber unterscheiden --
-                # sonst behauptet die Meldung faelschlich "nicht gefunden",
-                # obwohl der Ordner existiert, aber z.B. keine zum
-                # Namensschema passenden Dateien enthaelt oder der
-                # Namensschema-Abgleich abgebrochen wurde.
-                if saved_folder and not saved_folder_exists:
-                    hint = f" (gespeicherter Ordner „{saved_folder}“ nicht gefunden)"
-                elif saved_folder:
-                    hint = f" (Laden von „{saved_folder}“ nicht erfolgreich)"
-                else:
-                    hint = ""
-                QtWidgets.QMessageBox.information(
-                    self,
-                    "Messreihe wählen",
-                    f"Für dieses Projekt ist noch keine Messreihe geladen{hint}. "
-                    "Bitte jetzt den passenden Ordner auswählen.",
-                )
-                folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Ordner mit CSV-Messreihe wählen")
-                if not folder or not self._load_folder(Path(folder)):
-                    return
+        # Ab hier auf mehrere kleine, je fuer sich lesbare/testbare Schritte
+        # aufgeteilt (dieselbe Reihenfolge wie zuvor als ein einziger,
+        # sehr langer Methodenkoerper) -- failed_indices/measurement_errors
+        # werden fuer die Abschluss-Meldung ganz unten zurueckgereicht.
+        if not self._load_project_resolve_recording(data):
+            return
+        self._load_project_show_mismatch_warnings(data)
+        self._load_project_display_settings(data)
+        self._load_project_eval_range(data)
+        failed_indices = self._load_project_rois(data)
+        measurement_errors = self._load_project_measurements(data)
+        self._load_project_cleaning(data)
+        self._load_project_shrinkage(data)
+        # Ebenen-Tabs (layer_tabs_ops.py): Messbereiche/Bereinigungspunkte
+        # koennen waehrend des Ladens neu platziert/gezeichnet worden sein
+        # (entry.place()/_draw_cleaning_point_markers setzen dabei ihre
+        # eigene Sichtbarkeit OHNE Kenntnis der aktuell aktiven Ebene) --
+        # hier einmal zentral neu anwenden, damit z.B. ein waehrend des
+        # Ladens auf "Schwindungsmessung" stehender Tab nicht ploetzlich
+        # auch Messbereiche zeigt.
+        self._apply_layer_tab_visibility()
 
+        message = f"Projekt geladen: {path}"
+        if failed_indices:
+            message += f"  |  {len(failed_indices)} Messbereich-Eintrag/Einträge übersprungen (fehlerhaft)."
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Fehlerhafte Messbereich-Einträge übersprungen",
+                "Folgende Messbereich-Einträge in der Projektdatei waren fehlerhaft und wurden "
+                "übersprungen: " + ", ".join(f"Messbereich {i + 1}" for i in failed_indices),
+            )
+        if measurement_errors:
+            message += f"  |  {measurement_errors} Messung(en) übersprungen (fehlerhaft)."
+        self.statusBar().showMessage(message)
+
+    def _load_project_resolve_recording(self, data: dict) -> bool:
+        """Sorgt dafuer, dass beim Laden eines Projekts eine Messreihe
+        geladen ist -- laedt bei Bedarf automatisch den gespeicherten
+        Quellordner nach bzw. fragt einmalig manuell danach (Bugreport:
+        "Keine Daten"-Fehler zwang bisher dazu, ERST manuell den Ordner zu
+        laden). Gibt False zurueck, wenn am Ende immer noch keine Messreihe
+        geladen ist -- _load_project bricht dann komplett ab."""
+        if self.recording is not None:
+            return True
+        saved_folder = data.get("quellordner")
+        saved_folder_exists = isinstance(saved_folder, str) and Path(saved_folder).is_dir()
+        if saved_folder_exists and self._load_folder(Path(saved_folder)):
+            return True
+        # Zwei unterschiedliche Gruende sauber unterscheiden -- sonst
+        # behauptet die Meldung faelschlich "nicht gefunden", obwohl der
+        # Ordner existiert, aber z.B. keine zum Namensschema passenden
+        # Dateien enthaelt oder der Namensschema-Abgleich abgebrochen wurde.
+        if saved_folder and not saved_folder_exists:
+            hint = f" (gespeicherter Ordner „{saved_folder}“ nicht gefunden)"
+        elif saved_folder:
+            hint = f" (Laden von „{saved_folder}“ nicht erfolgreich)"
+        else:
+            hint = ""
+        QtWidgets.QMessageBox.information(
+            self,
+            "Messreihe wählen",
+            f"Für dieses Projekt ist noch keine Messreihe geladen{hint}. "
+            "Bitte jetzt den passenden Ordner auswählen.",
+        )
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Ordner mit CSV-Messreihe wählen")
+        return bool(folder) and self._load_folder(Path(folder))
+
+    def _load_project_show_mismatch_warnings(self, data: dict) -> None:
+        """Warnt, falls das Projekt fuer eine andere Bildaufloesung bzw.
+        einen anderen Quellordner gespeichert wurde als die aktuell geladene
+        Messreihe -- rein informativ, aendert nichts am weiteren Laden."""
         saved_folder = data.get("quellordner")
         current_folder = str(self.recording.paths[0].parent) if self.recording.paths else None
         saved_size = data.get("bild_groesse_px")
@@ -254,6 +343,12 @@ class _ProjectMixin:
                 "Messbereiche danach kurz prüfen.",
             )
 
+    def _load_project_display_settings(self, data: dict) -> None:
+        """Farbverlauf, Pegel-Modus, Maßstab (px-zu-mm) und Referenzlinien-
+        Farbe aus der Projektdatei uebernehmen. Hinweis: "grafik_theme" aus
+        alten Projektdateien (vor dem einheitlichen Dunkelmodus-Umschalter)
+        wird bewusst ignoriert -- die Grafik-Darstellung folgt jetzt immer
+        dem aktuellen App-Design."""
         cmap_index = data.get("colormap_index")
         if isinstance(cmap_index, int) and 0 <= cmap_index < self.combo_cmap.count():
             self.combo_cmap.setCurrentIndex(cmap_index)
@@ -280,10 +375,8 @@ class _ProjectMixin:
 
         self._refresh_scale_label()
 
-        # Hinweis: "grafik_theme" aus alten Projektdateien (vor dem
-        # einheitlichen Dunkelmodus-Umschalter) wird bewusst ignoriert -- die
-        # Grafik-Darstellung folgt jetzt immer dem aktuellen App-Design.
-
+    def _load_project_eval_range(self, data: dict) -> None:
+        """Auswertungsstart/-ende aus der Projektdatei uebernehmen."""
         eval_start = data.get("auswertungsstart_frame")
         if isinstance(eval_start, int) and self.recording is not None and 0 <= eval_start < self.recording.n_frames:
             self._eval_start_index = eval_start
@@ -313,6 +406,12 @@ class _ProjectMixin:
                 self.spin_eval_start.blockSignals(False)
             self._update_timeline_markers()
 
+    def _load_project_rois(self, data: dict) -> list[int]:
+        """Baut die Messbereiche (beliebig viele ROIs) aus der Projektdatei
+        auf -- bestehende Eintraege werden ueber ihre (0-basiert
+        gespeicherte) Erzeugungsnummer wiedergefunden bzw. bei Bedarf neu
+        angelegt. Gibt die 0-basierten Indizes fehlerhafter/uebersprungener
+        Eintraege zurueck (fuer die Abschluss-Meldung in _load_project)."""
         touched_entries: list[RoiEntry] = []
         failed_indices: list[int] = []
         for roi_data in data.get("rois", []):
@@ -481,12 +580,16 @@ class _ProjectMixin:
         if touched_entries:
             self._recompute_curves(entries=touched_entries)
         self._apply_interp_focus_visuals()
+        return failed_indices
 
-        # -- Messungen (Punkt 8) -- alte Eintraege verwerfen, aus der Datei
-        # neu aufbauen. Ohne Ordnungsnummer-Zuordnung wie bei ROIs (keine
-        # feste Anzahl vorab angelegter Standard-Messungen) -- einfach in
-        # Datei-Reihenfolge neu erzeugen, gedeckelt durch MAX_MEASUREMENT_COUNT
-        # (Schutz wie MAX_ROI_COUNT vor einer riesigen/manipulierten Liste).
+    def _load_project_measurements(self, data: dict) -> int:
+        """Baut die Messungen (Maßstab-Werkzeug) aus der Projektdatei auf --
+        alte Eintraege werden verworfen, aus der Datei neu erzeugt (keine
+        Ordnungsnummer-Zuordnung wie bei ROIs noetig, da es keine feste
+        Anzahl vorab angelegter Standard-Messungen gibt), gedeckelt durch
+        MAX_MEASUREMENT_COUNT (Schutz wie MAX_ROI_COUNT vor einer riesigen/
+        manipulierten Liste). Gibt die Anzahl uebersprungener/fehlerhafter
+        Eintraege zurueck (fuer die Abschluss-Meldung in _load_project)."""
         for entry in list(self.measurements):
             self._remove_measurement(entry)
         measurement_errors = 0
@@ -525,10 +628,14 @@ class _ProjectMixin:
         # Sonst (kein Maßstab (mehr) definiert): gespeicherte Messungen
         # waeren ohne px-zu-mm-Umrechnung bedeutungslos, werden also nicht
         # wiederhergestellt -- kein Fehlerfall, daher keine Warnung.
+        return measurement_errors
 
-        # -- Rohdaten-Bereinigung (Nutzerwunsch: vollstaendiger Programmzustand
-        # beim Speichern/Laden eines Projekts, siehe _save_project) -- alte
-        # Punkte/Markierungen verwerfen, aus der Datei neu aufbauen.
+    def _load_project_cleaning(self, data: dict) -> None:
+        """Rohdaten-Bereinigung (Referenzpunkte, Schwellenwert, Kernel-
+        Groesse, UND/ODER-Logik, ausgeblendete Bilder) aus der Projektdatei
+        uebernehmen -- Nutzerwunsch: vollstaendiger Programmzustand beim
+        Speichern/Laden eines Projekts (siehe _save_project). Alte Punkte/
+        Markierungen werden verworfen, aus der Datei neu aufgebaut."""
         self._cancel_cleaning_point_pick()
         points_data = data.get("bereinigung_punkte")
         cleaning_points: list[tuple[int, int]] = []
@@ -561,6 +668,10 @@ class _ProjectMixin:
         ):
             self._cleaning_kernel_size = kernel_size
 
+        logic = data.get("bereinigung_logik")
+        if logic in ("and", "or"):
+            self._cleaning_logic = logic
+
         # ERST NACH dem Setzen von _cleaning_kernel_size: die Markierungen
         # (inkl. des gestrichelten Mittelungsbereich-Rechtecks, siehe
         # _draw_cleaning_point_markers) muessen die aus DIESER Datei
@@ -570,34 +681,106 @@ class _ProjectMixin:
         excluded_data = data.get("bereinigung_ausgeblendete_frames")
         n_frames = self.recording.n_frames if self.recording is not None else 0
         if isinstance(excluded_data, list):
-            self._excluded_frame_indices = {
+            loaded_excluded = {
                 int(i) for i in excluded_data
                 if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < n_frames
             }
+            if n_frames > 0 and len(loaded_excluded) >= n_frames:
+                # Mindestens ein Bild muss sichtbar bleiben (siehe
+                # _apply_cleaning_exclusions) -- eine (z.B. von Hand
+                # bearbeitete) Projektdatei, die ALLE Bilder ausblendet,
+                # wuerde sonst denselben inkonsistenten Zustand erzeugen wie
+                # das direkte Anwenden ueber den Bereinigungs-Dialog.
+                loaded_excluded.discard(max(loaded_excluded))
+            self._excluded_frame_indices = loaded_excluded
         else:
             self._excluded_frame_indices = set()
         self._recompute_curves()
-        self._update_status_bar()
 
         if self._cleaning_dialog is not None:
             self._cleaning_dialog.spin_threshold.blockSignals(True)
             self._cleaning_dialog.spin_threshold.setValue(self._cleaning_threshold)
             self._cleaning_dialog.spin_threshold.blockSignals(False)
             self._cleaning_dialog.sync_kernel_size_combo()
+            self._cleaning_dialog.sync_logic_radios()
             self._cleaning_dialog.refresh_points()
 
-        message = f"Projekt geladen: {path}"
-        if failed_indices:
-            message += f"  |  {len(failed_indices)} Messbereich-Eintrag/Einträge übersprungen (fehlerhaft)."
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Fehlerhafte Messbereich-Einträge übersprungen",
-                "Folgende Messbereich-Einträge in der Projektdatei waren fehlerhaft und wurden "
-                "übersprungen: " + ", ".join(f"Messbereich {i + 1}" for i in failed_indices),
-            )
-        if measurement_errors:
-            message += f"  |  {measurement_errors} Messung(en) übersprungen (fehlerhaft)."
-        self.statusBar().showMessage(message)
+    def _load_project_shrinkage(self, data: dict) -> None:
+        """Schwindungsmessung (Boxen, Messart, Schwellenwert, Richtung,
+        Geometrie, Startbild, Aktivieren-Haken) aus der Projektdatei
+        uebernehmen -- Nutzerwunsch: vollstaendiger Programmzustand beim
+        Speichern/Laden eines Projekts (siehe _save_project). Boxen/
+        Einstellungen werden direkt (nicht ueber die Checkbox-/Radio-Signale)
+        gesetzt, damit das Laden selbst weder einen Ebenen-Tab-Wechsel
+        (siehe _on_shrinkage_enabled_toggled) noch ein Verwerfen eines zu
+        diesem Zeitpunkt noch gar nicht gesetzten Ergebnisses (siehe
+        _on_shrinkage_mode_changed) ausloest."""
+        shrink_data = data.get("schwindung")
+        if isinstance(shrink_data, dict) and self.recording is not None:
+            self._shrinkage_result = None
+            self.lbl_shrinkage_result.setText("Noch nicht berechnet.")
+            self.shrinkage_curve.clear()
+            rows, cols = self.recording.shape
+
+            _apply_shrink_box_data(self.roi_shrink_left, shrink_data.get("box_links"), rows, cols)
+            _apply_shrink_box_data(self.roi_shrink_right, shrink_data.get("box_rechts"), rows, cols)
+            _apply_shrink_box_data(self.roi_shrink_width, shrink_data.get("box_referenzrahmen"), rows, cols)
+            _apply_shrink_box_data(self.roi_shrink_area, shrink_data.get("box_flaeche"), rows, cols)
+
+            threshold = shrink_data.get("schwellenwert")
+            if isinstance(threshold, (int, float)) and not isinstance(threshold, bool):
+                self.spin_shrinkage_threshold.setValue(float(threshold))
+            warmer = bool(shrink_data.get("waermer", True))
+            self.radio_shrinkage_warmer.setChecked(warmer)
+            self.radio_shrinkage_colder.setChecked(not warmer)
+            is_round = shrink_data.get("geometrie") == "round"
+            self.radio_shrinkage_round.setChecked(is_round)
+            self.radio_shrinkage_rect.setChecked(not is_round)
+
+            ref_frame = shrink_data.get("startbild")
+            if (
+                isinstance(ref_frame, int) and not isinstance(ref_frame, bool)
+                and 0 <= ref_frame < self.recording.n_frames
+            ):
+                self._shrinkage_ref_frame = ref_frame
+                self.lbl_shrinkage_ref.setText(f"Startbild: Bild {ref_frame + 1}")
+            else:
+                self._shrinkage_ref_frame = None
+                self.lbl_shrinkage_ref.setText("Startbild: nicht gesetzt")
+
+            self._shrinkage_mode = "area" if shrink_data.get("messart") == "area" else "width"
+            is_width = self._shrinkage_mode == "width"
+            self.radio_shrinkage_mode_width.blockSignals(True)
+            self.radio_shrinkage_mode_area.blockSignals(True)
+            self.radio_shrinkage_mode_width.setChecked(is_width)
+            self.radio_shrinkage_mode_area.setChecked(not is_width)
+            self.radio_shrinkage_mode_width.blockSignals(False)
+            self.radio_shrinkage_mode_area.blockSignals(False)
+            self._shrinkage_geometry_widget.setVisible(is_width)
+            self._shrinkage_ref_widget.setVisible(is_width)
+            self.lbl_shrinkage_mode_info.setText(self._SHRINKAGE_MODE_INFO[self._shrinkage_mode])
+
+            enabled = bool(shrink_data.get("aktiviert", False))
+            self._shrinkage_enabled = enabled
+            self.chk_shrinkage_enabled.blockSignals(True)
+            self.chk_shrinkage_enabled.setChecked(enabled)
+            self.chk_shrinkage_enabled.blockSignals(False)
+            self._set_shrinkage_controls_enabled(enabled)
+            self._apply_shrinkage_roi_visibility()
+
+            # Das fruehere Ergebnis wird NICHT als Rohwerte gespeichert (nur
+            # die Eingaben oben) -- bei vorhandenem Startbild (Breite) bzw.
+            # immer (Flaeche, braucht keins) wird es aus den geladenen
+            # Einstellungen neu berechnet, statt nach dem Laden leer/
+            # veraltet dazustehen.
+            if is_width:
+                if self._shrinkage_ref_frame is not None:
+                    self._compute_shrinkage_width()
+            else:
+                self._compute_shrinkage_area()
+
+        self._update_shrinkage_curve()
+        self._update_status_bar()
 
     def _load_paths(
         self, paths: list[Path], pattern: re.Pattern | None = None, strptime_fmt: str | None = None

@@ -139,6 +139,16 @@ def check(label, fn):
         print(f"FAIL {label}", flush=True)
         traceback.print_exc()
         failures.append(label)
+    finally:
+        # Ebenen-Tabs (layer_tabs_ops.py): einzelne Tests loesen ueber echte
+        # Button-/Checkbox-Handler (z.B. _start_ruler_tool, "+ Messbereich",
+        # Schwindung aktivieren) ein automatisches Umschalten der aktiven
+        # Ebene aus. Anders als bei pytest (frische MainWindow je Test) teilen
+        # sich hier ALLE Checks denselben fortlaufenden `win` -- ohne
+        # Ruecksetzung wuerde ein solcher Tab-Wechsel ueberdauern und
+        # nachfolgende, davon unabhaengige Tests durch versteckte Panel-/
+        # Bild-Bereiche zum Scheitern bringen.
+        win._set_active_layer_tab("all")
 
 
 win = MainWindow()
@@ -710,6 +720,12 @@ def test_ruler():
     assert win._px_to_mm is not None
     assert abs(win._px_to_mm - 3.0) < 0.05, win._px_to_mm
     win.roi_list.setCurrentRow(0)  # QStackedWidget zeigt nur Inhalte der AKTIVEN Seite als "visible" an
+    # Ebenen-Tabs (layer_tabs_ops.py): _start_ruler_tool() oben hat bereits
+    # auf den "Maßstab"-Tab umgeschaltet, wodurch self.roi_split (und damit
+    # jedes Panel-Widget darin, inkl. mm_label) ancestor-versteckt ist --
+    # zurueck auf "Alle", um wie vor den Ebenen-Tabs die ROI-Panel-Sektion
+    # selbst pruefen zu koennen.
+    win._set_active_layer_tab("all")
     win._update_roi_mm_label(win.roi_entries[0])
     assert win.roi_entries[0].mm_label.isVisible()
 
@@ -2391,6 +2407,68 @@ def test_video_export_custom_settings_restores_state():
 check("video export with custom settings restores prior state afterward", test_video_export_custom_settings_restores_state)
 
 
+video_skip_path = OUT / "export_video_skip_excluded.mp4"
+video_freeze_path = OUT / "export_video_freeze_excluded.mp4"
+
+
+def test_video_export_freeze_excluded_pixels_option():
+    # Punkt 4 (Nutzerwunsch): von der Rohdaten-Bereinigung ausgeblendete
+    # Bilder werden im Video-Export standardmaessig WEGGELASSEN (kuerzeres
+    # Video) -- mit der neuen Option "Lücke füllen" bleibt die Gesamt-
+    # Frameanzahl dagegen unveraendert (das ausgeblendete Bild wird durch
+    # das vorherige ersetzt statt uebersprungen).
+    prev_excluded = set(win._excluded_frame_indices)
+    prev_start, prev_end = win._eval_start_index, win._eval_end_index
+    n = win.recording.n_frames
+    win._excluded_frame_indices = {3}
+    win._eval_start_index, win._eval_end_index = 0, n - 1
+    try:
+        if video_skip_path.exists():
+            video_skip_path.unlink()
+        orig_save = QtWidgets.QFileDialog.getSaveFileName
+        QtWidgets.QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (str(video_skip_path), ""))
+        try:
+            win._export_video()
+        finally:
+            QtWidgets.QFileDialog.getSaveFileName = orig_save
+
+        if video_freeze_path.exists():
+            video_freeze_path.unlink()
+        orig_exec = QtWidgets.QDialog.exec
+
+        def custom_exec(self):
+            if hasattr(self, "chk_freeze_excluded_pixels"):
+                self.chk_freeze_excluded_pixels.setChecked(True)
+            return orig_exec(self)
+
+        QtWidgets.QDialog.exec = custom_exec
+        QtWidgets.QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (str(video_freeze_path), ""))
+        try:
+            win._export_video()
+        finally:
+            QtWidgets.QDialog.exec = orig_exec
+            QtWidgets.QFileDialog.getSaveFileName = orig_save
+    finally:
+        win._excluded_frame_indices = prev_excluded
+        win._eval_start_index, win._eval_end_index = prev_start, prev_end
+
+    import imageio.v2 as imageio
+
+    def count_frames(path):
+        reader = imageio.get_reader(str(path))
+        count = sum(1 for _ in reader.iter_data())
+        reader.close()
+        return count
+
+    n_skip = count_frames(video_skip_path)
+    n_freeze = count_frames(video_freeze_path)
+    assert n_skip == n - 1, f"ohne Option muss das ausgeblendete Bild fehlen: {n_skip} != {n - 1}"
+    assert n_freeze == n, f"mit 'Lücke füllen' muss die Frameanzahl gleich bleiben: {n_freeze} != {n}"
+
+
+check("video export: 'Lücke füllen' keeps frame count, default still skips excluded frames", test_video_export_freeze_excluded_pixels_option)
+
+
 video_overlay_path = OUT / "export_video_overlay.mp4"
 
 
@@ -2807,9 +2885,12 @@ check(
 def test_timeline_layout():
     central = win.centralWidget()
     layout = central.layout()
-    assert layout.count() == 2
-    assert layout.itemAt(0).widget() is win.glw
-    assert layout.itemAt(1).widget() is win.timeline_bar
+    # Seit den Ebenen-Tabs (layer_tabs_ops.py) steht win.layer_tab_bar als
+    # zusaetzliches drittes Element VOR dem Thermobild im zentralen Layout.
+    assert layout.count() == 3
+    assert layout.itemAt(0).widget() is win.layer_tab_bar
+    assert layout.itemAt(1).widget() is win.glw
+    assert layout.itemAt(2).widget() is win.timeline_bar
     assert win.timeline_bar.width() <= central.width() + 2
 
 

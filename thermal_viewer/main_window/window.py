@@ -23,11 +23,15 @@ from .constants import (
     THEMES,
 )
 from .export_common import _ExportCommonMixin
+from .export_visuals import _ExportVisualsMixin
 from .export_csv import _CsvExportMixin
 from .export_image import _ImageExportMixin
 from .data_cleaning_ops import _DataCleaningMixin
 from .export_video import _VideoExportMixin
 from .frame_nav import _FrameNavMixin
+from .graph_cursor_ops import _GraphCursorMixin
+from .layer_tabs_ops import _LayerTabsMixin
+from .shrinkage_ops import _ShrinkageMixin
 from .import_ops import _ImportMixin
 from .measurement_ops import _MeasurementMixin
 from .mouse_ops import _MouseMixin
@@ -38,12 +42,14 @@ from .roi_panel_build import _RoiPanelBuildMixin
 from .status_activity import _StatusActivityMixin
 from .theming import _ThemeMixin
 from .ui_build import _UIBuildMixin
+from .ui_build_menu import _UIBuildMenuMixin
 
 pg.setConfigOptions(imageAxisOrder="row-major", antialias=True)
 
 
 class MainWindow(
     _UIBuildMixin,
+    _UIBuildMenuMixin,
     _RoiPanelBuildMixin,
     _StatusActivityMixin,
     _ThemeMixin,
@@ -53,8 +59,12 @@ class MainWindow(
     _RoiMixin,
     _MeasurementMixin,
     _DataCleaningMixin,
+    _GraphCursorMixin,
+    _LayerTabsMixin,
+    _ShrinkageMixin,
     _MouseMixin,
     _ExportCommonMixin,
+    _ExportVisualsMixin,
     _RenderPipelineMixin,
     _ImageExportMixin,
     _CsvExportMixin,
@@ -171,7 +181,10 @@ class MainWindow(
         # data_cleaning_ops.py für die vollständige Logik.
         self._cleaning_pick_armed = False
         self._cleaning_points: list[tuple[int, int]] = []
-        self._cleaning_point_markers: list[pg.ScatterPlotItem] = []
+        # Pro Punkt ein dict {"dot": pg.TargetItem, "label": pg.TextItem,
+        # "area": QGraphicsRectItem|None} -- gleiche Reihenfolge wie
+        # _cleaning_points, siehe data_cleaning_ops.py.
+        self._cleaning_point_items: list[dict] = []
         self._cleaning_threshold = 5.0
         # Kantenlaenge (ungerade Pixelzahl, wie beim Live-Cursor -- siehe
         # _live_cursor_kernel_size in mouse_ops.py, aber bewusst EIGENSTAENDIG
@@ -185,8 +198,29 @@ class MainWindow(
         # sofern _cleaning_kernel_size > 1 -- bei 1x1 gäbe es nichts
         # zusätzlich zum Punkt-Kreuz selbst zu zeigen.
         self._cleaning_show_kernel_area = True
+        # Verknuepfungslogik mehrerer Referenzpunkte (Nutzerwunsch): "and"
+        # (Standard, bisheriges Verhalten) verlangt eine Ueberschreitung AN
+        # JEDEM Punkt, "or" bereits an EINEM einzigen Punkt -- siehe
+        # _compute_cleaning_candidates in data_cleaning_ops.py.
+        self._cleaning_logic = "and"
         self._excluded_frame_indices: set[int] = set()
         self._cleaning_dialog = None
+        # Registerkarten ("Ebenen"/Masken) über dem Thermobild (Nutzerwunsch:
+        # "das Thermobild wird recht voll") -- siehe layer_tabs_ops.py. "all"
+        # entspricht dem bisherigen, ungefilterten Verhalten (alles sichtbar).
+        self._active_layer_tab = "all"
+        # Schwindungsmessung (Punkt 9, Nutzerwunsch, experimentell -- siehe
+        # shrinkage_ops.py): EINE aktive Messung (wie das Maßstab-Werkzeug),
+        # standardmaessig deaktiviert/ausgeblendet, um Nutzer, die sie nicht
+        # brauchen, nicht mit drei zusaetzlichen Bild-Bereichen zu stoeren.
+        self._shrinkage_enabled = False
+        self._shrinkage_ref_frame: int | None = None
+        # Messart (Nutzerwunsch, zusaetzlich zur Breitenmessung): "width"
+        # (Standard, bisheriges Verhalten, zwei verfolgte Flanken-Boxen) oder
+        # "area" (EIN Bereich, Probe wird je Bild per Schwellenwert
+        # segmentiert und die Pixelzahl als Flaeche gezaehlt -- von Haus aus
+        # geometrieunabhaengig, siehe shrinkage_ops.py).
+        self._shrinkage_mode = "width"
         # Zeitachsen-Anzeige beider Kurven-Graphen: "clock" (echte Uhrzeit,
         # Standard) oder "runtime" (relative Laufzeit ab Aufnahmebeginn) --
         # ueber je einen Umschalter unten rechts an beiden Graphen wählbar,
@@ -238,12 +272,19 @@ class MainWindow(
         self._build_plots()
         self._build_roi_entries()
         self._build_control_panel()
+        # Erst jetzt existieren alle Panel-Abschnitte (scale_box/
+        # _shrinkage_groupbox/roi_split), auf die _apply_layer_tab_visibility
+        # zugreift -- Default-Tab "all" aendert am Startzustand nichts
+        # sichtbar (alles bleibt an), macht den Zustand aber von Anfang an
+        # konsistent.
+        self._apply_layer_tab_visibility()
         self._build_toolbar()
         self._build_docks()
         self._build_menu()
         self._build_shortcuts()
         self._build_status_activity()
         self._connect_scene_events()
+        self._build_graph_cursor_overlay()
 
         # Fuer die beiden Kurven-Graphen soll ein Rechtsklick "Exportieren"
         # exakt denselben Weg wie der Export-Menü-Punkt "Grafik

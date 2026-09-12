@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pytest
 from qtpy import QtCore, QtGui, QtWidgets
 
@@ -459,6 +460,27 @@ def test_cleaning_candidates_require_all_points_to_exceed_threshold(loaded_main_
     assert 4 not in candidates
 
 
+def test_cleaning_candidates_or_logic_flags_on_a_single_point(loaded_main_window):
+    # Punkt 3 (Nutzerwunsch): im "ODER"-Modus reicht bereits EIN springender
+    # Punkt, um ein Bild als Ausreißer zu markieren. Frame 2 (nicht das
+    # letzte Bild der 5-Frame-Fixture) springt, damit der Ruecksprung bei
+    # Frame 3 ebenfalls ein grosses dT erzeugt (gleiches Muster wie im
+    # AND-Test oben).
+    mw = loaded_main_window
+    frames = mw.recording.frames
+    frames[2, 1, 1] = 999.0  # nur EIN Punkt springt
+
+    mw._cleaning_points = [(1, 1), (5, 5)]
+    mw._cleaning_threshold = 50.0
+    mw._cleaning_kernel_size = 1
+    mw._cleaning_logic = "or"
+    candidates = mw._compute_cleaning_candidates()
+    assert candidates == {2, 3}, candidates
+
+    mw._cleaning_logic = "and"
+    assert mw._compute_cleaning_candidates() == set(), "im UND-Modus darf derselbe Einzel-Ausschlag nicht reichen"
+
+
 def test_cleaning_kernel_size_defaults_to_three_by_three(main_window):
     # Nutzerwunsch (auf Rueckfrage bestaetigt): NxN-Mittelung statt reinem
     # Einzelpixel, robuster gegen Sensor-Rauschen an genau einem Pixel --
@@ -512,16 +534,17 @@ def test_draw_cleaning_point_markers_shows_area_rect_only_for_kernel_above_one(l
     mw._cleaning_kernel_size = 1
     mw._draw_cleaning_point_markers()
     # 1x1: nur Kreuz + Nummern-Label, kein zusaetzliches Bereichs-Rechteck.
-    assert len(mw._cleaning_point_markers) == 2
+    assert len(mw._cleaning_point_items) == 1
+    assert mw._cleaning_point_items[0]["area"] is None
 
     mw._cleaning_kernel_size = 3
     mw._cleaning_show_kernel_area = True
     mw._draw_cleaning_point_markers()
-    assert len(mw._cleaning_point_markers) == 3, "bei >1x1 UND aktiviertem Haken kommt das Bereichs-Rechteck dazu"
+    assert mw._cleaning_point_items[0]["area"] is not None, "bei >1x1 UND aktiviertem Haken kommt das Bereichs-Rechteck dazu"
 
     mw._cleaning_show_kernel_area = False
     mw._draw_cleaning_point_markers()
-    assert len(mw._cleaning_point_markers) == 2, "abgeschaltet zeigt auch >1x1 kein Bereichs-Rechteck"
+    assert mw._cleaning_point_items[0]["area"] is None, "abgeschaltet zeigt auch >1x1 kein Bereichs-Rechteck"
 
 
 def test_cleaning_dialog_kernel_combo_and_checkbox_update_main_window_state(loaded_main_window):
@@ -547,6 +570,145 @@ def test_cleaning_dialog_kernel_combo_and_checkbox_update_main_window_state(load
         mw._cleaning_kernel_size = 1
         dlg.sync_kernel_size_combo()
         assert dlg.combo_kernel.currentData() == 1
+    finally:
+        dlg.close()
+
+
+def test_cleaning_dialog_logic_radios_update_main_window_state(loaded_main_window):
+    from thermal_viewer.dialogs import DataCleaningDialog
+
+    mw = loaded_main_window
+    dlg = DataCleaningDialog(mw)
+    try:
+        assert dlg.radio_logic_and.isChecked() is True
+        assert mw._cleaning_logic == "and"
+
+        dlg.radio_logic_or.setChecked(True)
+        assert mw._cleaning_logic == "or"
+
+        dlg.radio_logic_and.setChecked(True)
+        assert mw._cleaning_logic == "and"
+
+        mw._cleaning_logic = "or"
+        dlg.sync_logic_radios()
+        assert dlg.radio_logic_or.isChecked() is True
+    finally:
+        dlg.close()
+
+
+def test_cleaning_dialog_checkbox_applies_immediately_without_apply_button(loaded_main_window):
+    """Punkt 7 (Nutzerwunsch): kein separater "Anwenden"-Knopf mehr -- jede
+    Checkbox in der Liste wirkt sofort auf self._excluded_frame_indices UND
+    den angezeigten Frame."""
+    from thermal_viewer.dialogs import DataCleaningDialog
+
+    mw = loaded_main_window
+    dlg = DataCleaningDialog(mw)
+    try:
+        assert not hasattr(dlg, "btn_apply")
+        mw._excluded_frame_indices = {2}
+        dlg.refresh_candidates()
+        chk = dlg._candidate_checks[2]
+        assert chk.isChecked() is True
+
+        chk.setChecked(False)  # Bild 3 (Index 2) wieder einblenden
+        assert mw._excluded_frame_indices == set()
+
+        dlg.spin_manual_frame.setValue(4)
+        dlg.btn_manual_exclude.click()
+        assert mw._excluded_frame_indices == {3}
+    finally:
+        dlg.close()
+
+
+def test_apply_cleaning_exclusions_navigates_away_from_now_hidden_current_frame(loaded_main_window):
+    """Punkt 1 (Nutzerwunsch): steht die Anzeige gerade auf einem Bild, das
+    JETZT ausgeblendet wird, darf dieses Bild nicht im Viewer stehen bleiben."""
+    mw = loaded_main_window
+    mw.frame_slider.setValue(2)
+    assert mw.current_index == 2
+
+    mw._apply_cleaning_exclusions({2})
+    assert mw.current_index != 2
+    assert mw.current_index not in mw._excluded_frame_indices
+
+
+def test_slider_and_spin_navigation_skip_excluded_frames(loaded_main_window):
+    """Punkt 1 (Nutzerwunsch): ausgeblendete Bilder sind ueber KEINEN
+    Navigationsweg mehr erreichbar, nicht nur Play/Einzelschritt."""
+    mw = loaded_main_window
+    mw._excluded_frame_indices = {2}
+
+    mw.frame_slider.setValue(0)
+    assert mw.current_index == 0
+    mw.frame_slider.setValue(2)  # direkt auf das ausgeblendete Bild ziehen
+    assert mw.current_index == 3, "muss beim Vorwaertsziehen auf das naechste sichtbare Bild springen"
+
+    mw.frame_slider.setValue(0)
+    assert mw.current_index == 0
+    mw.frame_spin.setValue(3)  # 1-basiert -> Index 2
+    assert mw.current_index == 3, "muss auch ueber das Zahlenfeld springen"
+
+    mw.frame_slider.setValue(4)
+    assert mw.current_index == 4
+    mw.frame_slider.setValue(2)  # rueckwaerts ziehen -> muss RUECKWAERTS ausweichen
+    assert mw.current_index == 1
+
+
+def test_dragging_cleaning_point_target_item_updates_point_and_redraws(loaded_main_window):
+    """Punkt 6 (Nutzerwunsch): Referenzpunkte lassen sich direkt im Bild
+    verschieben (pg.TargetItem statt starrem pg.ScatterPlotItem)."""
+    mw = loaded_main_window
+    mw._cleaning_points = [(2, 3)]
+    mw._draw_cleaning_point_markers()
+    dot = mw._cleaning_point_items[0]["dot"]
+    assert dot.pos().x() == 2.5 and dot.pos().y() == 3.5
+
+    # pg.TargetItem.setPos() alleine feuert nur sigPositionChanged (laufende
+    # Bewegung); sigPositionChangeFinished kommt erst von einer echten
+    # Maus-Drag-Geste -- hier wie auch sonst im Projekt ueblich (siehe
+    # smoke_test.py::_on_measurement_line_dragged) direkt der Handler
+    # aufgerufen, der normalerweise an dieses Signal gebunden ist.
+    dot.setPos((8.4, 9.2))
+    mw._on_cleaning_point_dragged(0, dot)
+    assert mw._cleaning_points == [(8, 9)], mw._cleaning_points
+    # Marker wurden komplett neu aufgebaut (neues dict/neues TargetItem an
+    # der gerundeten Pixelmitte) -- das alte `dot`-Objekt ist danach verwaist.
+    new_dot = mw._cleaning_point_items[0]["dot"]
+    assert new_dot.pos().x() == 8.5 and new_dot.pos().y() == 9.5
+
+
+def test_cleaning_point_focus_visuals_fade_all_but_selected(loaded_main_window):
+    """Punkt 6 (Nutzerwunsch): Auswahl eines Punkts in der Liste hebt ihn
+    hervor (analog zu _apply_interp_focus_visuals bei ROIs)."""
+    mw = loaded_main_window
+    mw._cleaning_points = [(2, 3), (8, 9)]
+    mw._draw_cleaning_point_markers()
+
+    mw._apply_cleaning_point_focus_visuals(0)
+    assert mw._cleaning_point_items[0]["dot"].opacity() == 1.0
+    assert mw._cleaning_point_items[1]["dot"].opacity() == pytest.approx(0.12)
+
+    mw._apply_cleaning_point_focus_visuals(None)
+    assert mw._cleaning_point_items[0]["dot"].opacity() == 1.0
+    assert mw._cleaning_point_items[1]["dot"].opacity() == 1.0
+
+
+def test_cleaning_dialog_point_list_selection_drives_focus_visuals(loaded_main_window):
+    from thermal_viewer.dialogs import DataCleaningDialog
+
+    mw = loaded_main_window
+    mw._cleaning_points = [(2, 3), (8, 9)]
+    mw._draw_cleaning_point_markers()
+    dlg = DataCleaningDialog(mw)
+    try:
+        dlg.refresh_points()
+        dlg.points_list.setCurrentRow(1)
+        assert mw._cleaning_point_items[1]["dot"].opacity() == 1.0
+        assert mw._cleaning_point_items[0]["dot"].opacity() == pytest.approx(0.12)
+
+        dlg.close()
+        assert mw._cleaning_point_items[0]["dot"].opacity() == 1.0
     finally:
         dlg.close()
 
@@ -613,6 +775,27 @@ def test_reload_clears_cleaning_points_and_exclusions(loaded_main_window, synthe
     assert mw._excluded_frame_indices == set()
 
 
+def test_reload_resets_manual_level_mode_to_global(loaded_main_window, synthetic_recording_folder):
+    """Bugreport: im Level-Modus "Manuell" blieben Min/Max nach dem Laden
+    einer NEUEN Aufnahme auf den alten (nicht mehr passenden) Werten stehen
+    -- das Thermobild wirkte dadurch bei abweichendem Temperaturbereich
+    komplett gesaettigt/einfarbig, "als haette es sich nicht aktualisiert"."""
+    mw = loaded_main_window
+    mw._set_level_mode("manual")
+    mw.spin_level_min.setValue(500.0)
+    mw.spin_level_max.setValue(600.0)
+    assert mw._level_mode() == "manual"
+
+    mw._confirm_discard_current_recording = lambda: True
+    assert mw._load_paths(sorted(synthetic_recording_folder.glob("*.csv")))
+    assert mw._level_mode() == "global", (
+        "Manueller Level-Modus muss beim Laden einer neuen Aufnahme auf den "
+        "sich automatisch anpassenden 'Global'-Modus zurueckfallen"
+    )
+    lo, hi = mw.image_item.getLevels()
+    assert (lo, hi) != (500.0, 600.0), "Levels duerfen nicht auf dem alten manuellen Bereich stehen bleiben"
+
+
 def test_daten_menu_has_cleaning_and_disabled_tiff_import(main_window):
     daten_menu = None
     for action in main_window.menuBar().actions():
@@ -625,6 +808,72 @@ def test_daten_menu_has_cleaning_and_disabled_tiff_import(main_window):
     assert "TIFF-Bilder importieren…" in texts
     tiff_action = next(a for a in daten_menu.actions() if a.text() == "TIFF-Bilder importieren…")
     assert not tiff_action.isEnabled()
+
+
+# ------------------------------------------------------- Graph-Cursor
+
+def test_graph_mouse_moved_shows_coordinate_label_and_hides_outside_viewbox(loaded_main_window):
+    """Punkt 2 (Nutzerwunsch): X/Y-Koordinatenanzeige beim Hovern über die
+    Zeitverlaufs-Graphen."""
+    mw = loaded_main_window
+    view_box = mw.timeseries_plot.getPlotItem().getViewBox()
+    view_box.setRange(xRange=(0, 100), yRange=(0, 50), padding=0)
+    scene_pos = view_box.mapViewToScene(QtCore.QPointF(50, 25))
+
+    # isHidden() statt isVisible() (siehe Kommentar bei _activity_progress
+    # weiter oben): die Test-Fixture zeigt das Fenster nie tatsaechlich an,
+    # isVisible() waere deshalb IMMER False, unabhaengig vom eigenen
+    # show()/hide()-Aufruf.
+    mw._on_graph_mouse_moved(mw.timeseries_plot, mw.lbl_graph_cursor_timeseries, scene_pos)
+    assert not mw.lbl_graph_cursor_timeseries.isHidden()
+    assert "°C" in mw.lbl_graph_cursor_timeseries.text()
+    assert "25.0" in mw.lbl_graph_cursor_timeseries.text()
+
+    # Ausserhalb der ViewBox (z.B. ueber der Achsenbeschriftung) -- Label
+    # muss verschwinden statt eine irrefuehrende Koordinate zu zeigen.
+    far_outside = QtCore.QPointF(scene_pos.x() - 10_000, scene_pos.y() - 10_000)
+    mw._on_graph_mouse_moved(mw.timeseries_plot, mw.lbl_graph_cursor_timeseries, far_outside)
+    assert mw.lbl_graph_cursor_timeseries.isHidden()
+
+
+def test_graph_mouse_moved_hidden_without_recording(main_window):
+    mw = main_window
+    view_box = mw.timeseries_plot.getPlotItem().getViewBox()
+    scene_pos = view_box.mapViewToScene(QtCore.QPointF(0, 0))
+    mw._on_graph_mouse_moved(mw.timeseries_plot, mw.lbl_graph_cursor_timeseries, scene_pos)
+    assert mw.lbl_graph_cursor_timeseries.isHidden()
+
+
+def test_graph_cursor_label_follows_runtime_vs_clock_display_mode(loaded_main_window):
+    mw = loaded_main_window
+    view_box = mw.timeseries_plot.getPlotItem().getViewBox()
+    unix = mw.recording.unix_seconds()
+    view_box.setRange(xRange=(unix[0], unix[-1]), yRange=(0, 50), padding=0)
+    scene_pos = view_box.mapViewToScene(QtCore.QPointF(unix[0], 25))
+
+    mw._apply_time_display_mode("clock")
+    mw._on_graph_mouse_moved(mw.timeseries_plot, mw.lbl_graph_cursor_timeseries, scene_pos)
+    clock_text = mw.lbl_graph_cursor_timeseries.text()
+    assert str(mw.recording.timestamps[0].year) in clock_text
+
+    mw._apply_time_display_mode("runtime")
+    mw._on_graph_mouse_moved(mw.timeseries_plot, mw.lbl_graph_cursor_timeseries, scene_pos)
+    runtime_text = mw.lbl_graph_cursor_timeseries.text()
+    assert runtime_text != clock_text
+    assert "00:00:00" in runtime_text
+
+
+def test_graph_cursor_eventFilter_hides_label_on_leave(loaded_main_window):
+    mw = loaded_main_window
+    view_box = mw.timeseries_plot.getPlotItem().getViewBox()
+    view_box.setRange(xRange=(0, 100), yRange=(0, 50), padding=0)
+    scene_pos = view_box.mapViewToScene(QtCore.QPointF(50, 25))
+    mw._on_graph_mouse_moved(mw.timeseries_plot, mw.lbl_graph_cursor_timeseries, scene_pos)
+    assert not mw.lbl_graph_cursor_timeseries.isHidden()
+
+    leave_event = QtCore.QEvent(QtCore.QEvent.Type.Leave)
+    mw.eventFilter(mw.timeseries_plot, leave_event)
+    assert mw.lbl_graph_cursor_timeseries.isHidden()
 
 
 # --------------------------------------------------------- Datei-Menue
@@ -773,6 +1022,460 @@ def test_export_video_image_stack_uses_rendered_timestamp_prefix(roi_and_live_wi
     ]
 
 
+def test_show_frame_with_pixel_source_idx_shows_other_pixels_but_own_timestamp(loaded_main_window):
+    """Punkt 4 (Nutzerwunsch, Video-Export "Lücke füllen"): _show_frame()
+    kann optional die BILDDATEN eines ANDEREN Frames anzeigen, waehrend
+    Zeitstempel/Status/Marker weiterhin zum tatsaechlich angeforderten idx
+    gehoeren -- self.recording selbst bleibt dabei unangetastet (Invariante:
+    Frame-Indizes/Zeitstempel verschieben sich nie)."""
+    mw = loaded_main_window
+    mw._show_frame(3, pixel_source_idx=1)
+    assert mw.current_index == 3
+    assert mw.timestamp_label.text().strip() == mw.recording.timestamps[3].strftime("%Y-%m-%d %H:%M:%S")
+    np.testing.assert_array_equal(mw.image_item.image, mw.recording.frames[1])
+    assert not np.array_equal(mw.recording.frames[1], mw.recording.frames[3]), (
+        "Testvoraussetzung: Frame 1 und 3 muessen sich tatsaechlich unterscheiden"
+    )
+
+
+def test_video_export_dialog_freeze_checkbox_visibility_and_getter(qapp):
+    from thermal_viewer.dialogs import VideoExportDialog
+
+    common_kwargs = dict(
+        parent=None, n_frames=5, colormaps=[("Grau", "grey")], current_colormap_index=0,
+        current_invert=False, current_level_mode="global", current_min=0.0, current_max=100.0,
+        current_fps=5.0,
+    )
+    dlg_with = VideoExportDialog(**common_kwargs, has_excluded_frames=True)
+    dlg_without = VideoExportDialog(**common_kwargs, has_excluded_frames=False)
+    dlg_with.show()
+    dlg_without.show()
+    try:
+        assert dlg_with.chk_freeze_excluded_pixels.isVisible() is True
+        assert dlg_without.chk_freeze_excluded_pixels.isVisible() is False
+
+        assert dlg_with.freeze_excluded_frame_pixels() is False  # Standard: aus
+        dlg_with.chk_freeze_excluded_pixels.setChecked(True)
+        assert dlg_with.freeze_excluded_frame_pixels() is True
+
+        # Nur fuer den Video-Export (Rueckfrage bestaetigt): im Bildstapel-
+        # Modus gilt die Option NICHT, auch wenn angehakt.
+        dlg_with.radio_output_images.setChecked(True)
+        assert dlg_with.freeze_excluded_frame_pixels() is False
+        assert dlg_with.chk_freeze_excluded_pixels.isEnabled() is False
+    finally:
+        dlg_with.close()
+        dlg_without.close()
+
+
+# ------------------------------------------------ Schwindungsmessung
+
+def test_detect_edge_in_window_finds_median_crossing_from_each_side():
+    from thermal_viewer.main_window.shrinkage_ops import _detect_edge_in_window
+
+    frame = np.full((4, 10), 10.0)
+    frame[:, 3:7] = 50.0  # "Probe" (waermer) in Spalten 3..6, Rest Hintergrund
+
+    # Box umfasst die gesamte Zeile (0..9) -- von links gesucht muss die
+    # linke Kante (Spalte 3) gefunden werden, von rechts die rechte (Spalte 6).
+    assert _detect_edge_in_window(frame, 0, 4, 0, 10, threshold=30.0, warmer=True, from_left=True) == 3
+    assert _detect_edge_in_window(frame, 0, 4, 0, 10, threshold=30.0, warmer=True, from_left=False) == 6
+
+    # "Kaelter als Hintergrund" -- Vorzeichen der Bedingung dreht sich um.
+    cold_frame = np.full((4, 10), 50.0)
+    cold_frame[:, 3:7] = 10.0
+    assert _detect_edge_in_window(cold_frame, 0, 4, 0, 10, threshold=30.0, warmer=False, from_left=True) == 3
+
+    # Keine Zeile ueberschreitet die Schwelle -- None statt Absturz/NaN.
+    flat = np.full((4, 10), 10.0)
+    assert _detect_edge_in_window(flat, 0, 4, 0, 10, threshold=30.0, warmer=True, from_left=True) is None
+
+    # Box ausserhalb des Bildes (leere Region) -- ebenfalls None.
+    assert _detect_edge_in_window(frame, 0, 4, 10, 10, threshold=30.0, warmer=True, from_left=True) is None
+
+
+def test_track_edge_across_frames_recenters_box_and_falls_back_on_miss():
+    from thermal_viewer.main_window.shrinkage_ops import _track_edge_across_frames
+
+    # Box-Breite 10, Start bei Spalte 10 (Box [10,20)). Frame 0's Kante bei
+    # Spalte 12 liegt NAHE am linken Rand dieser Box (nicht zentriert) --
+    # nach dem Zentrieren um diese Kante (Box wird zu [7,17)) landet Frame
+    # 1's tatsaechliche Kante bei Spalte 8 INNERHALB der neu zentrierten,
+    # aber AUSSERHALB der urspruenglichen Box: nur mit echtem Nachziehen der
+    # Box liefert die Funktion hier 8 statt (bei einer stehenbleibenden Box)
+    # faelschlich 10.
+    n_cols = 40
+    frames = np.full((3, 4, n_cols), 10.0)
+    frames[0, :, 12:] = 50.0
+    frames[1, :, 8:] = 50.0
+    # frames[2] bleibt ueberall 10.0 (kein Uebergang).
+
+    result = _track_edge_across_frames(
+        frames, order=[0, 1, 2], row0=0, row1=4, box_width=10,
+        initial_col0=10, threshold=30.0, warmer=True, from_left=True, n_cols=n_cols,
+    )
+    assert result[0] == 12
+    assert result[1] == 8, "Box muss sich um die bei Frame 0 gefundene Kante neu zentriert haben"
+    assert result[2] == 8, "Ohne Treffer muss das Ergebnis des Vorgaengers uebernommen werden"
+
+
+def test_track_edge_across_frames_falls_back_to_box_center_without_any_prior_hit():
+    from thermal_viewer.main_window.shrinkage_ops import _track_edge_across_frames
+
+    frames = np.full((1, 4, 20), 10.0)  # durchgehend flach -- nie ein Treffer
+    result = _track_edge_across_frames(
+        frames, order=[0], row0=0, row1=4, box_width=6,
+        initial_col0=2, threshold=30.0, warmer=True, from_left=True, n_cols=20,
+    )
+    assert result[0] == 2 + 6 // 2  # Box-Mitte als Nothilfe
+
+
+def _make_shrinking_recording_window(loaded_main_window):
+    """Ersetzt die Frames der bereits geladenen Fixture-Aufnahme durch ein
+    deterministisches, ueber die Zeit SCHRUMPFENDES helles Rechteck (rows
+    5:15, urspruenglich Spalten 10:40 in einem 60 Spalten breiten Bild) --
+    5 Frames, pro Frame je 1px pro Seite schmaler."""
+    mw = loaded_main_window
+    rows, cols, n = 20, 60, 5
+    frames = np.full((n, rows, cols), 10.0, dtype=np.float32)
+    for i in range(n):
+        frames[i, 5:15, 10 + i:40 - i] = 50.0
+    mw.recording.frames = frames
+    mw._set_recording(mw.recording)
+    return mw
+
+
+def test_shrinkage_measurement_end_to_end_tracks_shrinking_width(loaded_main_window):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw.chk_shrinkage_enabled.setChecked(True)
+    assert mw.roi_shrink_left.isVisible()
+
+    rows, cols = mw.recording.shape
+    mw.roi_shrink_left.setPos((5, 5), update=False)
+    mw.roi_shrink_left.setSize((10, 10))
+    mw.roi_shrink_right.setPos((35, 5), update=False)
+    mw.roi_shrink_right.setSize((10, 10))
+
+    mw.frame_slider.setValue(0)
+    mw._on_shrinkage_set_ref_clicked()
+    assert mw._shrinkage_ref_frame == 0
+
+    mw.radio_shrinkage_warmer.setChecked(True)
+    mw.spin_shrinkage_threshold.setValue(30.0)
+    mw._on_shrinkage_compute_clicked()
+
+    assert mw._shrinkage_result is not None
+    widths = mw._shrinkage_result["widths_px"]
+    assert len(widths) == 5
+    # Das synthetische Rechteck wird pro Bild um 2px (1px je Seite) schmaler.
+    assert list(widths) == sorted(widths, reverse=True), widths
+    assert widths[0] - widths[-1] == pytest.approx(8.0, abs=1e-6)
+
+    x, y = mw.shrinkage_curve.getData()
+    assert len(x) == 5
+
+
+def test_compute_shrinkage_width_excludes_cleaned_frames_from_edge_tracking(loaded_main_window):
+    # Regressionsschutz: die Kantenverfolgung zentriert die Such-Box nach
+    # JEDEM verarbeiteten Bild neu um dessen erkannte Kante -- ein von der
+    # Rohdaten-Bereinigung ausgeblendetes (typischerweise gestoertes/
+    # fehlerhaftes) Bild durfte diese Neu-Zentrierung bisher trotzdem
+    # ausloesen, wodurch eine einzelne Stoerung die Box so weit von der
+    # wahren Kante wegziehen konnte, dass ALLE nachfolgenden, eigentlich
+    # guten Bilder ebenfalls falsch erkannt wurden. Bild 2 hier hat eine
+    # Stoerung, die im linken Suchfenster eine Kante bei Spalte 8 vortaeuscht
+    # (statt der wahren Kante bei Spalte 12) -- ausgeschlossen darf sie die
+    # Verfolgung von Bild 3/4 nicht mehr beeinflussen.
+    mw = loaded_main_window
+    rows, cols, n = 20, 60, 5
+    frames = np.full((n, rows, cols), 10.0, dtype=np.float32)
+    for i in range(n):
+        frames[i, 5:15, 10 + i:40 - i] = 50.0
+    frames[2, 5:15, :] = 10.0
+    frames[2, 5:15, 0:20] = 50.0
+    mw.recording.frames = frames
+    mw._set_recording(mw.recording)
+
+    mw.chk_shrinkage_enabled.setChecked(True)
+    mw.roi_shrink_left.setPos((8, 5), update=False)
+    mw.roi_shrink_left.setSize((6, 10))
+    mw.roi_shrink_right.setPos((35, 5), update=False)
+    mw.roi_shrink_right.setSize((10, 10))
+    mw.frame_slider.setValue(0)
+    mw._on_shrinkage_set_ref_clicked()
+    mw.radio_shrinkage_warmer.setChecked(True)
+    mw.spin_shrinkage_threshold.setValue(30.0)
+
+    mw._excluded_frame_indices = {2}
+    mw._on_shrinkage_compute_clicked()
+
+    left_edges = mw._shrinkage_result["left_edges"]
+    # Wahre linke Kante von Bild i liegt bei Spalte 10+i -- unabhaengig von
+    # der Stoerung in Bild 2 (dessen eigener Wert wird ohnehin nirgends
+    # angezeigt/exportiert, siehe _update_shrinkage_curve/export_csv.py).
+    assert left_edges[3] == 13
+    assert left_edges[4] == 14
+
+
+def test_shrinkage_toggle_controls_box_and_curve_visibility(loaded_main_window):
+    # roi_shrink_left ist ein pg.ROI (QGraphicsItem), kein QWidget -- dessen
+    # isVisible() ist (anders als bei echten QWidgets in diesen Tests, siehe
+    # Kommentar bei _activity_progress) NICHT vom ungezeigten Hauptfenster
+    # abhaengig, sondern spiegelt direkt den eigenen setVisible()-Aufruf.
+    mw = loaded_main_window
+    assert not mw.roi_shrink_left.isVisible()
+
+    mw.chk_shrinkage_enabled.setChecked(True)
+    assert mw.roi_shrink_left.isVisible()
+    assert mw.spin_shrinkage_threshold.isEnabled()
+
+    mw.chk_shrinkage_enabled.setChecked(False)
+    assert not mw.roi_shrink_left.isVisible()
+    assert not mw.spin_shrinkage_threshold.isEnabled()
+
+
+def test_shrinkage_state_resets_on_reload(loaded_main_window, synthetic_recording_folder):
+    mw = loaded_main_window
+    mw.chk_shrinkage_enabled.setChecked(True)
+    mw.frame_slider.setValue(1)
+    mw._on_shrinkage_set_ref_clicked()
+    assert mw._shrinkage_ref_frame == 1
+
+    mw._confirm_discard_current_recording = lambda: True
+    assert mw._load_paths(sorted(synthetic_recording_folder.glob("*.csv")))
+    assert mw._shrinkage_ref_frame is None
+    assert mw._shrinkage_result is None
+    assert mw.lbl_shrinkage_ref.text() == "Startbild: nicht gesetzt"
+
+
+def test_detect_edge_profile_returns_per_row_columns_with_nan_for_misses():
+    from thermal_viewer.main_window.shrinkage_ops import _detect_edge_profile
+
+    frame = np.full((4, 10), 10.0)
+    frame[0, 3:] = 50.0
+    frame[1, 5:] = 50.0
+    # Zeile 2 bleibt flach -- kein Uebergang.
+    frame[3, 2:] = 50.0
+
+    profile = _detect_edge_profile(frame, 0, 4, 0, 10, threshold=30.0, warmer=True, from_left=True)
+    assert profile[0] == 3
+    assert profile[1] == 5
+    assert np.isnan(profile[2])
+    assert profile[3] == 2
+
+
+def test_paired_row_widths_uses_only_overlapping_valid_rows():
+    from thermal_viewer.main_window.shrinkage_ops import _paired_row_widths
+
+    profile_l = np.array([2.0, 2.0, 2.0, np.nan])  # absolute Zeilen 0..3
+    profile_r = np.array([8.0, 9.0, np.nan, 7.0])  # absolute Zeilen 1..4
+    widths = _paired_row_widths(profile_l, row0_l=0, profile_r=profile_r, row0_r=1)
+    # Ueberlappung ist Zeile 1..3; Zeile 3 hat aber KEINE rechte Kante (NaN
+    # in profile_r an relativer Position 2) -- bleibt aussen vor.
+    assert widths == [6.0, 7.0]
+
+
+def _make_bulging_sample_window(loaded_main_window):
+    """Ein einzelnes Bild mit einer GEWOELBTEN Kontur (wie das Seiten-Profil
+    einer runden/zylindrischen Probe): in den meisten Zeilen ist die Probe
+    10px breit (Spalten 25:35), in EINER mittleren Zeile ("Äquator") ist
+    sie 20px breit (Spalten 20:40). Bei geraden/parallelen Kanten waere die
+    Breite in jeder Zeile gleich -- hier absichtlich nicht, um rect- von
+    round-Geometrie unterscheidbar zu machen."""
+    mw = loaded_main_window
+    rows, cols = 20, 60
+    frame = np.full((rows, cols), 10.0, dtype=np.float32)
+    for r in range(5, 15):
+        left, right = (20, 40) if r == 9 else (25, 35)
+        frame[r, left:right] = 50.0
+    mw.recording.frames = np.array([frame], dtype=np.float32)
+    # timestamps/paths auf dieselbe Laenge (1 Frame) kuerzen -- sonst
+    # klaffen z.B. unix_seconds() (laenge timestamps) und widths_px (laenge
+    # frames) auseinander (siehe _update_shrinkage_curve).
+    mw.recording.timestamps = mw.recording.timestamps[:1]
+    mw.recording.paths = mw.recording.paths[:1]
+    mw._set_recording(mw.recording)
+    return mw
+
+
+def test_shrinkage_round_geometry_uses_widest_row_instead_of_median(loaded_main_window):
+    # Nutzerfrage: ist die Schwindungsmessung geometrieabhaengig (Quader vs.
+    # Zylinder)? Ja -- fuer eine gewoelbte Kontur unterschaetzt die (fuer
+    # gerade Kanten richtige) Median-Bildung ueber die Boxzeilen die wahre
+    # Breite systematisch. Der "rund/zylindrisch"-Modus muss stattdessen die
+    # breiteste Zeile ("Äquator") finden.
+    mw = _make_bulging_sample_window(loaded_main_window)
+    mw.roi_shrink_left.setPos((15, 5), update=False)
+    mw.roi_shrink_left.setSize((15, 10))
+    mw.roi_shrink_right.setPos((30, 5), update=False)
+    mw.roi_shrink_right.setSize((15, 10))
+    mw.frame_slider.setValue(0)
+    mw._on_shrinkage_set_ref_clicked()
+    mw.radio_shrinkage_warmer.setChecked(True)
+    mw.spin_shrinkage_threshold.setValue(30.0)
+
+    assert mw.radio_shrinkage_rect.isChecked()
+    mw._on_shrinkage_compute_clicked()
+    rect_width = mw._shrinkage_result["widths_px"][0]
+    assert mw._shrinkage_result["geometry"] == "rect"
+    assert rect_width == pytest.approx(9.0)
+
+    mw.radio_shrinkage_round.setChecked(True)
+    mw._on_shrinkage_compute_clicked()
+    round_width = mw._shrinkage_result["widths_px"][0]
+    assert mw._shrinkage_result["geometry"] == "round"
+    assert round_width == pytest.approx(19.0)
+    assert round_width > rect_width
+
+
+def test_csv_export_includes_shrinkage_width_column(loaded_main_window, tmp_path, monkeypatch):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw.roi_shrink_left.setPos((5, 5), update=False)
+    mw.roi_shrink_left.setSize((10, 10))
+    mw.roi_shrink_right.setPos((35, 5), update=False)
+    mw.roi_shrink_right.setSize((10, 10))
+    mw.frame_slider.setValue(0)
+    mw._on_shrinkage_set_ref_clicked()
+    mw.radio_shrinkage_warmer.setChecked(True)
+    mw.spin_shrinkage_threshold.setValue(30.0)
+    mw._on_shrinkage_compute_clicked()
+    assert mw._shrinkage_result is not None
+    widths = mw._shrinkage_result["widths_px"]
+
+    out_path = tmp_path / "Werte.json"
+    orig_dialog = mwmod.CsvColumnDialog
+
+    class AutoAcceptDialog(orig_dialog):
+        def exec(self):
+            self.combo_format.setCurrentIndex(self.combo_format.findData("json"))
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(mwmod, "CsvColumnDialog", AutoAcceptDialog)
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(out_path), "")),
+    )
+
+    # Kein Massstab gesetzt und kein ROI/Live-Cursor -- die Schwindungs-
+    # Spalte muss trotzdem (als einzige Spalte) exportiert werden koennen
+    # (Regressionsschutz fuer die erweiterte "keine Daten"-Pruefung).
+    assert mw._px_to_mm is None
+    mw._export_csv()
+
+    records = json.loads(out_path.read_text(encoding="utf-8"))
+    assert len(records) == mw.recording.n_frames
+    col_key = next(k for k in records[0] if k.startswith("Schwindung (Breite)"))
+    assert "px" in col_key
+    for i, rec in enumerate(records):
+        assert rec[col_key] == pytest.approx(round(float(widths[i]), 3))
+
+
+def test_segment_area_px_counts_pixels_over_threshold():
+    from thermal_viewer.main_window.shrinkage_ops import _segment_area_px
+
+    frame = np.full((5, 5), 10.0)
+    frame[1:4, 1:4] = 50.0  # 3x3 = 9 heisse Pixel
+    assert _segment_area_px(frame, 0, 5, 0, 5, threshold=30.0, warmer=True) == 9
+    # Umgekehrte Richtung ("kaelter als Hintergrund"): der Rest (16 Pixel).
+    assert _segment_area_px(frame, 0, 5, 0, 5, threshold=30.0, warmer=False) == 16
+    # Leere Box.
+    assert _segment_area_px(frame, 0, 5, 5, 5, threshold=30.0, warmer=True) == 0
+
+
+def test_shrinkage_mode_switch_clears_result_and_toggles_box_visibility(loaded_main_window):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw.chk_shrinkage_enabled.setChecked(True)
+    assert mw.radio_shrinkage_mode_width.isChecked()
+    assert mw.roi_shrink_left.isVisible()
+    assert not mw.roi_shrink_area.isVisible()
+
+    mw.roi_shrink_left.setPos((5, 5), update=False)
+    mw.roi_shrink_left.setSize((10, 10))
+    mw.roi_shrink_right.setPos((35, 5), update=False)
+    mw.roi_shrink_right.setSize((10, 10))
+    mw.frame_slider.setValue(0)
+    mw._on_shrinkage_set_ref_clicked()
+    mw._on_shrinkage_compute_clicked()
+    assert mw._shrinkage_result is not None
+
+    # Umschalten auf "Fläche" verwirft das Breiten-Ergebnis (gehoert zur
+    # jeweils ANDEREN Messart) und tauscht die sichtbaren Boxen.
+    mw.radio_shrinkage_mode_area.setChecked(True)
+    assert mw._shrinkage_result is None
+    assert mw.lbl_shrinkage_result.text() == "Noch nicht berechnet."
+    assert mw.roi_shrink_area.isVisible()
+    assert not mw.roi_shrink_left.isVisible()
+    assert not mw.roi_shrink_right.isVisible()
+    assert not mw.roi_shrink_width.isVisible()
+    x, y = mw.shrinkage_curve.getData()
+    assert x is None and y is None
+
+    mw.radio_shrinkage_mode_width.setChecked(True)
+    assert mw._shrinkage_result is None
+    assert mw.roi_shrink_left.isVisible()
+    assert not mw.roi_shrink_area.isVisible()
+
+
+def test_shrinkage_area_mode_end_to_end_tracks_shrinking_area(loaded_main_window):
+    # Nutzerwunsch: Schwindung zusaetzlich zur Breite auch ueber die Flaeche
+    # bestimmbar machen -- geometrieunabhaengig, da einfach die Pixelzahl
+    # ueber dem Schwellenwert in EINEM (nicht nachgefuehrten) Bereich
+    # gezaehlt wird, statt zwei Flanken zu verfolgen.
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw.chk_shrinkage_enabled.setChecked(True)
+    mw.radio_shrinkage_mode_area.setChecked(True)
+    assert mw.roi_shrink_area.isVisible()
+
+    mw.radio_shrinkage_warmer.setChecked(True)
+    mw.spin_shrinkage_threshold.setValue(30.0)
+    # Kein Startbild noetig -- jedes Bild wird unabhaengig ausgewertet.
+    mw._on_shrinkage_compute_clicked()
+
+    assert mw._shrinkage_result is not None
+    assert mw._shrinkage_result["mode"] == "area"
+    areas = mw._shrinkage_result["areas_px"]
+    # Das synthetische Rechteck ist 10 Zeilen hoch und pro Bild 2px (1px je
+    # Seite) schmaler -- Flaeche = 10 * (30 - 2*i).
+    assert list(areas) == [300.0, 280.0, 260.0, 240.0, 220.0]
+
+    x, y = mw.shrinkage_curve.getData()
+    assert len(x) == 5
+
+
+def test_csv_export_includes_shrinkage_area_column(loaded_main_window, tmp_path, monkeypatch):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw.chk_shrinkage_enabled.setChecked(True)
+    mw.radio_shrinkage_mode_area.setChecked(True)
+    mw.radio_shrinkage_warmer.setChecked(True)
+    mw.spin_shrinkage_threshold.setValue(30.0)
+    mw._on_shrinkage_compute_clicked()
+    assert mw._shrinkage_result is not None
+    areas = mw._shrinkage_result["areas_px"]
+
+    out_path = tmp_path / "Werte.json"
+    orig_dialog = mwmod.CsvColumnDialog
+
+    class AutoAcceptDialog(orig_dialog):
+        def exec(self):
+            self.combo_format.setCurrentIndex(self.combo_format.findData("json"))
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(mwmod, "CsvColumnDialog", AutoAcceptDialog)
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(out_path), "")),
+    )
+
+    assert mw._px_to_mm is None
+    mw._export_csv()
+
+    records = json.loads(out_path.read_text(encoding="utf-8"))
+    col_key = next(k for k in records[0] if k.startswith("Schwindung (Fläche)"))
+    assert "px²" in col_key
+    for i, rec in enumerate(records):
+        assert rec[col_key] == pytest.approx(round(float(areas[i]), 3))
+
+
 # ------------------------------------------------------------ Projekt
 
 def test_save_project_records_source_folder(loaded_main_window, tmp_path, monkeypatch):
@@ -886,6 +1589,7 @@ def test_save_and_load_project_roundtrips_cleaning_state(loaded_main_window, tmp
     # bleibt der Bug unten (Regression) unentdeckt.
     mw._cleaning_points = [(3, 4), (10, 2)]
     mw._cleaning_kernel_size = 5
+    mw._cleaning_logic = "or"
     mw._draw_cleaning_point_markers()
     mw._cleaning_threshold = 7.5
     mw._excluded_frame_indices = {1, 3}
@@ -902,10 +1606,12 @@ def test_save_and_load_project_roundtrips_cleaning_state(loaded_main_window, tmp
     assert saved["bereinigung_punkte"] == [{"x": 3, "y": 4}, {"x": 10, "y": 2}]
     assert saved["bereinigung_schwellenwert"] == 7.5
     assert saved["bereinigung_kernel_groesse"] == 5
+    assert saved["bereinigung_logik"] == "or"
     assert saved["bereinigung_ausgeblendete_frames"] == [1, 3]
 
     mw._cleaning_points = []
     mw._cleaning_kernel_size = 3
+    mw._cleaning_logic = "and"
     mw._draw_cleaning_point_markers()
     mw._cleaning_threshold = 5.0
     mw._excluded_frame_indices = set()
@@ -919,6 +1625,7 @@ def test_save_and_load_project_roundtrips_cleaning_state(loaded_main_window, tmp
 
     assert mw._cleaning_points == [(3, 4), (10, 2)]
     assert mw._cleaning_kernel_size == 5
+    assert mw._cleaning_logic == "or"
     assert mw._cleaning_threshold == 7.5
     assert mw._excluded_frame_indices == {1, 3}
     # Regressionscheck: Bugfix -- ein aus der Projektdatei als float (statt
@@ -927,6 +1634,110 @@ def test_save_and_load_project_roundtrips_cleaning_state(loaded_main_window, tmp
     # Float-Indizierung von frames[:, r, c]). Muss nach dem Laden anstands-
     # los durchlaufen, egal was die Kandidatenliste konkret enthaelt.
     mw._compute_cleaning_candidates()
+
+
+def test_save_and_load_project_roundtrips_shrinkage_width_state(loaded_main_window, tmp_path, monkeypatch):
+    # Regressionsschutz: die Schwindungsmessung (shrinkage_ops.py) fehlte
+    # bisher komplett im Projekt-Speichern/Laden -- Widerspruch zum
+    # dokumentierten Nutzerwunsch "vollstaendiger Programmzustand" (siehe
+    # _save_project). Boxen/Einstellungen muessen ueber einen Speichern-
+    # /Laden-Zyklus erhalten bleiben, das Ergebnis wird aus ihnen neu
+    # berechnet (kein eigener Rohwerte-Export).
+    mw = loaded_main_window
+    mw.roi_shrink_left.setPos((1, 1), update=False)
+    mw.roi_shrink_left.setSize((3, 3))
+    mw.roi_shrink_right.setPos((10, 1), update=False)
+    mw.roi_shrink_right.setSize((3, 3))
+    mw.spin_shrinkage_threshold.setValue(12.5)
+    mw.radio_shrinkage_colder.setChecked(True)
+    mw.radio_shrinkage_round.setChecked(True)
+    mw.frame_slider.setValue(0)
+    mw._on_shrinkage_set_ref_clicked()
+    mw.chk_shrinkage_enabled.setChecked(True)
+    assert mw._shrinkage_ref_frame == 0
+
+    proj_path = tmp_path / "shrinkage.tvproj"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(proj_path), "")),
+    )
+    assert mw._save_project() is True
+
+    saved = json.loads(proj_path.read_text(encoding="utf-8"))
+    assert saved["schwindung"]["aktiviert"] is True
+    assert saved["schwindung"]["messart"] == "width"
+    assert saved["schwindung"]["schwellenwert"] == 12.5
+    assert saved["schwindung"]["waermer"] is False
+    assert saved["schwindung"]["geometrie"] == "round"
+    assert saved["schwindung"]["startbild"] == 0
+    assert saved["schwindung"]["box_links"]["x"] == 1.0
+
+    # Zustand vor dem Laden komplett anders, damit der Roundtrip echt
+    # etwas wiederherstellen muss statt zufaellig schon zu passen.
+    mw.chk_shrinkage_enabled.setChecked(False)
+    mw.roi_shrink_left.setPos((50, 50), update=False)
+    mw.roi_shrink_left.setSize((5, 5))
+    mw.spin_shrinkage_threshold.setValue(1.0)
+    mw.radio_shrinkage_warmer.setChecked(True)
+    mw.radio_shrinkage_rect.setChecked(True)
+    mw._shrinkage_ref_frame = None
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(proj_path), "")),
+    )
+    mw._load_project()
+
+    assert mw.chk_shrinkage_enabled.isChecked() is True
+    assert mw._shrinkage_enabled is True
+    assert mw.radio_shrinkage_mode_width.isChecked() is True
+    assert mw.spin_shrinkage_threshold.value() == 12.5
+    assert mw.radio_shrinkage_colder.isChecked() is True
+    assert mw.radio_shrinkage_round.isChecked() is True
+    assert mw._shrinkage_ref_frame == 0
+    assert tuple(mw.roi_shrink_left.pos()) == (1.0, 1.0)
+    assert tuple(mw.roi_shrink_left.size()) == (3.0, 3.0)
+    # Ergebnis wurde aus den wiederhergestellten Eingaben neu berechnet,
+    # nicht leer gelassen.
+    assert mw._shrinkage_result is not None
+    assert mw._shrinkage_result["mode"] == "width"
+
+
+def test_save_and_load_project_roundtrips_shrinkage_area_state(loaded_main_window, tmp_path, monkeypatch):
+    # Gegenstueck zum Breiten-Test oben: die Flaechen-Messart braucht kein
+    # Startbild und muss nach dem Laden trotzdem sofort ein Ergebnis haben
+    # (siehe _load_project: "else: self._compute_shrinkage_area()").
+    mw = loaded_main_window
+    mw.roi_shrink_area.setPos((2, 2), update=False)
+    mw.roi_shrink_area.setSize((8, 8))
+    mw.radio_shrinkage_mode_area.setChecked(True)
+    mw.spin_shrinkage_threshold.setValue(20.0)
+    mw.chk_shrinkage_enabled.setChecked(True)
+
+    proj_path = tmp_path / "shrinkage_area.tvproj"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(proj_path), "")),
+    )
+    assert mw._save_project() is True
+    saved = json.loads(proj_path.read_text(encoding="utf-8"))
+    assert saved["schwindung"]["messart"] == "area"
+    assert saved["schwindung"]["box_flaeche"]["breite_px"] == 8.0
+
+    mw.radio_shrinkage_mode_width.setChecked(True)
+    mw.chk_shrinkage_enabled.setChecked(False)
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(proj_path), "")),
+    )
+    mw._load_project()
+
+    assert mw.radio_shrinkage_mode_area.isChecked() is True
+    assert mw._shrinkage_mode == "area"
+    assert tuple(mw.roi_shrink_area.size()) == (8.0, 8.0)
+    assert mw._shrinkage_result is not None
+    assert mw._shrinkage_result["mode"] == "area"
 
 
 def test_load_project_tolerates_non_integer_cleaning_points_in_file(loaded_main_window, tmp_path, monkeypatch):
@@ -955,3 +1766,250 @@ def test_load_project_tolerates_non_integer_cleaning_points_in_file(loaded_main_
     assert mw._cleaning_points == [(3, 4)]
     assert all(isinstance(v, int) for p in mw._cleaning_points for v in p)
     mw._compute_cleaning_candidates()  # darf nicht mit IndexError abstuerzen
+
+
+def test_apply_cleaning_exclusions_refuses_to_hide_every_frame(loaded_main_window, monkeypatch):
+    # Regressionsschutz: wuerde eine Auswahl ALLE Bilder der Aufnahme
+    # ausblenden, faende der Navigations-Ausweich-Sprung in
+    # _apply_cleaning_exclusions kein sichtbares Bild mehr und wuerde die
+    # zentrale Zusicherung verletzen, dass ein ausgeblendetes Bild NIE mehr
+    # angezeigt wird -- muss daher unveraendert abgelehnt werden.
+    mw = loaded_main_window
+    n = mw.recording.n_frames
+    assert n > 1
+    shown = []
+    monkeypatch.setattr(mw, "_show_frame", lambda idx, *a, **k: shown.append(idx))
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox, "information",
+        staticmethod(lambda *a, **k: QtWidgets.QMessageBox.StandardButton.Ok),
+    )
+
+    mw._apply_cleaning_exclusions(set(range(n)))
+
+    assert mw._excluded_frame_indices == set()  # unveraendert, nichts uebernommen
+    assert shown == []  # gar nicht erst versucht, ein (ausgeblendetes) Bild zu zeigen
+
+
+def test_load_project_caps_exclusion_set_that_would_hide_every_frame(loaded_main_window, tmp_path, monkeypatch):
+    # Regressionsschutz fuer denselben Bug wie oben, diesmal ueber eine
+    # (z.B. von Hand bearbeitete) Projektdatei, die ALLE Bilder als
+    # ausgeblendet listet.
+    mw = loaded_main_window
+    n = mw.recording.n_frames
+    proj_path = tmp_path / "all_excluded.tvproj"
+    proj_path.write_text(
+        json.dumps({
+            "format_version": 2,
+            "quellordner": str(mw.recording.paths[0].parent),
+            "bild_groesse_px": {"zeilen": mw.recording.shape[0], "spalten": mw.recording.shape[1]},
+            "bereinigung_punkte": [],
+            "bereinigung_schwellenwert": 5.0,
+            "bereinigung_ausgeblendete_frames": list(range(n)),
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(proj_path), "")),
+    )
+    mw._load_project()
+
+    assert len(mw._excluded_frame_indices) == n - 1
+    assert mw._excluded_frame_indices != set(range(n))
+
+
+# ------------------------------------------------------------ Ebenen-Tabs
+
+
+def test_layer_tab_is_active_helper(loaded_main_window):
+    mw = loaded_main_window
+    assert mw._active_layer_tab == "all"
+    for category in ("roi", "cleaning", "shrinkage", "scale"):
+        assert mw._is_layer_tab_active(category)
+
+    mw._set_active_layer_tab("roi")
+    assert mw._is_layer_tab_active("roi")
+    assert not mw._is_layer_tab_active("cleaning")
+    assert not mw._is_layer_tab_active("shrinkage")
+    assert not mw._is_layer_tab_active("scale")
+
+
+def test_layer_tab_gates_roi_image_items(roi_and_live_window):
+    mw = roi_and_live_window
+    entry = mw.roi_entries[-1]  # roi_and_live_window platziert genau dieses (siehe conftest.py)
+    assert entry.placed
+    assert entry.roi.isVisible()
+    assert entry.label.isVisible()
+
+    mw._set_active_layer_tab("shrinkage")
+    assert not entry.roi.isVisible()
+    assert not entry.label.isVisible()
+
+    mw._set_active_layer_tab("roi")
+    assert entry.roi.isVisible()
+    assert entry.label.isVisible()
+
+    mw._set_active_layer_tab("all")
+    assert entry.roi.isVisible()
+    assert entry.label.isVisible()
+
+
+def test_layer_tab_never_reveals_unplaced_or_user_hidden_roi(loaded_main_window):
+    # Regressionsschutz: RoiEntry startet UNPLATZIERT versteckt
+    # (RoiEntry.__init__: self.roi.setVisible(False)) und hat eine eigene
+    # "sichtbar"-Checkbox in der Liste (entry.is_visible_checked(), siehe
+    # _on_roi_list_item_changed) -- der Ebenen-Tab darf diese beiden
+    # bestehenden Bedingungen nur EINSCHRAENKEN, niemals uebersteuern.
+    mw = loaded_main_window
+    unplaced = mw.roi_entries[0]
+    assert not unplaced.placed
+    assert not unplaced.roi.isVisible()
+
+    # Auf "Alle" (Default-Tab) darf ein unplatziertes ROI trotzdem NICHT
+    # sichtbar werden.
+    mw._set_active_layer_tab("roi")
+    assert not unplaced.roi.isVisible()
+    mw._set_active_layer_tab("all")
+    assert not unplaced.roi.isVisible()
+
+    # Ein platziertes, aber ueber die eigene Checkbox ausgeblendetes ROI
+    # bleibt ebenfalls versteckt, unabhaengig vom Tab.
+    hidden_entry = mw.roi_entries[1]
+    hidden_entry.place(10, 10, 5, 5)
+    assert hidden_entry.roi.isVisible()
+    hidden_entry.list_item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+    mw._on_roi_list_item_changed(hidden_entry.list_item)
+    assert not hidden_entry.roi.isVisible()
+
+    mw._set_active_layer_tab("roi")
+    assert not hidden_entry.roi.isVisible()
+    mw._set_active_layer_tab("all")
+    assert not hidden_entry.roi.isVisible()
+
+
+def test_layer_tab_gates_cleaning_point_image_items(loaded_main_window):
+    mw = loaded_main_window
+    mw._cleaning_points = [(3, 3)]
+    mw._draw_cleaning_point_markers()
+    item = mw._cleaning_point_items[0]
+    assert item["dot"].isVisible()
+    assert item["label"].isVisible()
+
+    mw._set_active_layer_tab("roi")
+    assert not item["dot"].isVisible()
+    assert not item["label"].isVisible()
+
+    mw._set_active_layer_tab("cleaning")
+    assert item["dot"].isVisible()
+    assert item["label"].isVisible()
+
+
+def test_layer_tab_gates_panel_sections(loaded_main_window):
+    # scale_box/_shrinkage_groupbox/roi_split sind echte QWidgets -- wie bei
+    # _activity_progress gilt hier .isHidden() statt .isVisible(), da das
+    # (nie per .show() gezeigte) MainWindow in Tests jedes Kind-Widget als
+    # nicht sichtbar meldet, unabhaengig vom eigenen setVisible()-Aufruf.
+    mw = loaded_main_window
+    assert not mw.scale_box.isHidden()
+    assert not mw._shrinkage_groupbox.isHidden()
+    assert not mw.roi_split.isHidden()
+
+    mw._set_active_layer_tab("roi")
+    assert mw.scale_box.isHidden()
+    assert mw._shrinkage_groupbox.isHidden()
+    assert not mw.roi_split.isHidden()
+
+    mw._set_active_layer_tab("scale")
+    assert not mw.scale_box.isHidden()
+    assert mw._shrinkage_groupbox.isHidden()
+    assert mw.roi_split.isHidden()
+
+    mw._set_active_layer_tab("all")
+    assert not mw.scale_box.isHidden()
+    assert not mw._shrinkage_groupbox.isHidden()
+    assert not mw.roi_split.isHidden()
+
+
+def test_layer_tab_combines_with_shrinkage_enabled_flag(loaded_main_window):
+    # Die Schwindungs-Boxen haben eine EIGENE Sichtbarkeits-Bedingung
+    # (Aktivieren-Checkbox) -- UND-verknuepft mit dem aktiven Tab, nicht vom
+    # Tab allein bestimmt.
+    mw = loaded_main_window
+    mw._set_active_layer_tab("shrinkage")
+    assert not mw.roi_shrink_left.isVisible()  # Checkbox noch aus
+
+    mw.chk_shrinkage_enabled.setChecked(True)
+    assert mw.roi_shrink_left.isVisible()
+
+    mw._set_active_layer_tab("roi")
+    assert not mw.roi_shrink_left.isVisible()  # jetzt vom Tab weg-gegated
+
+
+def test_on_add_roi_clicked_switches_to_roi_tab(loaded_main_window):
+    mw = loaded_main_window
+    mw._set_active_layer_tab("scale")
+    mw._on_add_roi_clicked()
+    assert mw._active_layer_tab == "roi"
+
+
+def test_shrinkage_enable_switches_tab_but_disable_does_not(loaded_main_window):
+    mw = loaded_main_window
+    mw._set_active_layer_tab("roi")
+    mw.chk_shrinkage_enabled.setChecked(True)
+    assert mw._active_layer_tab == "shrinkage"
+
+    mw.chk_shrinkage_enabled.setChecked(False)
+    assert mw._active_layer_tab == "shrinkage"  # Deaktivieren schaltet NICHT automatisch weg
+
+
+def test_ruler_and_measurement_tools_switch_to_scale_tab(loaded_main_window):
+    mw = loaded_main_window
+    mw._set_active_layer_tab("roi")
+    mw._start_ruler_tool()
+    assert mw._active_layer_tab == "scale"
+
+    mw._cancel_ruler_tool()
+    mw._px_to_mm = 0.5  # _start_measurement_tool verlangt einen gesetzten Maßstab
+    mw._set_active_layer_tab("roi")
+    mw._start_measurement_tool()
+    assert mw._active_layer_tab == "scale"
+
+
+def test_open_data_cleaning_dialog_switches_tab_and_shows_dialog(loaded_main_window):
+    mw = loaded_main_window
+    mw._set_active_layer_tab("roi")
+    mw._open_data_cleaning_dialog()
+    assert mw._active_layer_tab == "cleaning"
+    assert mw._cleaning_dialog is not None
+    assert mw._cleaning_dialog.isVisible()
+
+    mw._set_active_layer_tab("roi")
+    assert not mw._cleaning_dialog.isVisible()
+
+    mw._set_active_layer_tab("all")
+    assert mw._cleaning_dialog.isVisible()
+
+
+def test_cleaning_dialog_manual_close_reverts_tab_to_all(loaded_main_window):
+    mw = loaded_main_window
+    mw._open_data_cleaning_dialog()
+    assert mw._active_layer_tab == "cleaning"
+
+    mw._cleaning_dialog.close()
+    assert mw._active_layer_tab == "all"
+
+
+def test_layer_tab_bar_click_switches_tabs_and_opens_cleaning_dialog(loaded_main_window):
+    from thermal_viewer.main_window.layer_tabs_ops import _LAYER_TAB_ORDER
+
+    mw = loaded_main_window
+    mw.layer_tab_bar.setCurrentIndex(_LAYER_TAB_ORDER.index("roi"))
+    assert mw._active_layer_tab == "roi"
+
+    mw.layer_tab_bar.setCurrentIndex(_LAYER_TAB_ORDER.index("cleaning"))
+    assert mw._active_layer_tab == "cleaning"
+    assert mw._cleaning_dialog is not None
+    assert mw._cleaning_dialog.isVisible()
+
+    mw.layer_tab_bar.setCurrentIndex(_LAYER_TAB_ORDER.index("all"))
+    assert mw._active_layer_tab == "all"

@@ -222,6 +222,10 @@ class _RoiPanelBuildMixin:
         # GLEICHZEITIG sichtbar sein sollen, nicht nur der gerade
         # ausgewählte.
         scale_box = QtWidgets.QGroupBox("Maßstab && Messungen")
+        # Als self.-Attribut gehalten, damit layer_tabs_ops.py die
+        # Sichtbarkeit dieses gesamten Panel-Abschnitts je nach aktivem
+        # Ebenen-Tab steuern kann (siehe _apply_layer_tab_visibility).
+        self.scale_box = scale_box
         scale_layout = QtWidgets.QVBoxLayout(scale_box)
         self.scale_label = QtWidgets.QLabel("Kein Maßstab definiert.")
         self.scale_label.setWordWrap(True)
@@ -306,6 +310,8 @@ class _RoiPanelBuildMixin:
         top_row.addWidget(scale_box, 2)
         layout.addLayout(top_row)
 
+        self._build_shrinkage_panel(layout)
+
         # -- ROI-Auswahl als senkrechte Namensliste + Inhaltsflaeche (statt
         # fuenf untereinander gestapelter Boxen ODER eines QTabWidget mit
         # senkrechter Reiterleiste) -- letzteres dreht die Beschriftung dort
@@ -343,6 +349,10 @@ class _RoiPanelBuildMixin:
         roi_split.setStretchFactor(0, 0)
         roi_split.setStretchFactor(1, 1)
         roi_split.setSizes([130, 400])
+        # Als self.-Attribut gehalten, damit layer_tabs_ops.py die
+        # Sichtbarkeit dieses gesamten Panel-Abschnitts je nach aktivem
+        # Ebenen-Tab steuern kann (siehe _apply_layer_tab_visibility).
+        self.roi_split = roi_split
 
         layout.addWidget(roi_split, 1)
         if self.roi_list.count():

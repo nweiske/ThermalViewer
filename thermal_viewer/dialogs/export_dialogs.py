@@ -369,6 +369,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         settings: QtCore.QSettings | None = None,
         ruler_available: bool = False,
         measurement_entries: list[tuple[int, str]] | None = None,
+        has_excluded_frames: bool = False,
     ):
         super().__init__(parent)
         self.setWindowTitle("Video / Bildstapel exportieren")
@@ -489,6 +490,27 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.spin_fps.setValue(current_fps)
         fps_form.addRow("Wiedergabe-FPS im Video:", self.spin_fps)
         range_outer.addLayout(fps_form)
+
+        # Punkt 4 (Nutzerwunsch): nur relevant, wenn ueberhaupt Bilder von
+        # der Rohdaten-Bereinigung ausgeblendet sind -- und ausdruecklich
+        # NUR fuer den Video-Export (per Rueckfrage bestaetigt); im
+        # Bildstapel-Export ergibt ein dupliziertes Bild keinen Sinn, dort
+        # werden ausgeblendete Bilder weiterhin immer ausgelassen.
+        self.chk_freeze_excluded_pixels = QtWidgets.QCheckBox(
+            "Ausgeblendete Bilder durch das vorherige Bild ersetzen (statt Lücke zu überspringen)"
+        )
+        self.chk_freeze_excluded_pixels.setChecked(False)
+        self.chk_freeze_excluded_pixels.setToolTip(
+            "Nur für den Video-Export: von der Rohdaten-Bereinigung ausgeblendete Bilder (siehe "
+            "„Daten > Rohdaten säubern…“) werden NICHT weggelassen, sondern zeigen den "
+            "Bildinhalt des vorherigen, sichtbaren Bildes -- Frame-Anzahl und Zeitstempel im "
+            "Video bleiben dadurch unverändert. Ohne Haken werden sie wie bisher komplett "
+            "ausgelassen (kürzeres Video). Der Bildstapel-Export lässt ausgeblendete Bilder "
+            "immer aus."
+        )
+        self.chk_freeze_excluded_pixels.setVisible(has_excluded_frames)
+        range_outer.addWidget(self.chk_freeze_excluded_pixels)
+
         layout_top.addWidget(range_box, 1)
         layout.addLayout(layout_top)
 
@@ -717,6 +739,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.edit_image_prefix.setEnabled(not is_video)
         self.lbl_filename_preview.setEnabled(not is_video)
         self.lbl_filename_warning.setEnabled(not is_video)
+        self.chk_freeze_excluded_pixels.setEnabled(is_video)
 
     def _update_filename_preview(self) -> None:
         # sanitize_filename_prefix() zuerst (entfernt unter Windows/macOS/
@@ -825,6 +848,9 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
     def fps(self) -> float:
         return self.spin_fps.value()
+
+    def freeze_excluded_frame_pixels(self) -> bool:
+        return self.radio_output_video.isChecked() and self.chk_freeze_excluded_pixels.isChecked()
 
     def show_legend(self) -> bool:
         return self.chk_legend.isChecked()

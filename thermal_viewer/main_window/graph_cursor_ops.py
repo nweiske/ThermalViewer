@@ -52,11 +52,18 @@ class _GraphCursorMixin:
 
     def _on_graph_mouse_moved(self, plot_widget: QtWidgets.QWidget, label: QtWidgets.QLabel, scene_pos) -> None:
         view_box = plot_widget.getPlotItem().getViewBox()
-        if (
-            self.recording is None
-            or self.recording.n_frames == 0
-            or not view_box.sceneBoundingRect().contains(scene_pos)
-        ):
+        # Toleranz-Rand von 1px auf den Containment-Check: die x-Achse traegt
+        # rohe Unix-Sekunden (z.B. ~1.77 Milliarden) -- ViewBox.mapViewToScene()
+        # rundet solche grossen Werte unter PyQt5/pyqtgraph 0.13.3 (Windows-7-
+        # Legacy-Stack, siehe requirements-win7.txt) sichtbar ueber Float32-
+        # Genauigkeit, wodurch eine exakt am Rand gemappte Szenen-Position um
+        # einen Bruchteil eines Pixels AUSSERHALB von sceneBoundingRect()
+        # landen kann (Bugreport: Koordinatenanzeige blieb an den Bildraendern
+        # unerwartet leer/versteckt, reproduzierbar nur im Win7-Legacy-Build).
+        # Ein PySide6/Qt6-Aufbau ist von diesem konkreten Rundungsfehler nicht
+        # betroffen, der 1px-Rand aendert dort aber nichts Wahrnehmbares.
+        bounds = view_box.sceneBoundingRect().adjusted(-1.0, -1.0, 1.0, 1.0)
+        if self.recording is None or self.recording.n_frames == 0 or not bounds.contains(scene_pos):
             label.hide()
             return
         view_pos = view_box.mapSceneToView(scene_pos)

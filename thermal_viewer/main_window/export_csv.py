@@ -144,8 +144,19 @@ class _CsvExportMixin:
                 # areas_px/widths_px sind bereits ueber alle Frames (0..n-1)
                 # berechnet, das Ausblenden erledigt die Zeilen-Schleife
                 # unten selbst.
-                shrinkage_key = "areas_px" if self._shrinkage_result["mode"] == "area" else "widths_px"
-                y = self._shrinkage_result[shrinkage_key]
+                is_shrinkage_area = self._shrinkage_result["mode"] == "area"
+                shrinkage_key = "areas_px" if is_shrinkage_area else "widths_px"
+                # Bugfix: der Spaltenname traegt bereits das echte Einheiten-
+                # Suffix ("mm"/"mm²", siehe unit_suffix oben und
+                # CsvColumnDialog) sobald ein Maßstab gesetzt ist -- ohne
+                # dieselbe Skalierung hier (wie in _update_shrinkage_curve)
+                # stuenden dort faelschlich rohe Pixelwerte unter einer
+                # "(mm)"-Beschriftung.
+                shrinkage_scale = (
+                    (self._px_to_mm ** 2 if is_shrinkage_area else self._px_to_mm)
+                    if self._px_to_mm is not None else 1.0
+                )
+                y = self._shrinkage_result[shrinkage_key] * shrinkage_scale
             else:
                 header.append(name)
                 # NICHT curve.getData(): die angezeigte Kurve laesst von der

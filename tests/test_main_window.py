@@ -1370,6 +1370,48 @@ def test_csv_export_includes_shrinkage_width_column(loaded_main_window, tmp_path
         assert rec[col_key] == pytest.approx(round(float(widths[i]), 3))
 
 
+def test_csv_export_scales_shrinkage_width_column_to_mm_when_scale_is_set(loaded_main_window, tmp_path, monkeypatch):
+    # Bugfix-Regression: der Spaltenname zeigte bei gesetztem Maßstab bereits
+    # "(mm)" an (siehe unit_suffix in export_csv.py/CsvColumnDialog), die
+    # exportierten Werte selbst waren aber weiterhin die rohen Pixelwerte --
+    # ein stiller Einheiten-Fehler in der Datei.
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw.roi_shrink_left.setPos((5, 5), update=False)
+    mw.roi_shrink_left.setSize((10, 10))
+    mw.roi_shrink_right.setPos((35, 5), update=False)
+    mw.roi_shrink_right.setSize((10, 10))
+    mw.frame_slider.setValue(0)
+    mw._on_shrinkage_set_ref_clicked()
+    mw.radio_shrinkage_warmer.setChecked(True)
+    mw.spin_shrinkage_threshold.setValue(30.0)
+    mw._on_shrinkage_compute_clicked()
+    assert mw._shrinkage_result is not None
+    widths = mw._shrinkage_result["widths_px"]
+    mw._px_to_mm = 0.5
+
+    out_path = tmp_path / "Werte.json"
+    orig_dialog = mwmod.CsvColumnDialog
+
+    class AutoAcceptDialog(orig_dialog):
+        def exec(self):
+            self.combo_format.setCurrentIndex(self.combo_format.findData("json"))
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(mwmod, "CsvColumnDialog", AutoAcceptDialog)
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(out_path), "")),
+    )
+
+    mw._export_csv()
+
+    records = json.loads(out_path.read_text(encoding="utf-8"))
+    col_key = next(k for k in records[0] if k.startswith("Schwindung (Breite)"))
+    assert "mm" in col_key and "px" not in col_key
+    for i, rec in enumerate(records):
+        assert rec[col_key] == pytest.approx(round(float(widths[i]) * 0.5, 3))
+
+
 def test_segment_area_px_counts_pixels_over_threshold():
     from thermal_viewer.main_window.shrinkage_ops import _segment_area_px
 

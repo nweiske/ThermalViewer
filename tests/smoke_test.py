@@ -220,6 +220,11 @@ def test_level_mode_blocks_stacked_not_side_by_side():
     # (Max ueber Min) stehen block-weise UNTEREINANDER in derselben Spalte,
     # nicht mehr nebeneinander in einer gemeinsamen Zeile.
     win.show()
+    # Ebenen-Tabs (Punkt 7): legend_box liegt seit dem Umbau auf einer
+    # eigenen Seite von self.panel_tab_widget -- eine inaktive Seite wird
+    # von Qt nie layoutet, .y()/.x() blieben sonst auf 0 stehen.
+    from thermal_viewer.main_window.layer_tabs_ops import _PANEL_TAB_ORDER
+    win.panel_tab_widget.setCurrentIndex(_PANEL_TAB_ORDER.index("legende"))
     app.processEvents()
     grid = win.spin_level_min.parentWidget().layout()
     max_label = grid.itemAtPosition(4, 1).widget()
@@ -310,6 +315,10 @@ def test_control_panel_layout_relabel_and_vertical_tabs():
     # die Tab-Innenseite), ROI-Auswahl als senkrechte Namensliste (normale,
     # nicht gedrehte Schrift) statt QTabWidget(West), Knopf-Umbenennungen,
     # "Invertieren" unter dem Farbverlauf-Dropdown.
+    # Ebenen-Tabs (Punkt 7): btn_add_roi liegt auf der "Temperatur-Messung"-
+    # Seite von self.panel_tab_widget -- unabhaengig davon, welche Seite ein
+    # vorheriger Test zuletzt aktiviert hat, muss sie hier aktiv sein.
+    win._set_active_layer_tab("roi")
     assert isinstance(win.control_panel, QtWidgets.QScrollArea)
     assert isinstance(win.roi_list, QtWidgets.QListWidget)
     assert isinstance(win.roi_stack, QtWidgets.QStackedWidget)
@@ -722,12 +731,20 @@ def test_ruler():
     win.roi_list.setCurrentRow(0)  # QStackedWidget zeigt nur Inhalte der AKTIVEN Seite als "visible" an
     # Ebenen-Tabs (layer_tabs_ops.py): _start_ruler_tool() oben hat bereits
     # auf den "Maßstab"-Tab umgeschaltet, wodurch self.roi_split (und damit
-    # jedes Panel-Widget darin, inkl. mm_label) ancestor-versteckt ist --
-    # zurueck auf "Alle", um wie vor den Ebenen-Tabs die ROI-Panel-Sektion
-    # selbst pruefen zu koennen.
-    win._set_active_layer_tab("all")
+    # jedes Panel-Widget darin, inkl. mm_label) als aktuell inaktive Seite von
+    # self.panel_tab_widget ancestor-versteckt ist -- zurueck auf
+    # "Temperatur-Messung", um die ROI-Panel-Sektion selbst pruefen zu
+    # koennen ("Alle" hat seit Punkt 7 KEINE eigene Panel-Seite mehr, siehe
+    # layer_tabs_ops.py:_PANEL_TAB_ORDER).
+    win._set_active_layer_tab("roi")
     win._update_roi_mm_label(win.roi_entries[0])
     assert win.roi_entries[0].mm_label.isVisible()
+
+    # _ruler_line/_ruler_text sind Bild-Overlays, keine Panel-Widgets -- ihre
+    # Sichtbarkeit haengt am oberen "Maßstab"-Ebenen-Tab, nicht am gerade
+    # aktiven Panel-Tab (siehe _apply_scale_visuals_visibility) -- zurueck
+    # wechseln, um das unabhaengig vom eben geprueften mm_label zu pruefen.
+    win._set_active_layer_tab("scale")
 
     # Bugfix: Linie + mm-Beschriftung muessen nach erfolgreicher Eingabe
     # tatsaechlich sichtbar bleiben (vorher wurde die Linie direkt vor dem
@@ -3890,6 +3907,8 @@ def _write_synthetic_frame(path, value):
 
 
 def test_live_folder_watch():
+    from thermal_viewer.dialogs import DataCleaningDialog
+
     live_watch_dir.mkdir(exist_ok=True)
     for f in live_watch_dir.glob("*.csv"):
         f.unlink()
@@ -3903,7 +3922,10 @@ def test_live_folder_watch():
     orig_confirm = win._confirm_discard_current_recording
     win._confirm_discard_current_recording = lambda: True
     try:
-        win._open_folder()
+        # Der Bereinigungs-Dialog ist seit dem Umbau modal -- .exec() muesste
+        # sonst auf eine echte Nutzerinteraktion warten.
+        with temp_dialog_exec(DataCleaningDialog, lambda self: QtWidgets.QDialog.DialogCode.Accepted):
+            win._open_folder()
     finally:
         QtWidgets.QFileDialog.getExistingDirectory = orig_get_dir
         win._confirm_discard_current_recording = orig_confirm
@@ -4797,6 +4819,8 @@ check(
 
 
 def test_open_folder_no_mismatch_dialog_when_names_match():
+    from thermal_viewer.dialogs import DataCleaningDialog
+
     calls = []
     orig_ask = win._ask_filename_mismatch
     orig_get_dir = QtWidgets.QFileDialog.getExistingDirectory
@@ -4807,7 +4831,10 @@ def test_open_folder_no_mismatch_dialog_when_names_match():
     # (_confirm_discard_current_recording) simuliert hier "Verwerfen".
     win._confirm_discard_current_recording = lambda: True
     try:
-        win._open_folder()
+        # Der Bereinigungs-Dialog ist seit dem Umbau modal -- .exec() muesste
+        # sonst auf eine echte Nutzerinteraktion warten.
+        with temp_dialog_exec(DataCleaningDialog, lambda self: QtWidgets.QDialog.DialogCode.Accepted):
+            win._open_folder()
         assert calls == [], "bei passendem Namensschema darf keine Rueckfrage erscheinen"
         assert win.recording is not None
     finally:
@@ -5957,6 +5984,56 @@ check(
 )
 
 
+def test_roi_stat_mode_combo_wires_into_curve_and_label():
+    # Nutzerwunsch: statt immer des Mittelwerts kann je Messbereich auch der
+    # Hoechst- oder Tiefstwert angezeigt/in die Kurve uebernommen werden.
+    import numpy as np
+    from thermal_viewer.main_window import DEFAULT_ROI_SIZE
+    from thermal_viewer.roi import average_value
+
+    entry = win.roi_entries[0]
+    try:
+        entry.place(4, 4, 8, 8)
+        win._recompute_curves(entries=[entry])
+        assert entry.stat_mode == "mean", "Standard muss weiterhin der Mittelwert sein"
+
+        max_index = entry.combo_stat_mode.findData("max")
+        entry.combo_stat_mode.setCurrentIndex(max_index)
+        assert entry.stat_mode == "max"
+        row0, row1, col0, col1 = entry.bounds_px(win.recording.shape)
+        expected = average_value(
+            win.recording.frames[:, row0:row1, col0:col1], row0, row1, col0, col1, False, "max",
+        )
+        got = entry.curve.getData()[1]
+        assert np.allclose(got, expected), "Kurve haette nach Umschalten auf Hoechstwert neu berechnet werden muessen"
+
+        win._update_roi_temperature_labels(win.current_index)
+        expected_label_value = float(
+            average_value(
+                win.recording.frames[win.current_index, row0:row1, col0:col1], row0, row1, col0, col1, False, "max",
+            )
+        )
+        assert abs(entry._last_temperature - expected_label_value) < 1e-4
+        assert "(Max)" in entry.label.toPlainText()
+
+        min_index = entry.combo_stat_mode.findData("min")
+        entry.combo_stat_mode.setCurrentIndex(min_index)
+        assert entry.stat_mode == "min"
+    finally:
+        mean_index = entry.combo_stat_mode.findData("mean")
+        entry.combo_stat_mode.setCurrentIndex(mean_index)
+        entry.place(0, 0, DEFAULT_ROI_SIZE, DEFAULT_ROI_SIZE)
+        entry.roi.setVisible(False)
+        entry.placed = False
+        entry.list_item.setCheckState(QtCore.Qt.CheckState.Checked)
+
+
+check(
+    "ROI-Kennzahl-Combobox (Mittel/Hoechst/Tiefstwert) wirkt auf Kurve UND Live-Beschriftung",
+    test_roi_stat_mode_combo_wires_into_curve_and_label,
+)
+
+
 def test_roi_show_temperature_checkbox_toggles_label_text():
     entry = win.roi_entries[1]
     try:
@@ -5991,6 +6068,7 @@ def test_project_save_load_roundtrips_show_temperature_and_circular():
         entry.place(3, 3, 5, 5)
         entry.chk_show_temperature.setChecked(False)
         entry.chk_circular.setChecked(True)
+        entry.combo_stat_mode.setCurrentIndex(entry.combo_stat_mode.findData("max"))
 
         path = OUT / "roi_flags_roundtrip.tvproj"
         orig_save = QtWidgets.QFileDialog.getSaveFileName
@@ -6002,6 +6080,7 @@ def test_project_save_load_roundtrips_show_temperature_and_circular():
 
         entry.chk_show_temperature.setChecked(True)
         entry.chk_circular.setChecked(False)
+        entry.combo_stat_mode.setCurrentIndex(entry.combo_stat_mode.findData("mean"))
 
         orig_open = QtWidgets.QFileDialog.getOpenFileName
         try:
@@ -6014,16 +6093,19 @@ def test_project_save_load_roundtrips_show_temperature_and_circular():
         assert entry.roi.is_circular is True
         assert entry.chk_show_temperature.isChecked() is False
         assert entry.chk_circular.isChecked() is True
+        assert entry.stat_mode == "max", "Kennzahl-Auswahl haette ebenfalls wiederhergestellt werden muessen"
+        assert entry.combo_stat_mode.currentData() == "max"
     finally:
         entry.chk_show_temperature.setChecked(True)
         entry.chk_circular.setChecked(False)
+        entry.combo_stat_mode.setCurrentIndex(entry.combo_stat_mode.findData("mean"))
         entry.roi.setVisible(False)
         entry.placed = False
         entry.list_item.setCheckState(QtCore.Qt.CheckState.Checked)
 
 
 check(
-    "project save/load round-trips per-ROI 'temperatur_anzeigen'/'kreisfoermig' flags",
+    "project save/load round-trips per-ROI 'temperatur_anzeigen'/'kreisfoermig'/'statistik' flags",
     test_project_save_load_roundtrips_show_temperature_and_circular,
 )
 
@@ -6600,6 +6682,11 @@ def test_interp_frame_outside_evaluation_shows_dezent_non_blocking_warning():
     # darauf aufmerksam, siehe MainWindow._refresh_interp_range_warning.
     n = win.recording.n_frames
     assert n >= 4, "Test braucht mindestens 4 Frames"
+    # Ebenen-Tabs (Punkt 7): die ROI-Zeile (inkl. lbl_interp_start_warning)
+    # liegt auf der "Temperatur-Messung"-Seite von self.panel_tab_widget --
+    # unabhaengig davon, welche Seite ein vorheriger Test zuletzt aktiviert
+    # hat, muss sie hier aktiv sein, sonst bleibt .isVisible() False.
+    win._set_active_layer_tab("roi")
     entry = win._add_roi_entry()
     prev_eval_start, prev_eval_end = win.spin_eval_start.value(), win.spin_eval_end.value()
     try:
@@ -6889,6 +6976,106 @@ def test_import_settings_dialog_rejects_identical_delimiter_and_decimal_separato
 check(
     "ImportSettingsDialog disables OK when delimiter and decimal separator are the same character",
     test_import_settings_dialog_rejects_identical_delimiter_and_decimal_separator,
+)
+
+
+def test_end_to_end_cleaning_dialog_and_panel_tabs():
+    # Ende-zu-Ende-Ergaenzung fuer den Bereinigungs-Dialog-/Panel-Umbau:
+    # Panel-Tab-Wechsel blendet Sektionen korrekt ein/aus (Schwindungsmessung
+    # hat wieder eine eigene Panel-Seite statt eines Werkzeugleisten-Menues
+    # -- die Werkzeugleiste selbst wurde komplett entfernt), Referenzpunkte
+    # werden per Klick/Checkbox/"x" in der eigenen Bildvorschau gesetzt/
+    # deaktiviert/entfernt, die Start/Ende-Knoepfe setzen die Hauptfenster-
+    # Auswertungsgrenzen, und ein ausgeblendetes Bild ist im Hauptfenster nie
+    # erreichbar, in der Vorschau aber schon.
+    from thermal_viewer.dialogs import DataCleaningDialog
+    from thermal_viewer.main_window.layer_tabs_ops import _PANEL_TAB_ORDER
+
+    assert not [
+        b for b in win.findChildren(QtWidgets.QToolButton) if b.text() == "Schwindungsmessung"
+    ], "die Werkzeugleiste wurde komplett entfernt"
+
+    win._set_active_layer_tab("scale")
+    assert win.panel_tab_widget.currentIndex() == _PANEL_TAB_ORDER.index("scale")
+    win._set_active_layer_tab("shrinkage")
+    assert win.panel_tab_widget.currentWidget() is win._shrinkage_groupbox.parentWidget(), (
+        "Schwindungsmessung hat wieder eine eigene Panel-Seite"
+    )
+    win._set_active_layer_tab("roi")
+    assert win.panel_tab_widget.currentWidget() is win.roi_split.parentWidget()
+
+    n = win.recording.n_frames
+    assert n >= 3, "Test braucht mindestens 3 Frames"
+    win._excluded_frame_indices = {1}
+    win._show_frame(1)
+    assert win.current_index != 1, "Hauptfenster darf ein ausgeblendetes Bild nie anzeigen"
+
+    old_points = list(win._cleaning_points)
+    win._cleaning_points = []
+    dlg = DataCleaningDialog(win)
+    try:
+        assert dlg.windowModality() == QtCore.Qt.WindowModality.ApplicationModal
+
+        dlg.spin_manual_frame.setValue(2)  # 1-basiert -> Index 1 (ausgeblendet)
+        assert "AUSGEBLENDET" in dlg.preview.lbl_frame_info.text(), (
+            "die eigene Vorschau im Bereinigungs-Dialog zeigt auch ausgeblendete Bilder"
+        )
+
+        # Klick auf freie Bildflaeche in der Vorschau fuegt sofort einen
+        # Punkt hinzu -- kein Arm/Disarm-Knopf mehr noetig.
+        scene_pos = dlg.preview.view_box.mapViewToScene(QtCore.QPointF(3.5, 4.5))
+        dlg.preview._on_scene_clicked(FakeEvent(QtCore.Qt.LeftButton, scene_pos))
+        assert win._cleaning_points == [(3, 4, "and", True)]
+        assert dlg.points_list.count() == 1
+
+        # Checkbox deaktiviert den Punkt (bleibt gespeichert, zaehlt nicht
+        # mehr bei der Ausreißer-Erkennung mit).
+        dlg._point_row_widgets[0]["checkbox"].setChecked(False)
+        assert win._cleaning_points == [(3, 4, "and", False)]
+
+        # Der kleine "×"-Knopf entfernt ihn endgueltig.
+        dlg._point_row_widgets[0]["remove_button"].click()
+        assert win._cleaning_points == []
+
+        # Start/Ende-Knoepfe setzen die Hauptfenster-Auswertungsgrenzen auf
+        # das gerade in der Vorschau angezeigte Bild (ergaenzend zu den
+        # Hauptfenster-Feldern selbst).
+        dlg.spin_manual_frame.setValue(1)
+        dlg._on_set_eval_start_clicked()
+        assert win.spin_eval_start.value() == 1
+        dlg.spin_manual_frame.setValue(n)
+        dlg._on_set_eval_end_clicked()
+        assert win.spin_eval_end.value() == n
+
+        # Bereich-Ausblenden (Nutzerwunsch: ganze Segmente statt nur
+        # einzelner Bilder auf einmal ausblenden koennen, kombinierbar).
+        win._excluded_frame_indices = set()
+        dlg.spin_range_start.setValue(1)
+        dlg.spin_range_end.setValue(min(2, n))
+        dlg.btn_exclude_range.click()
+        assert win._excluded_frame_indices == set(range(min(2, n)))
+    finally:
+        dlg.close()
+
+    win._cleaning_points = old_points
+    win._excluded_frame_indices = set()
+    win._set_active_layer_tab("all")
+
+    # "Werkzeuge"-Dock: Ueberschrift/Umrandung entfernt (leeres Platzhalter-
+    # Titelleisten-Widget), Fenstertitel bleibt fuer das Ansicht-Menue.
+    assert win.control_dock.windowTitle() == "Werkzeuge"
+    assert isinstance(win.control_dock.titleBarWidget(), QtWidgets.QWidget)
+    # "Schwindung"-Tab liegt von Anfang an neben "Zeitverlauf" (nicht erst
+    # nach Aktivieren/Berechnen).
+    assert win.shrinkage_dock in win.tabifiedDockWidgets(win.timeseries_dock)
+    assert not win.shrinkage_dock.isHidden()
+
+
+check(
+    "end-to-end: cleaning dialog is modal with its own interactive preview (click/checkbox/×, "
+    "Start/Ende buttons, range-exclude), panel tabs (incl. shrinkage back in its own tab), "
+    "excluded frame hidden, Werkzeuge dock title bar blanked, Schwindung tab present from the start",
+    test_end_to_end_cleaning_dialog_and_panel_tabs,
 )
 
 print()

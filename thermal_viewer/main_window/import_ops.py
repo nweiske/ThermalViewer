@@ -34,13 +34,15 @@ class _ImportMixin:
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Ordner mit CSV-Messreihe wählen")
         if not folder:
             return
-        if self._load_folder(Path(folder)):
-            # Nutzerwunsch: "Direkt wenn ich die Daten einlade soll sich so
-            # ein Dialog-Fenster öffnen" -- nicht-modal (siehe
-            # DataCleaningDialog), der Nutzer kann ihn jederzeit ohne
-            # Bereinigung schliessen; danach weiterhin ueber
-            # "Daten > Rohdaten säubern…" erreichbar.
+        # Nutzerwunsch: die Rohdaten-Bereinigung MUSS abgeschlossen sein,
+        # bevor ueberhaupt ein Bild im Hauptfenster erscheint -- defer_
+        # display=True unterdrueckt das erste _show_frame(0) in
+        # _set_recording, der (modale, blockierende) Bereinigungs-Dialog
+        # oeffnet sich DAVOR, _finish_loading_recording() zeigt das erste
+        # Bild erst NACHDEM der Dialog geschlossen wurde.
+        if self._load_folder(Path(folder), defer_display=True):
             self._open_data_cleaning_dialog()
+            self._finish_loading_recording()
 
     def _import_tiff_images(self) -> None:
         """Wandelt einzelne Graustufen-TIFF-Bilder (siehe TiffImportDialog
@@ -178,12 +180,18 @@ class _ImportMixin:
             )
             return None
 
-    def _load_folder(self, folder: Path) -> bool:
+    def _load_folder(self, folder: Path, *, defer_display: bool = False) -> bool:
         """Laedt eine komplette Messreihe aus folder (Namensschema-Abgleich,
         Live-Ueberwachung) -- gemeinsame Grundlage fuer "Ordner öffnen…" UND
         das automatische Nachladen des im Projekt gespeicherten Quellordners
         beim Laden eines Projekts ohne bereits geladene Messreihe (siehe
-        _load_project). Gibt zurueck, ob das Laden erfolgreich war."""
+        _load_project). Gibt zurueck, ob das Laden erfolgreich war.
+
+        defer_display: siehe _set_recording -- nur von _open_folder mit
+        True belegt (Rohdaten-Bereinigung muss vor dem ersten Bild
+        abgeschlossen sein), beim Projekt-Laden bleibt es beim Standard
+        False (dort ist die Bereinigung bereits aus der Datei
+        wiederherzustellen, kein erneuter interaktiver Schritt noetig)."""
         result = self._resolve_folder_and_pattern(folder)
         if result is None:
             return False
@@ -191,7 +199,7 @@ class _ImportMixin:
         paths = self._safe_folder_scan(folder_path, lambda: sorted(folder_path.glob("*.csv")))
         if paths is None:
             return False
-        if not self._load_paths(paths, pattern=pattern, strptime_fmt=strptime_fmt):
+        if not self._load_paths(paths, pattern=pattern, strptime_fmt=strptime_fmt, defer_display=defer_display):
             # Laden fehlgeschlagen (z.B. defekte CSVs) -- eine evtl. bereits
             # laufende Live-Ueberwachung eines ANDEREN Ordners darf dadurch
             # nicht auf diesen (nicht geladenen) Ordner umgehaengt werden.

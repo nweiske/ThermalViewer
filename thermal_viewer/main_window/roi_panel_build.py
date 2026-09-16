@@ -10,11 +10,13 @@ from ..measurement import MeasurementEntry
 from ..roi_entry import (
     DEFAULT_ROI_SIZE,
     ROI_COLORS,
+    STAT_MODE_LABELS,
     RoiEntry,
     default_roi_name,
     roi_color_for_number,
 )
 from ..widgets import LocaleTolerantDoubleSpinBox
+from .layer_tabs_ops import _PANEL_TAB_ORDER
 from .constants import (
     COLORMAPS,
     INTERP_END_CAPTURE_LABEL,
@@ -34,15 +36,26 @@ class _RoiPanelBuildMixin:
             self._add_roi_entry(build_row=False)
 
     def _add_roi_entry(self, build_row: bool = True) -> RoiEntry:
-        """Legt einen neuen, leeren Messbereich an (Kurve, ROI-Rechteck,
-        Bild-Beschriftung) und haengt ihn an self.roi_entries an. Mit
-        build_row=True (Standard: beim Hinzufuegen zur Laufzeit) wird
-        zusaetzlich sein Panel-Eintrag gebaut und ausgewaehlt -- beim
-        initialen Aufbau der ersten 5 ROIs (build_row=False) existiert
-        self.roi_list/roi_stack zu diesem Zeitpunkt noch nicht, das erledigt
-        dort _build_control_panel."""
+        """Legt einen neuen, leeren Messbereich mit der NAECHSTEN freien
+        Erzeugungsnummer an. Siehe _create_roi_entry_with_number() fuer den
+        eigentlichen Aufbau -- eigene Methode, damit project_io.py (Undo/
+        Redo-Wiederherstellung, siehe dortiges allow_resurrect) auch ein ROI
+        mit einer BEREITS VERGEBENEN (aelteren) Nummer neu anlegen kann,
+        ohne self._roi_next_number anzufassen."""
         number = self._roi_next_number
         self._roi_next_number += 1
+        return self._create_roi_entry_with_number(number, build_row=build_row)
+
+    def _create_roi_entry_with_number(self, number: int, build_row: bool = True) -> RoiEntry:
+        """Legt einen neuen, leeren Messbereich an (Kurve, ROI-Rechteck,
+        Bild-Beschriftung) und haengt ihn an self.roi_entries an -- MIT der
+        explizit uebergebenen Erzeugungsnummer (siehe _add_roi_entry fuer
+        den ueblichen Fall "naechste freie Nummer"). Mit build_row=True
+        (Standard: beim Hinzufuegen zur Laufzeit) wird zusaetzlich sein
+        Panel-Eintrag gebaut und ausgewaehlt -- beim initialen Aufbau der
+        ersten 5 ROIs (build_row=False) existiert self.roi_list/roi_stack
+        zu diesem Zeitpunkt noch nicht, das erledigt dort
+        _build_control_panel."""
         color = roi_color_for_number(number)
         curve = self.timeseries_plot.plot(
             pen=pg.mkPen(color, width=2),
@@ -53,6 +66,11 @@ class _RoiPanelBuildMixin:
             name=default_roi_name(number),
         )
         entry = RoiEntry(number, color, self.view_box, curve)
+        # sigRegionChangeStarted feuert GENAU einmal bei Beginn einer
+        # echten Maus-Ziehgeste (nie bei einem programmgesteuerten
+        # setPos()/setSize(), siehe undo_ops.py-Moduldocstring) -- EIN
+        # Undo-Snapshot pro Drag statt pro Zwischenschritt.
+        entry.roi.sigRegionChangeStarted.connect(self._push_undo_snapshot)
         entry.roi.sigRegionChanged.connect(partial(self._on_roi_region_changed, entry))
         entry.roi.sigRegionChangeFinished.connect(partial(self._on_roi_region_finished, entry))
         # Ein (reiner, nicht ziehender) Klick auf den Messbereich im Bild
@@ -301,16 +319,7 @@ class _RoiPanelBuildMixin:
         # Panel -- Nutzerfeedback: "macht da, wo es jetzt ist, keinen Sinn".
         # Jetzt Teil des "Ansicht"-Menues (siehe _build_menu), zusammen mit
         # dem allgemeinen Dunkelmodus-Schalter, an den sie inhaltlich gehoert.
-        #
-        # Legende und Maßstab NEBENEINANDER statt untereinander -- spart
-        # vertikalen Platz im rechten Panel, ohne die Legende aus diesem
-        # (bewusst an dieser Stelle belassenen) Bereich zu verschieben.
-        top_row = QtWidgets.QHBoxLayout()
-        top_row.addWidget(legend_box, 3)
-        top_row.addWidget(scale_box, 2)
-        layout.addLayout(top_row)
-
-        self._build_shrinkage_panel(layout)
+        self._build_shrinkage_panel()
 
         # -- ROI-Auswahl als senkrechte Namensliste + Inhaltsflaeche (statt
         # fuenf untereinander gestapelter Boxen ODER eines QTabWidget mit
@@ -349,18 +358,78 @@ class _RoiPanelBuildMixin:
         roi_split.setStretchFactor(0, 0)
         roi_split.setStretchFactor(1, 1)
         roi_split.setSizes([130, 400])
-        # Als self.-Attribut gehalten, damit layer_tabs_ops.py die
-        # Sichtbarkeit dieses gesamten Panel-Abschnitts je nach aktivem
-        # Ebenen-Tab steuern kann (siehe _apply_layer_tab_visibility).
+        # Als self.-Attribut gehalten, damit layer_tabs_ops.py die aktive
+        # Registerkarte des rechten Panels (self.panel_tab_widget) je nach
+        # aktivem Ebenen-Tab mitschalten kann (siehe _set_active_layer_tab).
         self.roi_split = roi_split
-
-        layout.addWidget(roi_split, 1)
         if self.roi_list.count():
             self.roi_list.setCurrentRow(0)
 
-        # Das GESAMTE Panel (Legende, Maßstab UND ROI-Auswahl) in einen
-        # gemeinsamen Scrollbereich, damit bei knapper Dock-Hoehe alles
-        # erreichbar bleibt (statt nur den Inhalt scrollen zu koennen).
+        # Das rechte Panel als ECHTES QTabWidget statt gestapelter
+        # Gruppenboxen -- zeigt immer nur die gerade relevanten Optionen.
+        # Eigenes Tab-Set als die oberen Bild-Ebenen-Tabs (layer_tabs_ops.py:
+        # _LAYER_TAB_ORDER): "Alle" ergibt bei echten (sich gegenseitig
+        # ausschliessenden) Tabs keinen Sinn mehr -- dafuer zusaetzlich ein
+        # eigener "Legende"-Tab (siehe layer_tabs_ops.py:_PANEL_TAB_ORDER fuer
+        # die Synchronisation mit den oberen Tabs). "Bereinigung" hat KEINEN
+        # Panel-Reiter (nur noch ueber "Daten > Rohdaten säubern…"
+        # erreichbar), "Schwindungsmessung" ist dafuer wieder ein Reiter.
+        self.panel_tab_widget = QtWidgets.QTabWidget()
+
+        legend_page = QtWidgets.QWidget()
+        legend_page_layout = QtWidgets.QVBoxLayout(legend_page)
+        legend_page_layout.setContentsMargins(0, 0, 0, 0)
+        legend_page_layout.setAlignment(QtCore.Qt.AlignTop)
+        legend_page_layout.addWidget(legend_box)
+        legend_page_layout.addStretch(1)
+        self.panel_tab_widget.addTab(legend_page, "Legende")
+
+        roi_page = QtWidgets.QWidget()
+        roi_page_layout = QtWidgets.QVBoxLayout(roi_page)
+        roi_page_layout.setContentsMargins(0, 0, 0, 0)
+        roi_page_layout.setAlignment(QtCore.Qt.AlignTop)
+        roi_page_layout.addWidget(roi_split)
+        self.panel_tab_widget.addTab(roi_page, "Temperatur-Messung")
+
+        # "Bereinigung" hat seit dem Umbau KEINE eigene Panel-Seite mehr
+        # (nur noch ueber "Daten > Rohdaten säubern…" erreichbar, siehe
+        # layer_tabs_ops.py) -- an ihrer Stelle bekommt "Schwindungsmessung"
+        # wieder einen festen Panel-Bereich (vormals nur im Werkzeugleisten-
+        # Menue, siehe shrinkage_ops.py:_build_shrinkage_panel).
+        shrinkage_page = QtWidgets.QWidget()
+        shrinkage_page_layout = QtWidgets.QVBoxLayout(shrinkage_page)
+        shrinkage_page_layout.setContentsMargins(0, 0, 0, 0)
+        shrinkage_page_layout.setAlignment(QtCore.Qt.AlignTop)
+        shrinkage_page_layout.addWidget(self._shrinkage_groupbox)
+        shrinkage_page_layout.addStretch(1)
+        self.panel_tab_widget.addTab(shrinkage_page, "Schwindungsmessung")
+
+        scale_page = QtWidgets.QWidget()
+        scale_page_layout = QtWidgets.QVBoxLayout(scale_page)
+        scale_page_layout.setContentsMargins(0, 0, 0, 0)
+        scale_page_layout.setAlignment(QtCore.Qt.AlignTop)
+        scale_page_layout.addWidget(scale_box)
+        scale_page_layout.addStretch(1)
+        self.panel_tab_widget.addTab(scale_page, "Maßstab")
+
+        # Klick auf einen Panel-Tab haelt die oberen Bild-Ebenen-Tabs
+        # synchron (siehe layer_tabs_ops.py:_on_panel_tab_widget_changed) --
+        # z.B. blendet ein Wechsel auf "Maßstab" hier auch die ROI-Boxen im
+        # Bild aus und den Maßstab ein, statt die beiden Tab-Leisten
+        # widersprüchlich auseinanderlaufen zu lassen.
+        # Standard-Startseite "Temperatur-Messung" statt der ersten
+        # angelegten Seite ("Legende") -- Messbereiche sind die zentrale,
+        # sofort nach dem Laden nutzbare Kernfunktion (Bugreport-Vermeidung:
+        # ohne diesen Default waere z.B. der "+ Messbereich"-Knopf beim
+        # Programmstart unsichtbar, obwohl der obere Ebenen-Tab noch auf
+        # "Alle" steht).
+        self.panel_tab_widget.setCurrentIndex(_PANEL_TAB_ORDER.index("roi"))
+        self.panel_tab_widget.currentChanged.connect(self._on_panel_tab_widget_changed)
+        layout.addWidget(self.panel_tab_widget, 1)
+
+        # Das GESAMTE Panel in einen gemeinsamen Scrollbereich, damit bei
+        # knapper Dock-Hoehe alles erreichbar bleibt (statt nur den Inhalt
+        # scrollen zu koennen).
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(panel)
@@ -417,6 +486,7 @@ class _RoiPanelBuildMixin:
         entry = item.data(QtCore.Qt.UserRole)
         if entry is None:
             return
+        self._push_undo_snapshot()
 
         name = item.text().strip() or default_roi_name(entry.number)
         if item.text() != name:
@@ -529,6 +599,11 @@ class _RoiPanelBuildMixin:
         # "Übernehmen"-Knopf mehr noetig.
         for spin in (spin_x, spin_y, spin_width, spin_height):
             spin.valueChanged.connect(partial(self._on_roi_apply_clicked, entry))
+            # Beendet die von _on_roi_apply_clicked ueber
+            # _begin_grouped_undo_edit() begonnene Eingabe-Sitzung (siehe
+            # undo_ops.py) -- die NAECHSTE Aenderung (auch an einer der drei
+            # anderen Spinboxen) pusht dann wieder einen frischen Snapshot.
+            spin.editingFinished.connect(self._end_grouped_undo_edit)
         row += 1
 
         mm_label = QtWidgets.QLabel("")
@@ -637,6 +712,24 @@ class _RoiPanelBuildMixin:
         chk_circular.toggled.connect(partial(self._on_roi_circular_toggled, entry))
         entry.chk_circular = chk_circular
         side_col.addWidget(chk_circular)
+
+        # Kennzahl-Auswahl (Nutzerwunsch): statt immer des Mittelwerts kann
+        # je Messbereich auch der Hoechst- oder Tiefstwert angezeigt/in die
+        # Kurve uebernommen werden -- siehe RoiEntry.stat_mode/average().
+        stat_row = QtWidgets.QHBoxLayout()
+        stat_row.setContentsMargins(0, 0, 0, 0)
+        stat_row.addWidget(QtWidgets.QLabel("Anzeige:"))
+        combo_stat_mode = QtWidgets.QComboBox()
+        for mode, label in STAT_MODE_LABELS.items():
+            combo_stat_mode.addItem(label, mode)
+        combo_stat_mode.setToolTip(
+            "Welche Kennzahl innerhalb des Messbereichs angezeigt und in die Zeitverlauf-Kurve "
+            "übernommen wird."
+        )
+        combo_stat_mode.currentIndexChanged.connect(partial(self._on_roi_stat_mode_changed, entry))
+        entry.combo_stat_mode = combo_stat_mode
+        stat_row.addWidget(combo_stat_mode, 1)
+        side_col.addLayout(stat_row)
 
         btn_square = QtWidgets.QPushButton("Quadrieren")
         btn_square.setToolTip("Höhe = Breite (Quadrat);\nMittelpunkt bleibt gleich.")

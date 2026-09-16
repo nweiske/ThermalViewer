@@ -50,8 +50,6 @@ class _FrameNavMixin:
         # sind Pixelkoordinaten der ALTEN Aufnahme, ausgeblendete Bild-Indizes
         # beziehen sich auf deren Frame-Anzahl -- beides fuer die neue
         # Aufnahme bedeutungslos.
-        self._cancel_cleaning_point_pick()
-        self._clear_cleaning_point_markers()
         self._cleaning_points = []
         self._excluded_frame_indices = set()
         if self._cleaning_dialog is not None:
@@ -66,8 +64,12 @@ class _FrameNavMixin:
         # unten (_global_level_range).
         if self._level_mode() == "manual":
             self._set_level_mode("global")
+        # Undo/Redo-Verlauf (siehe undo_ops.py) bezieht sich auf Zustaende
+        # der ALTEN Aufnahme -- fuer die neue bedeutungslos, siehe Absatz
+        # oben fuer dieselbe Begruendung bei Messbereichen/Messungen/etc.
+        self._clear_undo_history()
 
-    def _set_recording(self, recording: Recording) -> None:
+    def _set_recording(self, recording: Recording, *, defer_display: bool = False) -> None:
         had_previous_recording = self.recording is not None
         self.recording = recording
         if had_previous_recording:
@@ -166,7 +168,16 @@ class _FrameNavMixin:
 
         self.view_box.setRange(xRange=(0, cols), yRange=(0, rows), padding=0.02)
         self.current_index = 0
-        self._show_frame(0)
+        # defer_display=True (Nutzerwunsch): nach "Ordner öffnen…" MUSS die
+        # Rohdaten-Bereinigung (modaler Dialog) abgeschlossen sein, bevor
+        # ueberhaupt ein Bild im Hauptfenster erscheint -- der Aufrufer
+        # (import_ops.py:_open_folder) zeigt das erste Bild erst NACH dem
+        # Dialog explizit per _finish_loading_recording() an. Bei
+        # Projekt-Laden (project_io.py) bleibt defer_display=False (Standard)
+        # -- dort ist die Bereinigung bereits vollstaendig aus der Datei
+        # wiederherzustellen, kein erneuter interaktiver Schritt noetig.
+        if not defer_display:
+            self._show_frame(0)
         self._recompute_curves()
         # t0 fuer den Laufzeit-Anzeigemodus (Zeitachse) bezieht sich auf DIESE
         # (neue) Aufnahme -- Anzeigemodus selbst (Uhrzeit/Laufzeit) bleibt wie
@@ -210,6 +221,16 @@ class _FrameNavMixin:
             )
         self.statusBar().showMessage(message)
         self._refresh_idle_guidance()
+
+    def _finish_loading_recording(self) -> None:
+        """Zeigt das erste Bild nach einem verzoegerten _set_recording(...,
+        defer_display=True) an (Nutzerwunsch: nach "Ordner öffnen…" MUSS die
+        Rohdaten-Bereinigung modal abgeschlossen sein, bevor überhaupt ein
+        Bild im Hauptfenster erscheint) -- ruft self._show_frame() mit dem
+        bereits von _set_recording gesetzten self.current_index (0) auf.
+        Harmlos, falls keine Aufnahme geladen ist (dann tut _show_frame
+        nichts)."""
+        self._show_frame(self.current_index)
 
     # --------------------------------------------------------- Frame-Nav
     def _step_frame(self, delta: int) -> None:
@@ -264,6 +285,10 @@ class _FrameNavMixin:
     def _on_eval_start_changed(self, value: int) -> None:
         if self.recording is None:
             return
+        # Feuert live bei jedem Tastendruck/Pfeiltasten-Schritt UND bei
+        # jedem Pixel eines Marker-Drags im Frame-Regler (siehe ui_build.py/
+        # undo_ops.py) -- gruppiert wie die ROI-Positions-Spinboxen.
+        self._begin_grouped_undo_edit()
         new_start = value - 1
         current_end = self._eval_end_index if self._eval_end_index is not None else self.recording.n_frames - 1
         if new_start > current_end:
@@ -280,6 +305,7 @@ class _FrameNavMixin:
     def _on_eval_end_changed(self, value: int) -> None:
         if self.recording is None:
             return
+        self._begin_grouped_undo_edit()
         new_end = value - 1
         current_start = self._eval_start_index if self._eval_start_index is not None else 0
         if new_end < current_start:
@@ -467,6 +493,25 @@ class _FrameNavMixin:
         if self.recording is None or self.recording.n_frames == 0:
             return
         idx = max(0, min(idx, self.recording.n_frames - 1))
+        # Punkt 5 (Nutzerwunsch): ausgeblendete Bilder duerfen NIRGENDS im
+        # Hauptfenster auftauchen -- zentraler, von JEDEM Aufrufer (auch
+        # zukuenftigen/uebersehenen) automatisch durchgesetzter Schutz,
+        # zusaetzlich zu den Vorab-Filtern in _on_slider_changed/
+        # _on_frame_spin_changed/_step_frame/_advance_frame (die die
+        # gewuenschte Sprung-RICHTUNG korrekt vorgeben; hier ohne
+        # Richtungsvorgabe erst vorwaerts, dann rueckwaerts versucht -- siehe
+        # _skip_excluded_frame_index). pixel_source_idx bleibt bewusst
+        # AUSGENOMMEN: der Video-/Bildstapel-Export mit aktivierter "Lücke
+        # füllen"-Option (siehe export_video.py) ruft _show_frame() absichtlich
+        # mit einem ausgeblendeten idx auf, um dessen Zeitstempel/Marker
+        # beizubehalten, dabei aber die BILDDATEN eines anderen (sichtbaren)
+        # Frames zu zeigen -- kein Verstoss gegen die Zusicherung, da dabei
+        # nie die echten Rohdaten des ausgeblendeten Bildes angezeigt werden.
+        if pixel_source_idx is None and idx in self._excluded_frame_indices:
+            corrected = self._skip_excluded_frame_index(idx, 1)
+            if corrected in self._excluded_frame_indices:
+                corrected = self._skip_excluded_frame_index(idx, -1)
+            idx = corrected
         self.current_index = idx
         # Schieberegler/Zahlenfeld hier zentral synchron halten, damit sie
         # auch bei direkten _show_frame()-Aufrufen ausserhalb der ueblichen
@@ -488,9 +533,11 @@ class _FrameNavMixin:
         unix = self.recording.unix_seconds()
         self.frame_marker.setValue(unix[idx])
         self.live_frame_marker.setValue(unix[idx])
+        self.shrinkage_frame_marker.setValue(unix[idx])
 
         self._update_interpolated_rois(idx)
         self._update_roi_temperature_labels(idx)
+        self._rebuild_shrinkage_contour_overlay()
 
         self._update_status_bar()
 

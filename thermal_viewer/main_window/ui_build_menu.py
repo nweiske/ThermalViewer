@@ -21,6 +21,7 @@ class _UIBuildMenuMixin:
         # Messreihe"-Aktionen an dieselbe Liste an.
         self._requires_recording_actions: list[QtGui.QAction] = []
         self._build_file_menu()
+        self._build_edit_menu()
         self._build_data_menu()
         self._build_view_menu()
         self._build_tools_menu()
@@ -49,6 +50,25 @@ class _UIBuildMenuMixin:
         act_quit = file_menu.addAction("Beenden")
         act_quit.triggered.connect(self.close)
         self._requires_recording_actions.append(act_save_project)
+
+    def _build_edit_menu(self) -> None:
+        # Rueckgaengig/Wiederholen (Nutzerwunsch: "voller, mehrstufiger
+        # Undo/Redo-Verlauf", siehe undo_ops.py) -- NUR die QAction-eigene
+        # Tastenkombination (StandardKey, portabel statt hart Strg+Z/Strg+Y
+        # kodiert), KEIN zusaetzliches paralleles QShortcut: jede andere
+        # Menue-Aktion in dieser App verlaesst sich ebenfalls ausschliesslich
+        # auf ihre eigene QAction-Tastenkombination (die rohen QShortcuts in
+        # _build_shortcuts existieren nur fuer Tasten OHNE eigene Menue-
+        # Aktion, z.B. Bild-Navigation).
+        edit_menu = self.menuBar().addMenu("&Bearbeiten")
+        self.act_undo = edit_menu.addAction("Rückgängig")
+        self.act_undo.setShortcut(QtGui.QKeySequence.StandardKey.Undo)
+        self.act_undo.setEnabled(False)
+        self.act_undo.triggered.connect(self._on_undo)
+        self.act_redo = edit_menu.addAction("Wiederholen")
+        self.act_redo.setShortcut(QtGui.QKeySequence.StandardKey.Redo)
+        self.act_redo.setEnabled(False)
+        self.act_redo.triggered.connect(self._on_redo)
 
     def _build_data_menu(self) -> None:
         # Eigenes Menue fuer alles, was die geladenen ROHDATEN selbst

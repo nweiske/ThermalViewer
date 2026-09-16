@@ -61,11 +61,16 @@ class DraggableTextItem(pg.TextItem):
     zum Linien-Mittelpunkt genau einmal einfrieren kann (siehe
     MainWindow._on_ruler_label_moved/_on_measurement_label_moved)."""
 
-    def __init__(self, *args, on_moved=None, on_double_clicked=None, clamp_fn=None, **kwargs):
+    def __init__(self, *args, on_moved=None, on_double_clicked=None, on_drag_started=None, clamp_fn=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         self._on_moved = on_moved
         self._on_double_clicked = on_double_clicked
+        # Fuer Undo/Redo (siehe undo_ops.py): anders als on_moved (feuert nur
+        # EINMAL beim Loslassen) wird dieser Callback beim DRUECKEN der Maus
+        # aufgerufen -- der Zustand VOR der gleich folgenden Verschiebung
+        # muss VOR ihr gesichert werden, nicht erst danach.
+        self._on_drag_started = on_drag_started
         # Bugfix Folgeanfrage ("kann die Beschriftung noch quer durchs Bild
         # ziehen"): Qts eigener ItemIsMovable-Mechanismus verschiebt das Item
         # in mouseMoveEvent() zunaechst voellig frei -- ein Clamping erst
@@ -74,6 +79,11 @@ class DraggableTextItem(pg.TextItem):
         # und nur am Ende sichtbar zurueckspringen. clamp_fn korrigiert die
         # Position daher schon live nach jedem einzelnen Bewegungsschritt.
         self._clamp_fn = clamp_fn
+
+    def mousePressEvent(self, ev) -> None:
+        super().mousePressEvent(ev)
+        if self._on_drag_started is not None:
+            self._on_drag_started()
 
     def mouseMoveEvent(self, ev) -> None:
         super().mouseMoveEvent(ev)
@@ -119,6 +129,7 @@ class MeasurementEntry:
         start: tuple[float, float],
         end: tuple[float, float],
         on_label_moved,
+        on_drag_started=None,
     ) -> None:
         # start/end werden NUR bei der Erzeugung gebraucht (LineSegmentROI
         # kennt anders als PolyLineROI kein setPoints() zum nachtraeglichen
@@ -141,7 +152,7 @@ class MeasurementEntry:
 
         self.text = DraggableTextItem(
             color=color, anchor=(0.5, 0), fill=(0, 0, 0, 160), on_moved=lambda: on_label_moved(self),
-            clamp_fn=self._clamp_label_pos,
+            on_drag_started=on_drag_started, clamp_fn=self._clamp_label_pos,
         )
         self.text.setZValue(11)
         self.text.setVisible(False)

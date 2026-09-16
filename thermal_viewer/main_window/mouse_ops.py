@@ -18,10 +18,6 @@ class _MouseMixin:
             self._handle_measurement_click(event)
             return
 
-        if self._cleaning_pick_armed:
-            self._handle_cleaning_point_click(event)
-            return
-
         if event.double() and self._ruler_hit_test(event.scenePos()):
             self._edit_ruler_length()
             return
@@ -37,6 +33,7 @@ class _MouseMixin:
                 return
             view_pos = self.view_box.mapSceneToView(scene_pos)
             entry = self._armed_entry
+            self._push_undo_snapshot()
             entry.place(view_pos.x(), view_pos.y(), entry.spin_width.value(), entry.spin_height.value())
             self._sync_roi_spinboxes(entry)
             entry.btn_place.setChecked(False)

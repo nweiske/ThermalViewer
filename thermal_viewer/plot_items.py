@@ -225,6 +225,10 @@ class TimelineSlider(QtWidgets.QSlider):
     Schiebereglers selbst."""
 
     markerDragged = QtCore.Signal(str, int)
+    # Feuert einmal beim Loslassen einer Marker-Ziehgeste (fuer Undo/Redo,
+    # siehe undo_ops.py) -- markerDragged selbst feuert laufend bei jedem
+    # Pixel Bewegung und eignet sich daher nicht als "fertig"-Signal.
+    markerDragFinished = QtCore.Signal()
 
     _HIT_TOLERANCE_PX = 7
 
@@ -294,6 +298,7 @@ class TimelineSlider(QtWidgets.QSlider):
     def mouseReleaseEvent(self, event) -> None:
         if self._dragging is not None:
             self._dragging = None
+            self.markerDragFinished.emit()
             event.accept()
             return
         super().mouseReleaseEvent(event)

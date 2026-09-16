@@ -1,4 +1,4 @@
-"""Fensteraufbau: Bildbereich, Zeitleiste, Kurven-Graphen, Werkzeugleiste, Docks, Menü und Tastenkürzel."""
+"""Fensteraufbau: Bildbereich, Zeitleiste, Kurven-Graphen, Docks, Menü und Tastenkürzel."""
 from __future__ import annotations
 
 import contextlib
@@ -110,6 +110,13 @@ class _UIBuildMixin:
         )
         self.frame_slider.valueChanged.connect(self._on_slider_changed)
         self.frame_slider.markerDragged.connect(self._on_timeline_marker_dragged)
+        # Beendet die von _on_eval_start_changed/_on_eval_end_changed ueber
+        # _begin_grouped_undo_edit() begonnene Eingabe-Sitzung (siehe
+        # undo_ops.py) -- markerDragged selbst loest ueber spin.setValue()
+        # NIE ein editingFinished aus (das feuert nur bei echter Tastatur-
+        # Fokus-Interaktion), ohne dieses eigene "fertig"-Signal wuerde die
+        # Gruppierung nach einem Marker-Drag fuer immer offen bleiben.
+        self.frame_slider.markerDragFinished.connect(self._end_grouped_undo_edit)
         row1.addWidget(self.frame_slider, 1)
 
         self.frame_spin = QtWidgets.QSpinBox()
@@ -148,6 +155,7 @@ class _UIBuildMixin:
             "diesen Bereich begrenzt."
         )
         self.spin_eval_start.valueChanged.connect(self._on_eval_start_changed)
+        self.spin_eval_start.editingFinished.connect(self._end_grouped_undo_edit)
         row2.addWidget(self.spin_eval_start)
 
         row2.addWidget(QtWidgets.QLabel("  Auswertungsende: "))
@@ -160,6 +168,7 @@ class _UIBuildMixin:
             "diesen Bereich begrenzt."
         )
         self.spin_eval_end.valueChanged.connect(self._on_eval_end_changed)
+        self.spin_eval_end.editingFinished.connect(self._end_grouped_undo_edit)
         row2.addWidget(self.spin_eval_end)
         row2.addStretch(1)
 
@@ -441,6 +450,33 @@ class _UIBuildMixin:
             angle=90, movable=False, pen=pg.mkPen("#888888", width=1, style=QtCore.Qt.DashLine)
         )
         self.timeseries_plot.addItem(self.frame_marker)
+        # Bugfix: der obere Rand des Graphen schnitt den hoechsten Kurvenwert
+        # ab, da pyqtgraphs eigener Auto-Range-Standard hier zu knapp
+        # ausfaellt und dieser Wert bisher nirgends explizit gesetzt wurde.
+        # 8% Puffer statt der urspruenglich versuchten 5% -- bei nahezu
+        # flachen Kurven (kleine Werteschwankung) blieb der Rand mit 5%
+        # kaum wahrnehmbar (Bugreport: "sehe ich nicht/ist nicht da"), analog
+        # zum bestehenden padding=0.02-Muster beim Thermobild (frame_nav.py:
+        # _set_recording), hier aber als DAUERHAFTE ViewBox-Einstellung statt
+        # einmaligem setRange(), da sich der Y-Bereich laufend automatisch
+        # neu bestimmt.
+        #
+        # ZWEITER Bugfix (der eigentliche Grund, warum trotz obigem Padding
+        # weiterhin KEIN Rand zu sehen war): setDefaultPadding() beeinflusst
+        # nur, welcher WERTEBEREICH angezeigt wird -- es reserviert KEINEN
+        # zusaetzlichen PIXEL-Platz am oberen Widget-Rand. Ohne eine obere
+        # Zeitachse (showAxis("top", False)) reicht die ViewBox-Zeichenflaeche
+        # bis exakt zur obersten Bildzeile des Widgets; eine "schoene"
+        # Gitterlinie/Achsenbeschriftung, die zufaellig nahe am oberen Ende
+        # des (gepolsterten) Wertebereichs liegt, wird dadurch trotzdem
+        # praktisch AM Widget-Rand gezeichnet (empirisch verifiziert: auch
+        # 30% Padding aenderte am Pixel-Ergebnis nichts). setContentsMargins
+        # auf dem PlotItem selbst reserviert dagegen einen ECHTEN, festen
+        # Leerraum -- in der Hintergrundfarbe des Graphen (folgt also
+        # automatisch Hell-/Dunkelmodus, siehe theming.py) -- in dem
+        # garantiert weder Gitter noch Achsenbeschriftung erscheinen.
+        self.timeseries_plot.getPlotItem().getViewBox().setDefaultPadding(0.08)
+        self.timeseries_plot.getPlotItem().setContentsMargins(0, 18, 0, 0)
 
         # Zusaetzliche, standardmaessig ausgeblendete Kurve fuer den
         # Live-Cursor-Verlauf DIREKT im Zeitverlauf-Graphen (Punkt 8) -- eine
@@ -453,6 +489,45 @@ class _UIBuildMixin:
         )
         self.timeseries_live_curve.setVisible(False)
         self.timeseries_plot.addItem(self.timeseries_live_curve)
+
+        # Eigener, zweiter Graph NUR für die Schwindungsmessung (siehe
+        # shrinkage_ops.py) -- eine eigene Kenngröße mit eigener Einheit
+        # (mm/mm²/px/px²), die auf der °C-Achse des Zeitverlauf-Graphen
+        # fachlich nicht sinnvoll mitgeplottet werden kann. Lebt in einem
+        # EIGENEN Dock/Tab (siehe _build_docks) statt im selben Widget wie
+        # der Zeitverlauf-Graph -- Nutzerwunsch: "nicht einfach unter die
+        # Temperaturkurven quetschen, sondern in einen eigenen Plot (wie
+        # damals den Live-Cursor) packen", analog zum frueher tabifizierten
+        # "Live (Cursor)"-Dock. Folgt dem GLOBAL geteilten Uhrzeit/Laufzeit-
+        # Anzeigemodus passiv mit (siehe theming.py:_apply_time_display_mode/
+        # _apply_runtime_unit), bekommt aber -- wie der Zeitverlauf-Graph --
+        # eine EIGENE Achsen-Einstellen-/Zurücksetzen-Zeile (siehe unten).
+        # Der ganze Dock/Tab ist nur sichtbar, solange die Schwindungsmessung
+        # aktiviert ist UND ein Ergebnis vorliegt (siehe shrinkage_ops.py:
+        # _on_shrinkage_enabled_toggled). Zoom/Pan bewusst NICHT mit
+        # timeseries_plot gekoppelt (siehe Begruendung unten).
+        self.axis_shrinkage_bottom = TimeAxisItem()
+        self.axis_shrinkage_top = TimeAxisItem(orientation="top")
+        self.shrinkage_plot = pg.PlotWidget(
+            axisItems={"bottom": self.axis_shrinkage_bottom, "top": self.axis_shrinkage_top}
+        )
+        self.shrinkage_plot.getPlotItem().showAxis("top", False)
+        self.shrinkage_plot.setLabel("left", "Schwindung")
+        self.shrinkage_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.shrinkage_legend = self.shrinkage_plot.addLegend(offset=(10, 10))
+        self.shrinkage_frame_marker = pg.InfiniteLine(
+            angle=90, movable=False, pen=pg.mkPen("#888888", width=1, style=QtCore.Qt.DashLine)
+        )
+        self.shrinkage_plot.addItem(self.shrinkage_frame_marker)
+        # KEIN setXLink(self.timeseries_plot): eine X-Achsen-Kopplung ueber
+        # pg.ViewBox.setXLink() beeinflusst nachweislich (durch Tests
+        # aufgedeckt) die exakten Fliesskomma-Werte, die _rebased_time_axis
+        # (export_visuals.py) beim SVG-Export berechnet -- dieselbe grosse
+        # Unix-Zeitstempel-Praezisions-Problematik, die dort bereits einmal
+        # behoben wurde, tauchte durch die Kopplung erneut auf. Zoom/Pan
+        # bleiben deshalb bewusst UNABHAENGIG zwischen den beiden Graphen.
+        self.shrinkage_plot.getPlotItem().getViewBox().setDefaultPadding(0.08)
+        self.shrinkage_plot.getPlotItem().setContentsMargins(0, 18, 0, 0)
 
         # Export-Buttons hier bewusst entfernt (siehe Menü „Export“ und das
         # native Rechtsklick-Kontextmenü auf dem Graphen selbst) -- doppelte,
@@ -479,6 +554,18 @@ class _UIBuildMixin:
         )
         timeseries_layout.addLayout(ts_time_row)
 
+        # Eigenes Widget/Dock fuer die Schwindungsmessung (siehe Begruendung
+        # oben) -- gleicher Aufbau wie timeseries_widget: Graph plus eigene
+        # Achsen-Zeile (Achsen zurücksetzen/einstellen, Zeitachse-Umschalter).
+        self.shrinkage_widget = QtWidgets.QWidget()
+        shrinkage_layout = QtWidgets.QVBoxLayout(self.shrinkage_widget)
+        shrinkage_layout.setContentsMargins(4, 4, 4, 4)
+        shrinkage_layout.addWidget(self.shrinkage_plot)
+        shrinkage_time_row, self.combo_time_display_shrinkage, self.combo_runtime_unit_shrinkage = (
+            self._build_time_display_row(self.shrinkage_plot)
+        )
+        shrinkage_layout.addLayout(shrinkage_time_row)
+
         self.axis_live_bottom = TimeAxisItem()
         self.axis_live_top = TimeAxisItem(orientation="top")
         self.live_plot = pg.PlotWidget(
@@ -487,6 +574,8 @@ class _UIBuildMixin:
         self.live_plot.getPlotItem().showAxis("top", False)
         self.live_plot.setLabel("left", "Temperatur", units="°C")
         self.live_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.live_plot.getPlotItem().getViewBox().setDefaultPadding(0.08)
+        self.live_plot.getPlotItem().setContentsMargins(0, 18, 0, 0)
         self.live_curve = self.live_plot.plot(
             pen=pg.mkPen("#38bdf8", width=2),
             symbol="o",
@@ -515,22 +604,20 @@ class _UIBuildMixin:
         )
         live_layout.addLayout(live_time_row)
 
-        self._time_display_combos = [self.combo_time_display_timeseries, self.combo_time_display_live]
+        self._time_display_combos = [
+            self.combo_time_display_timeseries, self.combo_time_display_live, self.combo_time_display_shrinkage,
+        ]
         for combo in self._time_display_combos:
             combo.currentIndexChanged.connect(self._on_time_display_changed)
-        self._runtime_unit_combos = [self.combo_runtime_unit_timeseries, self.combo_runtime_unit_live]
+        self._runtime_unit_combos = [
+            self.combo_runtime_unit_timeseries, self.combo_runtime_unit_live, self.combo_runtime_unit_shrinkage,
+        ]
         for combo in self._runtime_unit_combos:
             combo.currentIndexChanged.connect(self._on_runtime_unit_changed)
 
         self._trim_plot_context_menu(self.timeseries_plot)
         self._trim_plot_context_menu(self.live_plot)
-
-    def _build_toolbar(self) -> None:
-        toolbar = self.addToolBar("Steuerung")
-        toolbar.setMovable(False)
-
-        act_open_folder = toolbar.addAction("Ordner öffnen…")
-        act_open_folder.triggered.connect(self._open_folder)
+        self._trim_plot_context_menu(self.shrinkage_plot)
 
     def _build_docks(self) -> None:
         self.setDockOptions(
@@ -549,13 +636,21 @@ class _UIBuildMixin:
             | QtWidgets.QDockWidget.DockWidgetClosable
         )
 
-        # "Messbereiche" statt "ROI" -- einheitlich mit der Benennung ueberall
-        # sonst in der deutschsprachigen UI ("Messbereich setzen"/"entfernen",
-        # Fehlermeldungen); "ROI" bleibt nur intern (Code, Kommentare, Variablen).
-        self.control_dock = QtWidgets.QDockWidget("Messbereiche && Legende", self)
+        # "Werkzeuge" statt der veralteten "Messbereiche & Legende" --
+        # das Panel deckt seit dem Umbau vier gleichrangige Reiter ab
+        # (Legende/Temperatur-Messung/Schwindungsmessung/Maßstab), von denen
+        # "Messbereiche & Legende" nur noch zwei benannt hätte. Der Name
+        # bleibt als windowTitle() erhalten (fuer den Ein-/Ausblenden-
+        # Menuepunkt im "Ansicht"-Menue), die sichtbare Titelzeile samt
+        # Rahmen darueber blendet -- wie bei timeseries_dock -- ein leeres
+        # Platzhalter-Widget aus (Nutzerfeedback: die Ueberschrift/Umrandung
+        # wirkte hier nur wie ein weiterer, ueberfluessiger Rahmen um das
+        # ohnehin schon in eigene Registerkarten gegliederte Panel).
+        self.control_dock = QtWidgets.QDockWidget("Werkzeuge", self)
         self.control_dock.setWidget(self.control_panel)
         self.control_dock.setAllowedAreas(side_areas)
         self.control_dock.setFeatures(dock_features)
+        self.control_dock.setTitleBarWidget(QtWidgets.QWidget())
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.control_dock)
 
         self.timeseries_dock = QtWidgets.QDockWidget("Zeitverlauf", self)
@@ -574,6 +669,24 @@ class _UIBuildMixin:
         # die (jetzt unsichtbare) Titelleiste selbst entfaellt.
         self.timeseries_dock.setTitleBarWidget(QtWidgets.QWidget())
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.timeseries_dock)
+
+        # Eigener Tab "Schwindung" NEBEN "Zeitverlauf" (Nutzerwunsch: nicht
+        # unter die Temperaturkurven quetschen, sondern -- wie frueher der
+        # "Live (Cursor)"-Tab -- als eigener, gleichrangiger Tab). Die
+        # eigentliche Titelzeile bleibt hier bewusst SICHTBAR (kein
+        # setTitleBarWidget(...)): sie liefert -- anders als bei
+        # timeseries_dock/control_dock oben -- den einzigen Anhaltspunkt, an
+        # dem der von Qt automatisch erzeugten Tab-Leiste zu erkennen ist,
+        # WELCHER der beiden Tabs gerade aktiv ist. Von Anfang an sichtbar
+        # (Nutzerfeedback: der Tab soll NICHT erst nach "Aktivieren"/
+        # "Berechnen" auftauchen, sondern von Beginn an da sein -- der Graph
+        # zeigt bis zum ersten "Berechnen" einfach leer).
+        self.shrinkage_dock = QtWidgets.QDockWidget("Schwindung", self)
+        self.shrinkage_dock.setWidget(self.shrinkage_widget)
+        self.shrinkage_dock.setAllowedAreas(side_areas)
+        self.shrinkage_dock.setFeatures(dock_features)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.shrinkage_dock)
+        self.tabifyDockWidget(self.timeseries_dock, self.shrinkage_dock)
 
         # Das frueher separat tabifizierte "Live (Cursor)"-Dock entfaellt
         # (Nutzerwunsch: redundant, da der Live-Cursor-Verlauf laengst als
@@ -599,8 +712,10 @@ class _UIBuildMixin:
 
         # control_dock und timeseries_dock liegen in DERSELBEN rechten Spalte
         # (live_dock ist seit Entfernung des redundanten "Live (Cursor)"-Tabs
-        # nie sichtbar, siehe oben, gehoert also nicht mehr dazu) -- beide
-        # haben also zwangslaeufig dieselbe Breite. Ein resizeDocks(...,
+        # nie sichtbar, siehe oben, gehoert also nicht mehr dazu; shrinkage_
+        # dock ist mit timeseries_dock TABIFIZIERT, teilt sich also dieselbe
+        # Flaeche statt eigene Hoehe zu beanspruchen) -- beide haben also
+        # zwangslaeufig dieselbe Breite. Ein resizeDocks(...,
         # Horizontal) mit zwei WIDERSPRUECHLICHEN Breiten fuer Docks derselben
         # Spalte (frueherer Bug) fuehrte zu einer unvorhersehbaren/"komischen"
         # Anfangsbreite; hier genuegt EIN Wert fuer die ganze Spalte. Bild-
@@ -610,6 +725,14 @@ class _UIBuildMixin:
             [self.control_dock, self.timeseries_dock], [420, 500], QtCore.Qt.Vertical
         )
         self.resizeDocks([self.control_dock], [self.width() // 2], QtCore.Qt.Horizontal)
+
+        # tabifyDockWidget() bringt IMMER den zuletzt tabifizierten Dock
+        # (hier: shrinkage_dock) in den Vordergrund -- ohne dieses explizite
+        # Zurückholen wäre "Schwindung" (i.d.R. noch leer) statt
+        # "Zeitverlauf" der zuerst sichtbare Tab, was sowohl fürs normale
+        # Arbeiten als auch für den Grafik-/SVG-Export (der die Sichtbarkeit
+        # von timeseries_dock voraussetzt) falsch wäre.
+        self.timeseries_dock.raise_()
 
     def _build_shortcuts(self) -> None:
         # Standardkontext (WindowShortcut) reicht: Qt bevorzugt bei fokussierten

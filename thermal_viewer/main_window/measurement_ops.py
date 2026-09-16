@@ -30,8 +30,6 @@ class _MeasurementMixin:
             self._armed_entry = None
         if self._measurement_armed:
             self._cancel_measurement_tool()
-        if self._cleaning_pick_armed:
-            self._cancel_cleaning_point_pick()
         self._set_active_layer_tab("scale")
         self._ruler_armed = True
         self._ruler_start = None
@@ -74,11 +72,13 @@ class _MeasurementMixin:
         color = QtWidgets.QColorDialog.getColor(QtGui.QColor(self._ruler_color), self, "Farbe der Maßstablinie")
         if not color.isValid():
             return
+        self._push_undo_snapshot()
         self._ruler_color = color.name()
         self._update_ruler_color_swatch()
         self._apply_ruler_color()
 
     def _clear_ruler_scale(self) -> None:
+        self._push_undo_snapshot()
         self._px_to_mm = None
         self._ruler_mm_value = None
         self._ruler_label_offset = None
@@ -134,7 +134,7 @@ class _MeasurementMixin:
                 self._ruler_text = DraggableTextItem(
                     color=self._ruler_color, anchor=(0.5, 0), fill=(0, 0, 0, 160),
                     on_moved=self._on_ruler_label_moved, on_double_clicked=self._edit_ruler_length,
-                    clamp_fn=self._clamp_ruler_label_pos,
+                    on_drag_started=self._push_undo_snapshot, clamp_fn=self._clamp_ruler_label_pos,
                 )
                 self._ruler_text.setZValue(11)
                 self.view_box.addItem(self._ruler_text)
@@ -169,6 +169,7 @@ class _MeasurementMixin:
             return
         mm_value = length_dialog.mm_value()
 
+        self._push_undo_snapshot()
         self._ruler_preview_marker.setVisible(False)
         self._ruler_label_offset = None  # neue Linie -> Beschriftung startet wieder am Mittelpunkt
         self._create_or_move_ruler_line(start, end)
@@ -195,6 +196,9 @@ class _MeasurementMixin:
         )
         self._ruler_line.setZValue(11)
         self.view_box.addItem(self._ruler_line)
+        # sigRegionChangeStarted feuert einmal beim Beginn des Ziehens
+        # (siehe undo_ops.py-Moduldocstring) -- EIN Snapshot pro Drag.
+        self._ruler_line.sigRegionChangeStarted.connect(self._push_undo_snapshot)
         self._ruler_line.sigRegionChangeFinished.connect(self._on_ruler_line_dragged)
 
     def _on_ruler_line_dragged(self) -> None:
@@ -282,6 +286,7 @@ class _MeasurementMixin:
         pixel_distance = (p2 - p1).length()
         if pixel_distance < 1e-6:
             return
+        self._push_undo_snapshot()
         self._ruler_mm_value = length_dialog.mm_value()
         self._px_to_mm = self._ruler_mm_value / pixel_distance
         self._update_ruler_text_position()
@@ -309,8 +314,6 @@ class _MeasurementMixin:
             self._armed_entry = None
         if self._ruler_armed:
             self._cancel_ruler_tool()
-        if self._cleaning_pick_armed:
-            self._cancel_cleaning_point_pick()
         self._set_active_layer_tab("scale")
         self._measurement_armed = True
         self._measurement_start = None
@@ -373,6 +376,7 @@ class _MeasurementMixin:
         if pixel_distance < 1e-6 or self._px_to_mm is None:
             return
 
+        self._push_undo_snapshot()
         entry = self._create_measurement(start, end, pixel_distance)
         self.statusBar().showMessage(
             f"{entry.name}: {self._format_de(entry.mm_value, 2)} mm ({self._format_de(pixel_distance, 1)} px) "
@@ -390,7 +394,13 @@ class _MeasurementMixin:
         number = self._measurement_next_number
         self._measurement_next_number += 1
         color = roi_color_for_number(number)
-        entry = MeasurementEntry(number, color, self.view_box, start, end, self._on_measurement_label_moved)
+        entry = MeasurementEntry(
+            number, color, self.view_box, start, end, self._on_measurement_label_moved,
+            on_drag_started=self._push_undo_snapshot,
+        )
+        # sigRegionChangeStarted feuert einmal beim Beginn des Ziehens
+        # (siehe undo_ops.py-Moduldocstring) -- EIN Snapshot pro Drag.
+        entry.line.sigRegionChangeStarted.connect(self._push_undo_snapshot)
         entry.line.sigRegionChangeFinished.connect(partial(self._on_measurement_line_dragged, entry))
         entry.line.setVisible(self._scale_visuals_visible and self._is_layer_tab_active("scale"))
         entry.mm_value = pixel_distance * self._px_to_mm
@@ -419,6 +429,9 @@ class _MeasurementMixin:
         name_edit = QtWidgets.QLineEdit(entry.name)
         name_edit.setToolTip("Name dieser Messung -- erscheint auch als Beschriftung im Bild.")
         name_edit.textChanged.connect(partial(self._on_measurement_name_changed, entry))
+        # Beendet die von _on_measurement_name_changed begonnene Eingabe-
+        # Sitzung (siehe undo_ops.py), analog zu den ROI-Spinboxen.
+        name_edit.editingFinished.connect(self._end_grouped_undo_edit)
         row_layout.addWidget(name_edit, 1)
         entry.name_edit = name_edit
 
@@ -437,6 +450,11 @@ class _MeasurementMixin:
         self.measurements_container.addWidget(row)
 
     def _on_measurement_name_changed(self, entry: "MeasurementEntry", text: str) -> None:
+        # Feuert live bei JEDEM Tastendruck (QLineEdit.textChanged) --
+        # gruppiert wie bei den ROI-Positions-Spinboxen, siehe undo_ops.py/
+        # roi_panel_build.py (name_edit.editingFinished wird dort/unten
+        # analog an _end_grouped_undo_edit angeschlossen).
+        self._begin_grouped_undo_edit()
         entry.name = text.strip() or f"Messung {entry.number}"
         entry.update_text_position()
 
@@ -444,9 +462,11 @@ class _MeasurementMixin:
         color = QtWidgets.QColorDialog.getColor(QtGui.QColor(entry.color), self, "Farbe der Messung")
         if not color.isValid():
             return
+        self._push_undo_snapshot()
         entry.set_color(color.name())
 
     def _remove_measurement(self, entry: "MeasurementEntry") -> None:
+        self._push_undo_snapshot()
         entry.remove_from_view_box(self.view_box)
         if entry.row_widget is not None:
             self.measurements_container.removeWidget(entry.row_widget)

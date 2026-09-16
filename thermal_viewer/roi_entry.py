@@ -56,6 +56,13 @@ def mm_value_de(value: float, decimals: int = 2) -> str:
     return f"{value:.{decimals}f}".replace(".", ",")
 
 
+# Anzeigename je Kennzahl (Combobox im Panel) UND kurzer Bild-Suffix bei
+# Max/Min (siehe RoiEntry._refresh_label_text) -- eine Stelle fuer beide,
+# damit sie nicht auseinanderlaufen koennen.
+STAT_MODE_LABELS = {"mean": "Mittelwert", "max": "Höchstwert", "min": "Tiefstwert"}
+_STAT_MODE_SUFFIX = {"max": " (Max)", "min": " (Min)"}
+
+
 class RoiEntry:
     """Bündelt ein frei skalierbares ROI im Bild mit seiner Kurve im
     Zeitverlauf und den zugehörigen Steuer-Widgets im rechten Panel."""
@@ -104,6 +111,12 @@ class RoiEntry:
         # (Standard: an) -- siehe _refresh_label_text/chk_show_temperature.
         self.show_temperature = True
 
+        # Welche Kennzahl im Messbereich angezeigt/in die Kurve uebernommen
+        # wird (Nutzerwunsch: "Auswahl, ob höchste, niedrigste oder mittlere
+        # Temperatur angezeigt wird") -- "mean" (Standard, bisheriges
+        # Verhalten), "max" oder "min", siehe average()/combo_stat_mode.
+        self.stat_mode = "mean"
+
         pen = pg.mkPen(color, width=2)
         hover_pen = pg.mkPen(color, width=3)
         self.roi = AdjustableROI([0, 0], DEFAULT_ROI_SIZE, pen=pen, hoverPen=hover_pen, removable=False)
@@ -140,6 +153,7 @@ class RoiEntry:
         self.btn_remove: QtWidgets.QPushButton | None = None
         self.chk_show_temperature: QtWidgets.QCheckBox | None = None
         self.chk_circular: QtWidgets.QCheckBox | None = None
+        self.combo_stat_mode: QtWidgets.QComboBox | None = None
 
     def set_name(self, name: str) -> None:
         self.name = name
@@ -154,16 +168,23 @@ class RoiEntry:
         if self._last_temperature is None or not self.show_temperature:
             self.label.setText(self.name)
         else:
-            self.label.setText(f"{self.name}: {self._last_temperature:.1f} °C")
+            # Kennzahl-Suffix (Nutzerwunsch) nur bei Max/Min anzeigen, damit
+            # im Bild ersichtlich bleibt, dass hier NICHT der Mittelwert
+            # gezeigt wird -- beim (weiterhin haeufigsten) Mittelwert bleibt
+            # die Beschriftung wie bisher ohne Zusatz.
+            suffix = _STAT_MODE_SUFFIX.get(self.stat_mode, "")
+            self.label.setText(f"{self.name}: {self._last_temperature:.1f} °C{suffix}")
 
     def average(self, block: np.ndarray, row0: int, row1: int, col0: int, col1: int):
-        """Mittelt block (siehe average_value) -- rechteckig oder, falls
+        """Aggregiert block (siehe average_value) -- rechteckig oder, falls
         dieser Messbereich "als Kreis behandeln" aktiviert hat
         (self.roi.is_circular), nur ueber die in die Bounding-Box
-        eingeschriebene Ellipse. Einzige Stelle, die diese Unterscheidung
-        kennt, damit sie an jeder Aufrufstelle (Live-Beschriftung,
-        Kurvenberechnung) automatisch konsistent greift."""
-        return average_value(block, row0, row1, col0, col1, self.roi.is_circular)
+        eingeschriebene Ellipse, und mit der gewaehlten Kennzahl
+        (self.stat_mode: Mittel-/Hoechst-/Tiefstwert). Einzige Stelle, die
+        diese Unterscheidungen kennt, damit sie an jeder Aufrufstelle
+        (Live-Beschriftung, Kurvenberechnung) automatisch konsistent
+        greifen."""
+        return average_value(block, row0, row1, col0, col1, self.roi.is_circular, self.stat_mode)
 
     def update_temperature_label(self, temperature: float) -> None:
         """Aktualisiert die im Bild angezeigte Beschriftung um die aktuell

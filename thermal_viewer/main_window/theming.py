@@ -51,10 +51,22 @@ class _ThemeMixin:
             # Palette uebernommen -- explizites Neu-Polieren erzwingt die
             # Aktualisierung (Bugreport: Zeitstempel blieb nach Dunkel->Hell-
             # Wechsel in grauer, auf hellem Hintergrund kaum lesbarer Schrift).
+            # Bugfix (Bug-Hunt): app.allWidgets() kann ein Widget enthalten,
+            # dessen zugrundeliegendes C++-Objekt bereits zerstoert wurde --
+            # etwa wenn (u.a. in Tests) ein frueheres MainWindow zwar
+            # geschlossen, aber vom Python-Garbage-Collector noch nicht
+            # eingesammelt wurde. Solch ein "Wrapper" degradiert zu einem
+            # nackten QObject ohne .style() -- AttributeError statt der bei
+            # einem regulaer geloeschten Qt-Objekt ueblichen RuntimeError.
+            # Beides abfangen und das betroffene Widget einfach uebergehen.
             for widget in app.allWidgets():
-                widget.style().unpolish(widget)
-                widget.style().polish(widget)
-                widget.update()
+                try:
+                    style = widget.style()
+                    style.unpolish(widget)
+                    style.polish(widget)
+                    widget.update()
+                except (AttributeError, RuntimeError):
+                    continue
 
         act = getattr(self, "_window_theme_actions", {}).get(key)
         if act is not None:
@@ -72,8 +84,11 @@ class _ThemeMixin:
         Abgleich uebernimmt _apply_graph_theme."""
         self.timeseries_plot.setBackground(bg)
         self.live_plot.setBackground(bg)
+        self.shrinkage_plot.setBackground(bg)
 
-        for plot_item in (self.timeseries_plot.getPlotItem(), self.live_plot.getPlotItem()):
+        for plot_item in (
+            self.timeseries_plot.getPlotItem(), self.live_plot.getPlotItem(), self.shrinkage_plot.getPlotItem(),
+        ):
             for axis_name in ("left", "bottom", "right", "top"):
                 axis = plot_item.getAxis(axis_name)
                 axis.setPen(fg)
@@ -103,6 +118,12 @@ class _ThemeMixin:
             # GENAU dieser Farb-Bug. Fix: jedes bestehende Label explizit
             # per setText() neu rendern lassen.
             for _sample, label in legend.items:
+                label.setText(label.text, color=fg)
+
+        shrinkage_legend = self.shrinkage_plot.getPlotItem().legend
+        if shrinkage_legend is not None:
+            shrinkage_legend.setLabelTextColor(fg)
+            for _sample, label in shrinkage_legend.items:
                 label.setText(label.text, color=fg)
 
         self._graph_bg = bg
@@ -176,6 +197,7 @@ class _ThemeMixin:
         runtime = mode == "runtime"
         self.axis_timeseries_bottom.set_runtime_mode(runtime, t0)
         self.axis_live_bottom.set_runtime_mode(runtime, t0)
+        self.axis_shrinkage_bottom.set_runtime_mode(runtime, t0)
         for combo in self._time_display_combos:
             combo.blockSignals(True)
             idx = combo.findData(mode)
@@ -209,8 +231,10 @@ class _ThemeMixin:
         # vom hier gewaehlten Format.
         self.axis_timeseries_bottom.set_runtime_unit(unit)
         self.axis_live_bottom.set_runtime_unit(unit)
+        self.axis_shrinkage_bottom.set_runtime_unit(unit)
         self.axis_timeseries_top.set_runtime_unit(unit)
         self.axis_live_top.set_runtime_unit(unit)
+        self.axis_shrinkage_top.set_runtime_unit(unit)
         for combo in self._runtime_unit_combos:
             combo.blockSignals(True)
             idx = combo.findData(unit)

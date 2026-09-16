@@ -67,15 +67,16 @@ class _CsvExportMixin:
             # (erstes Bild der Messung), KEINE echte feste Box wie bei
             # ROIs/Live-Cursor -- der eigentliche Wert ist pro Bild
             # unterschiedlich (das ist ja gerade der Messwert). Name/Einheit
-            # haengen von der gewaehlten Messart ab (siehe shrinkage_ops.py).
-            is_area = self._shrinkage_result["mode"] == "area"
-            key = "areas_px" if is_area else "widths_px"
+            # haengen von der aktuell gewaehlten Kenngroesse ab (siehe
+            # shrinkage_ops.py).
+            is_area = self._shrinkage_metric_is_area()
+            key = self._shrinkage_metric_key()
             ref_value_px = float(self._shrinkage_result[key][0])
             scale = (self._px_to_mm ** 2 if is_area else self._px_to_mm) if self._px_to_mm is not None else None
             ref_value_mm = ref_value_px * scale if scale is not None else None
             unit_suffix = ("mm²" if is_area else "mm") if self._px_to_mm is not None else ("px²" if is_area else "px")
             dialog_entries.append({
-                "name": "Schwindung (Fläche)" if is_area else "Schwindung (Breite)",
+                "name": f"Schwindung ({self._shrinkage_metric_label()})",
                 "width_px": ref_value_px,
                 "height_px": ref_value_px,
                 "width_mm": ref_value_mm,
@@ -141,22 +142,21 @@ class _CsvExportMixin:
             elif i == shrinkage_index:
                 header.append(name)
                 # Wie bei ROIs/Live-Cursor die VOLLE, ungekuerzte Reihe --
-                # areas_px/widths_px sind bereits ueber alle Frames (0..n-1)
-                # berechnet, das Ausblenden erledigt die Zeilen-Schleife
-                # unten selbst.
-                is_shrinkage_area = self._shrinkage_result["mode"] == "area"
-                shrinkage_key = "areas_px" if is_shrinkage_area else "widths_px"
+                # areas_px/rect_widths_px/round_widths_px sind bereits ueber
+                # alle Frames (0..n-1) berechnet, das Ausblenden erledigt die
+                # Zeilen-Schleife unten selbst.
                 # Bugfix: der Spaltenname traegt bereits das echte Einheiten-
                 # Suffix ("mm"/"mm²", siehe unit_suffix oben und
                 # CsvColumnDialog) sobald ein Maßstab gesetzt ist -- ohne
                 # dieselbe Skalierung hier (wie in _update_shrinkage_curve)
                 # stuenden dort faelschlich rohe Pixelwerte unter einer
                 # "(mm)"-Beschriftung.
+                is_shrinkage_area = self._shrinkage_metric_is_area()
                 shrinkage_scale = (
                     (self._px_to_mm ** 2 if is_shrinkage_area else self._px_to_mm)
                     if self._px_to_mm is not None else 1.0
                 )
-                y = self._shrinkage_result[shrinkage_key] * shrinkage_scale
+                y = self._shrinkage_result[self._shrinkage_metric_key()] * shrinkage_scale
             else:
                 header.append(name)
                 # NICHT curve.getData(): die angezeigte Kurve laesst von der

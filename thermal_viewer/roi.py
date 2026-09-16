@@ -66,19 +66,32 @@ def elliptical_mask(row0: int, row1: int, col0: int, col1: int) -> np.ndarray:
     return _elliptical_mask_for_shape(h, w)
 
 
-def average_value(block: np.ndarray, row0: int, row1: int, col0: int, col1: int, circular: bool):
-    """Mittelt block (2D: ein Frame-Ausschnitt, oder 3D: mehrere Frames mit
+_STAT_REDUCERS = {
+    "mean": lambda arr, axis: arr.mean(axis=axis),
+    "max": lambda arr, axis: arr.max(axis=axis),
+    "min": lambda arr, axis: arr.min(axis=axis),
+}
+
+
+def average_value(
+    block: np.ndarray, row0: int, row1: int, col0: int, col1: int, circular: bool, stat_mode: str = "mean",
+):
+    """Aggregiert block (2D: ein Frame-Ausschnitt, oder 3D: mehrere Frames mit
     Achse 0 = Zeit) ueber die raeumlichen Achsen -- rechteckig (gesamte
     Bounding-Box) oder, wenn circular=True, nur ueber die Pixel innerhalb
-    der per elliptical_mask() eingeschriebenen Ellipse. Gemeinsame Stelle
-    fuer alle ROI-Mittelwertbildungen (Live-Beschriftung, Kurvenberechnung),
-    damit "als Kreis behandeln" ueberall konsistent wirkt."""
+    der per elliptical_mask() eingeschriebenen Ellipse. stat_mode waehlt die
+    Kennzahl ("mean"/"max"/"min", Nutzerwunsch: Anzeige des Messbereichs
+    auf Hoechst-/Tiefstwert statt nur Mittelwert umstellbar). Gemeinsame
+    Stelle fuer alle ROI-Aggregationen (Live-Beschriftung, Kurvenberechnung),
+    damit sowohl "als Kreis behandeln" als auch die Kennzahl-Auswahl ueberall
+    konsistent wirken."""
+    reduce = _STAT_REDUCERS[stat_mode]
     if not circular:
-        return block.mean() if block.ndim == 2 else block.mean(axis=(1, 2))
+        return reduce(block, None if block.ndim == 2 else (1, 2))
     mask = elliptical_mask(row0, row1, col0, col1)
     if block.ndim == 2:
-        return block[mask].mean()
-    return block[:, mask].mean(axis=1)
+        return reduce(block[mask], None)
+    return reduce(block[:, mask], 1)
 
 
 class AdjustableROI(pg.RectROI):

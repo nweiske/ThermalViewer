@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .csv_dialog import CsvColumnDialog, FilenameTemplateDialog
 from .data_cleaning import DataCleaningDialog
+from .data_cleaning_viewer import CleaningPreviewViewer
 from .export_dialogs import GraphicExportDialog, VideoExportDialog
 from .filename_tokens import (
     INDEX_TOKEN,
@@ -29,6 +30,7 @@ from .scale_selector import ScaleContentSelector
 __all__ = [
     "AxisOverridePanel",
     "AxisSettingsDialog",
+    "CleaningPreviewViewer",
     "ColorScaleOverridePanel",
     "CsvColumnDialog",
     "DataCleaningDialog",

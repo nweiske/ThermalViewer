@@ -453,6 +453,12 @@ class Recording:
     # Dateien, die beim Laden uebersprungen wurden (kaputte/unlesbare CSV
     # oder abweichende Bildaufloesung), zusammen mit dem jeweiligen Grund.
     skipped_files: list[tuple[Path, str]] = field(default_factory=list)
+    # Reiner Performance-Cache fuer unix_seconds() (siehe dort) -- bewusst
+    # aus repr()/Gleichheitsvergleich ausgeschlossen, da er kein Teil des
+    # fachlichen Zustands ist.
+    _unix_seconds_cache: tuple[int, datetime | None, np.ndarray] | None = field(
+        default=None, repr=False, compare=False,
+    )
 
     @property
     def n_frames(self) -> int:
@@ -469,7 +475,25 @@ class Recording:
         return np.asarray([(t - t0).total_seconds() for t in self.timestamps])
 
     def unix_seconds(self) -> np.ndarray:
-        return np.asarray([t.timestamp() for t in self.timestamps])
+        """Bugreport (Punkt 7): "wenn ich den Live-Cursor durch das Bild
+        bewege, ist das Programm laggy" -- Ursache war diese Methode, die
+        bei JEDEM Aufruf per reiner Python-Schleife .timestamp() auf jedem
+        einzelnen datetime-Objekt neu ausrechnete, obwohl sie u.a. bei JEDER
+        Mausbewegung ueber dem Thermobild aufgerufen wird (siehe
+        mouse_ops.py:_update_live_cursor) -- bei laengeren Aufnahmen (viele
+        tausend Frames) spuerbar langsam. Cache anhand Laenge + letztem
+        Zeitstempel (billig zu pruefen) statt eines vollen Neu-Aufbaus, wenn
+        sich self.timestamps seit dem letzten Aufruf nicht veraendert hat --
+        haelt Aufrufer, die self.timestamps direkt mutieren/ersetzen (Live-
+        Ordner-Ueberwachung, Tests), automatisch korrekt, ohne dass diese
+        selbst eine Invalidierung anstossen muessen."""
+        n = len(self.timestamps)
+        cache = self._unix_seconds_cache
+        if cache is not None and cache[0] == n and (n == 0 or cache[1] == self.timestamps[-1]):
+            return cache[2]
+        result = np.asarray([t.timestamp() for t in self.timestamps])
+        self._unix_seconds_cache = (n, self.timestamps[-1] if n else None, result)
+        return result
 
 
 def _deduplicate_timestamps(timestamps: list[datetime]) -> tuple[list[datetime], bool]:

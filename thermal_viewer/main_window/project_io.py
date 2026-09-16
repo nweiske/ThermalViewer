@@ -23,6 +23,7 @@ from ..roi_entry import (
     MAX_ROI_COUNT,
     RoiEntry,
 )
+from .shrinkage_ops import _SHRINKAGE_METRIC_LABELS
 
 
 def _shrink_box_data(roi) -> dict:
@@ -107,6 +108,24 @@ class _ProjectMixin:
         if not Path(path).suffix:
             path += ".tvproj"
 
+        data = self._build_project_state_dict()
+
+        try:
+            Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except OSError as exc:
+            QtWidgets.QMessageBox.critical(self, "Fehler", f"Projekt konnte nicht gespeichert werden:\n{exc}")
+            return False
+
+        self.statusBar().showMessage(f"Projekt gespeichert: {path}")
+        return True
+
+    def _build_project_state_dict(self) -> dict:
+        """Baut das komplette Zustands-dict, wie es "Projekt speichern…"
+        als JSON schreibt -- reine Konstruktion, KEIN Dialog/Datei-I/O,
+        setzt self.recording is not None voraus. Ausgelagert aus
+        _save_project(), damit dieselbe dict-Form auch fuer einen In-
+        Memory-Snapshot (Undo/Redo, siehe undo_ops.py) wiederverwendet
+        werden kann, ohne ueber eine echte Datei zu gehen."""
         rois = []
         for entry in self.roi_entries:
             roi_data: dict = {
@@ -123,6 +142,7 @@ class _ProjectMixin:
                 "interpolation_aktiv": entry.interp_enabled,
                 "temperatur_anzeigen": entry.show_temperature,
                 "kreisfoermig": entry.roi.is_circular,
+                "statistik": entry.stat_mode,
             }
             if entry.placed:
                 cx, cy = entry.center()
@@ -172,40 +192,38 @@ class _ProjectMixin:
             # Rohdaten-Bereinigung (siehe data_cleaning_ops.py) -- Nutzerwunsch:
             # "wenn ich ein Projekt speichere/lade [möchte ich] wirklich den
             # VOLLSTÄNDIGEN Zustand des Programmes haben". Referenzpunkte sind
-            # Pixelkoordinaten (x=col, y=row, siehe _handle_cleaning_point_click).
-            "bereinigung_punkte": [{"x": x, "y": y} for x, y in self._cleaning_points],
+            # Pixelkoordinaten (x=col, y=row, gesetzt in der Bildvorschau des
+            # Bereinigungs-Dialogs); "logic" gilt PRO Punkt, "aktiv" haelt die
+            # Deaktivieren-Checkbox pro Punkt fest.
+            "bereinigung_punkte": [
+                {"x": x, "y": y, "logic": logic, "aktiv": enabled}
+                for x, y, logic, enabled in self._cleaning_points
+            ],
             "bereinigung_schwellenwert": self._cleaning_threshold,
             "bereinigung_kernel_groesse": self._cleaning_kernel_size,
-            "bereinigung_logik": self._cleaning_logic,
             "bereinigung_ausgeblendete_frames": sorted(self._excluded_frame_indices),
             # Schwindungsmessung (siehe shrinkage_ops.py) -- wie bei der
             # Rohdaten-Bereinigung Nutzerwunsch "vollstaendiger Programm-
-            # zustand". Das berechnete ERGEBNIS selbst (widths_px/areas_px)
-            # wird bewusst NICHT gespeichert (abgeleitete Daten, wie die
-            # ROI-Kurven auch) -- beim Laden wird es aus den hier
-            # gespeicherten Eingaben neu berechnet (siehe _load_project).
+            # zustand". Das berechnete ERGEBNIS selbst (areas_px/rect_
+            # widths_px/round_widths_px) wird bewusst NICHT gespeichert
+            # (abgeleitete Daten, wie die ROI-Kurven auch) -- beim Laden
+            # wird es aus den hier gespeicherten Eingaben neu berechnet
+            # (siehe _load_project_shrinkage). KEIN Schwellenwert/keine
+            # "wärmer/kälter"-Auswahl/kein Messart-Modus mehr (siehe
+            # shrinkage_ops.py-Moduldocstring) -- die Probe wird immer mit
+            # EINER Box vormarkiert, "kenngroesse" waehlt nur nachtraeglich
+            # aus, was daraus berechnet/angezeigt wird. "box_flaeche"/
+            # "box_flaeche_farbe" tragen bewusst denselben Schluesselnamen
+            # wie vor diesem Umbau -- alte Projektdateien laden ihre
+            # Boxposition/-farbe dadurch weiterhin korrekt.
             "schwindung": {
                 "aktiviert": self._shrinkage_enabled,
-                "messart": self._shrinkage_mode,
-                "schwellenwert": self.spin_shrinkage_threshold.value(),
-                "waermer": self.radio_shrinkage_warmer.isChecked(),
-                "geometrie": "round" if self.radio_shrinkage_round.isChecked() else "rect",
-                "startbild": self._shrinkage_ref_frame,
-                "box_links": _shrink_box_data(self.roi_shrink_left),
-                "box_rechts": _shrink_box_data(self.roi_shrink_right),
-                "box_referenzrahmen": _shrink_box_data(self.roi_shrink_width),
+                "kenngroesse": self._shrinkage_metric,
                 "box_flaeche": _shrink_box_data(self.roi_shrink_area),
+                "box_flaeche_farbe": self._shrinkage_color_area,
             },
         }
-
-        try:
-            Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        except OSError as exc:
-            QtWidgets.QMessageBox.critical(self, "Fehler", f"Projekt konnte nicht gespeichert werden:\n{exc}")
-            return False
-
-        self.statusBar().showMessage(f"Projekt gespeichert: {path}")
-        return True
+        return data
 
     @staticmethod
     def _parse_interp_point(
@@ -257,14 +275,18 @@ class _ProjectMixin:
         measurement_errors = self._load_project_measurements(data)
         self._load_project_cleaning(data)
         self._load_project_shrinkage(data)
-        # Ebenen-Tabs (layer_tabs_ops.py): Messbereiche/Bereinigungspunkte
-        # koennen waehrend des Ladens neu platziert/gezeichnet worden sein
-        # (entry.place()/_draw_cleaning_point_markers setzen dabei ihre
+        # Ebenen-Tabs (layer_tabs_ops.py): Messbereiche koennen waehrend des
+        # Ladens neu platziert worden sein (entry.place() setzt dabei seine
         # eigene Sichtbarkeit OHNE Kenntnis der aktuell aktiven Ebene) --
         # hier einmal zentral neu anwenden, damit z.B. ein waehrend des
         # Ladens auf "Schwindungsmessung" stehender Tab nicht ploetzlich
         # auch Messbereiche zeigt.
         self._apply_layer_tab_visibility()
+        # Ein per Datei-Dialog geladenes Projekt ersetzt den Zustand komplett
+        # (nicht ueber undo_ops.py::_restore_project_state_dict, das den
+        # Undo-Stack selbst nicht anfasst) -- eine History darueber hinweg
+        # waere sinnlos/irrefuehrend (siehe undo_ops.py).
+        self._clear_undo_history()
 
         message = f"Projekt geladen: {path}"
         if failed_indices:
@@ -278,6 +300,26 @@ class _ProjectMixin:
         if measurement_errors:
             message += f"  |  {measurement_errors} Messung(en) übersprungen (fehlerhaft)."
         self.statusBar().showMessage(message)
+
+    def _restore_project_state_dict(self, data: dict) -> None:
+        """Wendet einen In-Memory-Zustands-Snapshot (dieselbe Form wie
+        _build_project_state_dict()/eine echte .tvproj-Datei) direkt auf
+        die laufende UI an -- fuer Undo/Redo (siehe undo_ops.py). Ruft
+        bewusst NUR die dialogfreien Sub-Methoden von _load_project() auf
+        (nicht _load_project_resolve_recording/_load_project_show_mismatch_
+        warnings, die Datei-Dialoge/Warnungen zeigen koennen) -- ein Undo/
+        Redo betrifft immer dieselbe, bereits geladene Aufnahme, nie einen
+        Wechsel der Aufnahme selbst. _load_project_shrinkage bekommt
+        recompute=False: die Schwindungs-Neuberechnung kann laut deren
+        Moduldocstring mehrere Sekunden dauern, was bei jedem einzelnen
+        Rueckgaengig/Wiederholen voellig unangemessen waere."""
+        self._load_project_display_settings(data)
+        self._load_project_eval_range(data)
+        self._load_project_rois(data, full_replace=True)
+        self._load_project_measurements(data)
+        self._load_project_cleaning(data)
+        self._load_project_shrinkage(data, recompute=False)
+        self._apply_layer_tab_visibility()
 
     def _load_project_resolve_recording(self, data: dict) -> bool:
         """Sorgt dafuer, dass beim Laden eines Projekts eine Messreihe
@@ -406,12 +448,33 @@ class _ProjectMixin:
                 self.spin_eval_start.blockSignals(False)
             self._update_timeline_markers()
 
-    def _load_project_rois(self, data: dict) -> list[int]:
+    def _load_project_rois(self, data: dict, full_replace: bool = False) -> list[int]:
         """Baut die Messbereiche (beliebig viele ROIs) aus der Projektdatei
         auf -- bestehende Eintraege werden ueber ihre (0-basiert
         gespeicherte) Erzeugungsnummer wiedergefunden bzw. bei Bedarf neu
         angelegt. Gibt die 0-basierten Indizes fehlerhafter/uebersprungener
-        Eintraege zurueck (fuer die Abschluss-Meldung in _load_project)."""
+        Eintraege zurueck (fuer die Abschluss-Meldung in _load_project).
+
+        full_replace=True (NUR vom Undo/Redo-Pfad, siehe undo_ops.py/
+        _restore_project_state_dict) schaltet zwei Dinge zusaetzlich an --
+        beides waere fuer ein normal per "Projekt laden…" geoeffnetes
+        .tvproj falsch/riskant, fuer einen Undo/Redo-Snapshot INNERHALB
+        derselben Sitzung aber notwendig:
+        1. Eine Nummer eines FRUEHER bereits entfernten ROIs wird nicht mehr
+           uebersprungen, sondern neu angelegt -- ein Redo von "ROI
+           hinzugefuegt" bzw. ein Undo von "ROI entfernt" MUSS genau so ein
+           ROI wiederherstellen, dessen Nummer bereits kleiner als
+           self._roi_next_number ist. Fuer ein fremdes/altes .tvproj wäre
+           das Wiederbeleben eines bewusst geloeschten ROIs dagegen falsch.
+        2. Jedes lebende ROI, das im eingehenden data KEINE Entsprechung
+           mehr hat, wird entfernt (mirror von _load_project_measurements,
+           das bestehende Messungen VORHER komplett raeumt) -- ein Undo-
+           Snapshot ist immer eine VOLLSTAENDIGE Zustands-Kopie, ein
+           fehlendes ROI bedeutet dort zweifelsfrei "existierte zu diesem
+           Zeitpunkt nicht". Ein normal geladenes .tvproj ist dagegen nicht
+           zwingend vollstaendig (z.B. ein bewusst kleineres/aelteres
+           Projekt) -- vorhandene ROIs, die es nicht erwaehnt, bleiben dort
+           unangetastet stehen, wie schon vor diesem Parameter."""
         touched_entries: list[RoiEntry] = []
         failed_indices: list[int] = []
         for roi_data in data.get("rois", []):
@@ -438,8 +501,16 @@ class _ProjectMixin:
             target_number = idx + 1
             entry = next((e for e in self.roi_entries if e.number == target_number), None)
             if entry is None:
-                if target_number < self._roi_next_number:
+                if target_number < self._roi_next_number and not full_replace:
                     continue
+                if target_number < self._roi_next_number:
+                    # full_replace: die Nummer wurde frueher schon einmal
+                    # vergeben (sonst waere sie nicht < _roi_next_number) --
+                    # ein neues ROI MIT genau dieser Nummer anlegen (OHNE
+                    # self._roi_next_number zu aendern), statt der unteren
+                    # while-Schleife, die nur fuer noch nie vergebene
+                    # (>= _roi_next_number) Nummern gedacht ist.
+                    entry = self._create_roi_entry_with_number(target_number)
                 while self._roi_next_number <= target_number:
                     entry = self._add_roi_entry()
             entry_failed = False
@@ -465,6 +536,13 @@ class _ProjectMixin:
 
                 entry.chk_show_temperature.setChecked(bool(roi_data.get("temperatur_anzeigen", True)))
                 entry.chk_circular.setChecked(bool(roi_data.get("kreisfoermig", False)))
+
+                stat_mode = roi_data.get("statistik", "mean")
+                combo_idx = entry.combo_stat_mode.findData(stat_mode)
+                entry.combo_stat_mode.blockSignals(True)
+                entry.combo_stat_mode.setCurrentIndex(max(0, combo_idx))
+                entry.combo_stat_mode.blockSignals(False)
+                entry.stat_mode = stat_mode if combo_idx >= 0 else "mean"
 
                 mittelpunkt = roi_data.get("mittelpunkt")
                 if roi_data.get("platziert") and isinstance(mittelpunkt, dict):
@@ -577,6 +655,22 @@ class _ProjectMixin:
                 failed_indices.append(idx)
             touched_entries.append(entry)
 
+        if full_replace:
+            # Siehe Docstring Punkt 2 -- NUR fuer den Undo/Redo-Pfad: ein
+            # ROI ohne Entsprechung im (dort immer vollstaendigen) Snapshot
+            # wird entfernt, mirror von _load_project_measurements.
+            referenced_numbers = {
+                roi_data["index"] + 1
+                for roi_data in data.get("rois", [])
+                if (
+                    isinstance(roi_data, dict) and isinstance(roi_data.get("index"), int)
+                    and roi_data.get("index") >= 0
+                )
+            }
+            for entry in list(self.roi_entries):
+                if entry.number not in referenced_numbers:
+                    self._remove_roi_entry(entry)
+
         if touched_entries:
             self._recompute_curves(entries=touched_entries)
         self._apply_interp_focus_visuals()
@@ -636,25 +730,37 @@ class _ProjectMixin:
         uebernehmen -- Nutzerwunsch: vollstaendiger Programmzustand beim
         Speichern/Laden eines Projekts (siehe _save_project). Alte Punkte/
         Markierungen werden verworfen, aus der Datei neu aufgebaut."""
-        self._cancel_cleaning_point_pick()
         points_data = data.get("bereinigung_punkte")
-        cleaning_points: list[tuple[int, int]] = []
+        # Migrations-Fallback fuer Projektdateien vor Punkt 2 (Nutzerwunsch:
+        # UND/ODER war frueher GLOBAL statt pro Punkt) -- fehlt "logic" an
+        # einem Punkt, gilt ersatzweise der alte globale Wert der Datei
+        # (falls vorhanden), sonst "and". Fehlendes "aktiv" (Dateien vor der
+        # Deaktivieren-Checkbox) defaultet auf True.
+        legacy_logic = data.get("bereinigung_logik")
+        legacy_default_logic = legacy_logic if legacy_logic in ("and", "or") else "and"
+        cleaning_points: list[tuple[int, int, str, bool]] = []
         if isinstance(points_data, list):
             for p in points_data:
                 if not isinstance(p, dict):
                     continue
                 try:
-                    # int (nicht float): Referenzpunkte sind Pixel-Indizes
-                    # (siehe _handle_cleaning_point_click) -- ein float-Wert
-                    # wuerde _compute_cleaning_candidates() spaeter mit einem
-                    # IndexError abstuerzen lassen (numpy erlaubt keine
-                    # Float-Indizierung von frames[:, r, c]). int(float(...))
-                    # statt direktem int(...): akzeptiert sowohl "10" als
-                    # auch "10.0"/"10.7" aus (z.B. handbearbeiteten)
-                    # Projektdateien gleichermassen.
-                    cleaning_points.append((int(float(p["x"])), int(float(p["y"]))))
+                    # int (nicht float): Referenzpunkte sind Pixel-Indizes --
+                    # ein float-Wert wuerde _compute_cleaning_candidates()
+                    # spaeter mit einem IndexError abstuerzen lassen (numpy
+                    # erlaubt keine Float-Indizierung von frames[:, r, c]).
+                    # int(float(...)) statt direktem int(...): akzeptiert
+                    # sowohl "10" als auch "10.0"/"10.7" aus (z.B.
+                    # handbearbeiteten) Projektdateien gleichermassen.
+                    x, y = int(float(p["x"])), int(float(p["y"]))
                 except (KeyError, TypeError, ValueError):
                     continue
+                logic = p.get("logic")
+                if logic not in ("and", "or"):
+                    logic = legacy_default_logic
+                enabled = p.get("aktiv")
+                if not isinstance(enabled, bool):
+                    enabled = True
+                cleaning_points.append((x, y, logic, enabled))
         self._cleaning_points = cleaning_points
 
         threshold = data.get("bereinigung_schwellenwert")
@@ -667,16 +773,6 @@ class _ProjectMixin:
             and kernel_size in (1, 3, 5, 7, 9)
         ):
             self._cleaning_kernel_size = kernel_size
-
-        logic = data.get("bereinigung_logik")
-        if logic in ("and", "or"):
-            self._cleaning_logic = logic
-
-        # ERST NACH dem Setzen von _cleaning_kernel_size: die Markierungen
-        # (inkl. des gestrichelten Mittelungsbereich-Rechtecks, siehe
-        # _draw_cleaning_point_markers) muessen die aus DIESER Datei
-        # geladene Kernel-Groesse zeigen, nicht die vorherige.
-        self._draw_cleaning_point_markers()
 
         excluded_data = data.get("bereinigung_ausgeblendete_frames")
         n_frames = self.recording.n_frames if self.recording is not None else 0
@@ -696,69 +792,67 @@ class _ProjectMixin:
         else:
             self._excluded_frame_indices = set()
         self._recompute_curves()
+        # Punkt 5 (Nutzerwunsch): das aktuell angezeigte Bild (typischerweise
+        # Bild 0, siehe _load_project_resolve_recording -> _set_recording ->
+        # _show_frame(0), das bereits VOR dieser Methode lief) kann durch die
+        # gerade geladenen Ausschluesse jetzt selbst ausgeblendet sein --
+        # _show_frame() korrigiert das zentral (siehe frame_nav.py), ein
+        # blosses Setzen von _excluded_frame_indices oben rendert aber nichts
+        # neu, daher hier explizit erneut aufrufen.
+        if self.current_index in self._excluded_frame_indices:
+            self._show_frame(self.current_index)
 
         if self._cleaning_dialog is not None:
             self._cleaning_dialog.spin_threshold.blockSignals(True)
             self._cleaning_dialog.spin_threshold.setValue(self._cleaning_threshold)
             self._cleaning_dialog.spin_threshold.blockSignals(False)
             self._cleaning_dialog.sync_kernel_size_combo()
-            self._cleaning_dialog.sync_logic_radios()
             self._cleaning_dialog.refresh_points()
 
-    def _load_project_shrinkage(self, data: dict) -> None:
-        """Schwindungsmessung (Boxen, Messart, Schwellenwert, Richtung,
-        Geometrie, Startbild, Aktivieren-Haken) aus der Projektdatei
-        uebernehmen -- Nutzerwunsch: vollstaendiger Programmzustand beim
-        Speichern/Laden eines Projekts (siehe _save_project). Boxen/
-        Einstellungen werden direkt (nicht ueber die Checkbox-/Radio-Signale)
-        gesetzt, damit das Laden selbst weder einen Ebenen-Tab-Wechsel
-        (siehe _on_shrinkage_enabled_toggled) noch ein Verwerfen eines zu
-        diesem Zeitpunkt noch gar nicht gesetzten Ergebnisses (siehe
-        _on_shrinkage_mode_changed) ausloest."""
+    def _load_project_shrinkage(self, data: dict, recompute: bool = True) -> None:
+        """Schwindungsmessung (Box, Kenngroesse, Aktivieren-Haken) aus der
+        Projektdatei uebernehmen -- Nutzerwunsch: vollstaendiger Programm-
+        zustand beim Speichern/Laden eines Projekts (siehe _save_project).
+        Kein Schwellenwert/keine "wärmer/kälter"-Auswahl/kein Messart-Modus
+        mehr zu laden (siehe shrinkage_ops.py-Moduldocstring) -- die Probe
+        wird immer mit EINER Box vormarkiert, alles andere automatisch
+        erkannt. recompute=False (Undo/Redo, siehe undo_ops.py) ueberspringt
+        die Neuberechnung am Ende -- die kann bei aktivierter Messung laut
+        shrinkage_ops.py-Moduldocstring mehrere SEKUNDEN dauern, waere also
+        bei jedem einzelnen Rueckgaengig/Wiederholen voellig unangemessen."""
         shrink_data = data.get("schwindung")
         if isinstance(shrink_data, dict) and self.recording is not None:
             self._shrinkage_result = None
             self.lbl_shrinkage_result.setText("Noch nicht berechnet.")
+            self.lbl_shrinkage_result.setToolTip("")
             self.shrinkage_curve.clear()
             rows, cols = self.recording.shape
 
-            _apply_shrink_box_data(self.roi_shrink_left, shrink_data.get("box_links"), rows, cols)
-            _apply_shrink_box_data(self.roi_shrink_right, shrink_data.get("box_rechts"), rows, cols)
-            _apply_shrink_box_data(self.roi_shrink_width, shrink_data.get("box_referenzrahmen"), rows, cols)
             _apply_shrink_box_data(self.roi_shrink_area, shrink_data.get("box_flaeche"), rows, cols)
 
-            threshold = shrink_data.get("schwellenwert")
-            if isinstance(threshold, (int, float)) and not isinstance(threshold, bool):
-                self.spin_shrinkage_threshold.setValue(float(threshold))
-            warmer = bool(shrink_data.get("waermer", True))
-            self.radio_shrinkage_warmer.setChecked(warmer)
-            self.radio_shrinkage_colder.setChecked(not warmer)
-            is_round = shrink_data.get("geometrie") == "round"
-            self.radio_shrinkage_round.setChecked(is_round)
-            self.radio_shrinkage_rect.setChecked(not is_round)
+            color = shrink_data.get("box_flaeche_farbe")
+            if isinstance(color, str) and QtGui.QColor(color).isValid():
+                self._shrinkage_color_area = color
+            self._apply_shrinkage_box_colors()
 
-            ref_frame = shrink_data.get("startbild")
-            if (
-                isinstance(ref_frame, int) and not isinstance(ref_frame, bool)
-                and 0 <= ref_frame < self.recording.n_frames
-            ):
-                self._shrinkage_ref_frame = ref_frame
-                self.lbl_shrinkage_ref.setText(f"Startbild: Bild {ref_frame + 1}")
-            else:
-                self._shrinkage_ref_frame = None
-                self.lbl_shrinkage_ref.setText("Startbild: nicht gesetzt")
-
-            self._shrinkage_mode = "area" if shrink_data.get("messart") == "area" else "width"
-            is_width = self._shrinkage_mode == "width"
-            self.radio_shrinkage_mode_width.blockSignals(True)
-            self.radio_shrinkage_mode_area.blockSignals(True)
-            self.radio_shrinkage_mode_width.setChecked(is_width)
-            self.radio_shrinkage_mode_area.setChecked(not is_width)
-            self.radio_shrinkage_mode_width.blockSignals(False)
-            self.radio_shrinkage_mode_area.blockSignals(False)
-            self._shrinkage_geometry_widget.setVisible(is_width)
-            self._shrinkage_ref_widget.setVisible(is_width)
-            self.lbl_shrinkage_mode_info.setText(self._SHRINKAGE_MODE_INFO[self._shrinkage_mode])
+            # Migration: aeltere Projektdateien (vor der Vereinheitlichung
+            # auf EINE Box + nachtraeglich waehlbare Kenngroesse) hatten
+            # stattdessen "geometrie" ("rect"/"round") ohne "kenngroesse" --
+            # daraus die naeheste neue Kenngroesse ableiten.
+            metric = shrink_data.get("kenngroesse")
+            if metric not in _SHRINKAGE_METRIC_LABELS:
+                geometrie = shrink_data.get("geometrie")
+                if geometrie == "round":
+                    metric = "breite_rund"
+                elif geometrie == "rect":
+                    metric = "breite_rechteckig"
+                else:
+                    metric = "flaeche"
+            self._shrinkage_metric = metric
+            combo_idx = self.combo_shrinkage_metric.findData(metric)
+            self.combo_shrinkage_metric.blockSignals(True)
+            self.combo_shrinkage_metric.setCurrentIndex(max(0, combo_idx))
+            self.combo_shrinkage_metric.blockSignals(False)
 
             enabled = bool(shrink_data.get("aktiviert", False))
             self._shrinkage_enabled = enabled
@@ -769,21 +863,19 @@ class _ProjectMixin:
             self._apply_shrinkage_roi_visibility()
 
             # Das fruehere Ergebnis wird NICHT als Rohwerte gespeichert (nur
-            # die Eingaben oben) -- bei vorhandenem Startbild (Breite) bzw.
-            # immer (Flaeche, braucht keins) wird es aus den geladenen
+            # die Eingaben oben) -- wird stattdessen aus den geladenen
             # Einstellungen neu berechnet, statt nach dem Laden leer/
-            # veraltet dazustehen.
-            if is_width:
-                if self._shrinkage_ref_frame is not None:
-                    self._compute_shrinkage_width()
-            else:
-                self._compute_shrinkage_area()
+            # veraltet dazustehen (ausser beim Undo/Redo-Wiederherstellen,
+            # siehe recompute-Parameter oben).
+            if recompute:
+                self._compute_shrinkage()
 
         self._update_shrinkage_curve()
         self._update_status_bar()
 
     def _load_paths(
-        self, paths: list[Path], pattern: re.Pattern | None = None, strptime_fmt: str | None = None
+        self, paths: list[Path], pattern: re.Pattern | None = None, strptime_fmt: str | None = None,
+        *, defer_display: bool = False,
     ) -> bool:
         """pattern/strptime_fmt: optionales, nur fuer DIESEN Ladevorgang
         geltendes Namensschema (siehe _resolve_folder_and_pattern) -- ohne
@@ -856,6 +948,6 @@ class _ProjectMixin:
         self._active_filename_pattern = pattern
         self._active_filename_strptime_fmt = strptime_fmt
         self._active_import_settings = import_settings
-        self._set_recording(recording)
+        self._set_recording(recording, defer_display=defer_display)
         return True
 

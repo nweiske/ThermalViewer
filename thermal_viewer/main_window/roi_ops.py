@@ -19,6 +19,7 @@ from .constants import (
 
 class _RoiMixin:
     def _on_add_roi_clicked(self) -> None:
+        self._push_undo_snapshot()
         self._add_roi_entry()
         # Ebenen-Tabs (Nutzerwunsch): "+ Messbereich" springt automatisch auf
         # die passende Ebene (siehe layer_tabs_ops.py).
@@ -28,13 +29,13 @@ class _RoiMixin:
         answer = QtWidgets.QMessageBox.question(
             self,
             "Messbereich entfernen",
-            f"„{entry.name}“ inkl. Zeitverlauf-Kurve endgültig entfernen?\nDies kann nicht "
-            "rückgängig gemacht werden.",
+            f"„{entry.name}“ inkl. Zeitverlauf-Kurve entfernen? (Über Strg+Z rückgängig machbar.)",
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.No,
         )
         if answer != QtWidgets.QMessageBox.StandardButton.Yes:
             return
+        self._push_undo_snapshot()
         self._remove_roi_entry(entry)
         self._apply_interp_focus_visuals()
         self._refresh_idle_guidance()
@@ -72,6 +73,7 @@ class _RoiMixin:
         )
         if not color.isValid():
             return
+        self._push_undo_snapshot()
         entry.set_color(color.name())
 
     def _on_roi_place_toggled(self, entry: RoiEntry, checked: bool) -> None:
@@ -99,8 +101,6 @@ class _RoiMixin:
                 self._cancel_ruler_tool()
             if self._measurement_armed:
                 self._cancel_measurement_tool()
-            if self._cleaning_pick_armed:
-                self._cancel_cleaning_point_pick()
             self._armed_entry = entry
             self.statusBar().showMessage(f"{entry.name}: Klick ins Bild zum Platzieren.")
         elif self._armed_entry is entry:
@@ -118,6 +118,12 @@ class _RoiMixin:
             # aufpoppen und die Eingabe unterbrechen.
             self.statusBar().showMessage("Bitte zuerst eine Messreihe laden.", 4000)
             return
+        # Feuert live bei JEDEM Tastendruck/Pfeiltasten-Schritt der vier
+        # Spinboxen -- _begin_grouped_undo_edit() pusht nur beim ERSTEN
+        # seit dem letzten editingFinished (siehe roi_panel_build.py/
+        # undo_ops.py), damit Strg+Z eine ganze Eingabe-Sitzung statt
+        # einzelner Ziffern rueckgaengig macht.
+        self._begin_grouped_undo_edit()
         entry.place(entry.spin_x.value(), entry.spin_y.value(), entry.spin_width.value(), entry.spin_height.value())
         self._sync_roi_spinboxes(entry)
         self._recompute_curves(entries=[entry])
@@ -126,6 +132,7 @@ class _RoiMixin:
     def _on_roi_square_reset_clicked(self, entry: RoiEntry) -> None:
         if not entry.placed:
             return
+        self._push_undo_snapshot()
         side = entry.width()
         cx, cy = entry.center()
         entry.place(cx, cy, side, side)
@@ -168,17 +175,27 @@ class _RoiMixin:
             entry.label.setOpacity(opacity)
 
     def _on_roi_show_temperature_toggled(self, entry: RoiEntry, checked: bool) -> None:
+        self._push_undo_snapshot()
         entry.show_temperature = checked
         entry._refresh_label_text()
 
     def _on_roi_circular_toggled(self, entry: RoiEntry, checked: bool) -> None:
+        self._push_undo_snapshot()
         entry.roi.is_circular = checked
         entry.roi.update()  # erzwingt Neuzeichnen mit dem geaenderten Umriss
         if self.recording is not None and entry.placed:
             self._recompute_curves(entries=[entry])
             self._update_roi_temperature_labels(self.current_index)
 
+    def _on_roi_stat_mode_changed(self, entry: RoiEntry, _index: int) -> None:
+        self._push_undo_snapshot()
+        entry.stat_mode = entry.combo_stat_mode.currentData()
+        if self.recording is not None and entry.placed:
+            self._recompute_curves(entries=[entry])
+            self._update_roi_temperature_labels(self.current_index)
+
     def _on_roi_interp_toggled(self, entry: RoiEntry, checked: bool) -> None:
+        self._push_undo_snapshot()
         entry.interp_enabled = checked
         entry.btn_interp_start.setEnabled(checked)
         entry.btn_interp_end.setEnabled(checked)
@@ -279,6 +296,7 @@ class _RoiMixin:
             return
 
         # Phase 2: aktuelle Geometrie als Keyframe uebernehmen.
+        self._push_undo_snapshot()
         if is_start:
             entry.interp_arm_start = False
             entry.capture_interp_start(self.current_index)

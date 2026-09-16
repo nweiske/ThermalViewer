@@ -43,6 +43,7 @@ from .status_activity import _StatusActivityMixin
 from .theming import _ThemeMixin
 from .ui_build import _UIBuildMixin
 from .ui_build_menu import _UIBuildMenuMixin
+from .undo_ops import _UndoMixin
 
 pg.setConfigOptions(imageAxisOrder="row-major", antialias=True)
 
@@ -63,6 +64,7 @@ class MainWindow(
     _LayerTabsMixin,
     _ShrinkageMixin,
     _MouseMixin,
+    _UndoMixin,
     _ExportCommonMixin,
     _ExportVisualsMixin,
     _RenderPipelineMixin,
@@ -178,13 +180,14 @@ class MainWindow(
         # Referenzpunkten erkennen und aus Kurven/Wiedergabe/Export ausblenden,
         # OHNE sie oder ihre Zeitstempel wirklich zu loeschen -- jederzeit über
         # "Daten > Rohdaten säubern…" einzeln wieder einblendbar). Siehe
-        # data_cleaning_ops.py für die vollständige Logik.
-        self._cleaning_pick_armed = False
-        self._cleaning_points: list[tuple[int, int]] = []
-        # Pro Punkt ein dict {"dot": pg.TargetItem, "label": pg.TextItem,
-        # "area": QGraphicsRectItem|None} -- gleiche Reihenfolge wie
-        # _cleaning_points, siehe data_cleaning_ops.py.
-        self._cleaning_point_items: list[dict] = []
+        # data_cleaning_ops.py für die vollständige Logik und
+        # dialogs/data_cleaning_viewer.py für die (einzige) Bild-Darstellung
+        # der Referenzpunkte -- (x, y, logic, enabled): logic ist "and"
+        # (Standard) oder "or" (siehe _compute_cleaning_candidates), enabled
+        # deaktiviert einen Punkt voruebergehend (zaehlt dann nicht mehr bei
+        # UND/ODER mit, bleibt aber gespeichert), beides pro Zeile in der
+        # Punkte-Liste des Dialogs waehlbar (data_cleaning.py:refresh_points).
+        self._cleaning_points: list[tuple[int, int, str, bool]] = []
         self._cleaning_threshold = 5.0
         # Kantenlaenge (ungerade Pixelzahl, wie beim Live-Cursor -- siehe
         # _live_cursor_kernel_size in mouse_ops.py, aber bewusst EIGENSTAENDIG
@@ -198,11 +201,6 @@ class MainWindow(
         # sofern _cleaning_kernel_size > 1 -- bei 1x1 gäbe es nichts
         # zusätzlich zum Punkt-Kreuz selbst zu zeigen.
         self._cleaning_show_kernel_area = True
-        # Verknuepfungslogik mehrerer Referenzpunkte (Nutzerwunsch): "and"
-        # (Standard, bisheriges Verhalten) verlangt eine Ueberschreitung AN
-        # JEDEM Punkt, "or" bereits an EINEM einzigen Punkt -- siehe
-        # _compute_cleaning_candidates in data_cleaning_ops.py.
-        self._cleaning_logic = "and"
         self._excluded_frame_indices: set[int] = set()
         self._cleaning_dialog = None
         # Registerkarten ("Ebenen"/Masken) über dem Thermobild (Nutzerwunsch:
@@ -214,13 +212,19 @@ class MainWindow(
         # standardmaessig deaktiviert/ausgeblendet, um Nutzer, die sie nicht
         # brauchen, nicht mit drei zusaetzlichen Bild-Bereichen zu stoeren.
         self._shrinkage_enabled = False
-        self._shrinkage_ref_frame: int | None = None
-        # Messart (Nutzerwunsch, zusaetzlich zur Breitenmessung): "width"
-        # (Standard, bisheriges Verhalten, zwei verfolgte Flanken-Boxen) oder
-        # "area" (EIN Bereich, Probe wird je Bild per Schwellenwert
-        # segmentiert und die Pixelzahl als Flaeche gezaehlt -- von Haus aus
-        # geometrieunabhaengig, siehe shrinkage_ops.py).
-        self._shrinkage_mode = "width"
+        # Welche Kenngroesse aus der (immer gleich erkannten) Kontur
+        # angezeigt/exportiert wird -- "flaeche" (Standard, geometrie-
+        # unabhaengig), "breite_rechteckig" (Median der Zeilenbreiten) oder
+        # "breite_rund" (deren Maximum, der "Äquator"), siehe
+        # shrinkage_ops.py Moduldocstring. Umschaltbar per Dropdown, OHNE
+        # neu "Berechnen" zu muessen.
+        self._shrinkage_metric = "flaeche"
+        # Boxfarbe (Nutzerwunsch: "die Farbe der Box bitte auch Farblich
+        # einstellbar machen -- ich hatte gerade das Problem, die Box
+        # ueberhaupt zu finden") -- anpassbar per Farb-Swatch im Panel
+        # (siehe shrinkage_ops.py:_on_shrinkage_color_clicked), analog zu
+        # self._ruler_color oben.
+        self._shrinkage_color_area = "#34d399"
         # Zeitachsen-Anzeige beider Kurven-Graphen: "clock" (echte Uhrzeit,
         # Standard) oder "runtime" (relative Laufzeit ab Aufnahmebeginn) --
         # ueber je einen Umschalter unten rechts an beiden Graphen wählbar,
@@ -268,6 +272,15 @@ class MainWindow(
 
         self._settings = QtCore.QSettings("ThermalViewer", "ThermalViewer")
 
+        # Rueckgaengig/Wiederholen (Nutzerwunsch: "voller, mehrstufiger
+        # Undo/Redo-Verlauf") -- siehe undo_ops.py fuer die Architektur
+        # (Snapshot-basiert, ueber project_io.py::_build_project_state_dict/
+        # _restore_project_state_dict).
+        self._undo_stack: list[dict] = []
+        self._redo_stack: list[dict] = []
+        self._restoring_undo_snapshot = False
+        self._active_undo_edit = False
+
         self._build_image_canvas()
         self._build_plots()
         self._build_roi_entries()
@@ -278,7 +291,6 @@ class MainWindow(
         # sichtbar (alles bleibt an), macht den Zustand aber von Anfang an
         # konsistent.
         self._apply_layer_tab_visibility()
-        self._build_toolbar()
         self._build_docks()
         self._build_menu()
         self._build_shortcuts()

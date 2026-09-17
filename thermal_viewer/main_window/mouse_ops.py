@@ -42,6 +42,14 @@ class _MouseMixin:
             self._refresh_idle_guidance()
             return
 
+        if self._crosssection_tab_active():
+            # Nutzerwunsch: waehrend der "Querschnitt"-Tab im Vordergrund
+            # ist, verhaelt sich ein Linksklick ins Bild komplett anders
+            # (setzt die Schnitt-Position statt den normalen Live-Cursor zu
+            # fixieren/loesen) -- siehe crosssection_ops.py Moduldocstring.
+            self._handle_crosssection_click(event)
+            return
+
         if event.button() == QtCore.Qt.RightButton:
             if not self._live_pinned:
                 return
@@ -76,7 +84,18 @@ class _MouseMixin:
             )
 
     def _on_scene_mouse_moved(self, scene_pos: QtCore.QPointF) -> None:
-        if self.recording is None or self._live_pinned:
+        if self.recording is None:
+            return
+        if self._crosssection_tab_active():
+            # Nutzerwunsch: waehrend der "Querschnitt"-Tab im Vordergrund
+            # ist, folgt die Schnitt-Position (eigenes Fixier-Flag, siehe
+            # crosssection_ops.py) der Maus statt des normalen Live-Cursors
+            # -- die Pruefung steht bewusst VOR dem self._live_pinned-Guard
+            # unten, dessen Fixierungs-Zustand zu den ANDEREN Tabs gehoert
+            # und den Querschnitt-Tab nicht blockieren darf.
+            self._handle_crosssection_hover(scene_pos)
+            return
+        if self._live_pinned:
             return
         row_col = self._pixel_at_scene_pos(scene_pos)
         if row_col is None:
@@ -177,6 +196,7 @@ class _MouseMixin:
             msg += f"  |  Cursor: Zeile {self._hover_row}, Spalte {self._hover_col} = {val:.2f} °C"
         self.statusBar().showMessage(msg)
         self._update_live_cursor_label()
+        self._update_crosssection_plot()
 
     def _update_live_cursor_label(self) -> None:
         """Zeigt die Temperatur DES AKTUELLEN FRAMES am Cursor-Kreuz direkt

@@ -26,6 +26,7 @@ from .export_common import _ExportCommonMixin
 from .export_visuals import _ExportVisualsMixin
 from .export_csv import _CsvExportMixin
 from .export_image import _ImageExportMixin
+from .crosssection_ops import _CrossSectionMixin
 from .data_cleaning_ops import _DataCleaningMixin
 from .export_video import _VideoExportMixin
 from .frame_nav import _FrameNavMixin
@@ -63,6 +64,7 @@ class MainWindow(
     _GraphCursorMixin,
     _LayerTabsMixin,
     _ShrinkageMixin,
+    _CrossSectionMixin,
     _MouseMixin,
     _UndoMixin,
     _ExportCommonMixin,
@@ -98,6 +100,22 @@ class MainWindow(
         self._live_pinned = False
         self._hover_row: int | None = None
         self._hover_col: int | None = None
+        # Querschnitt-Graph (siehe crosssection_ops.py) -- "horizontal"
+        # (Standard) oder "vertikal", per Radiobutton umschaltbar; die
+        # aktuell im Graphen gezeichneten Marker-Items (ROI-/Kontur-Raender,
+        # Cursor-Position), damit _update_crosssection_plot() sie vor jedem
+        # Neuaufbau vollstaendig entfernen kann. _crosssection_row/_col sind
+        # BEWUSST getrennt von _hover_row/_hover_col (dem normalen Live-
+        # Cursor) -- Nutzerwunsch, siehe Moduldocstring von crosssection_ops.py.
+        self._crosssection_direction = "horizontal"
+        self._crosssection_markers: list = []
+        self._crosssection_row: int | None = None
+        self._crosssection_col: int | None = None
+        # Nutzerwunsch: dasselbe Fixier-Verhalten wie der normale Live-
+        # Cursor (frei der Maus folgend, Linksklick/Drag fixiert,
+        # Rechtsklick loest wieder), aber EIGENSTAENDIG -- unabhaengig von
+        # dessen Fixierung (_live_pinned) in den anderen Tabs.
+        self._crosssection_pinned: bool = False
         # Kantenlaenge (ungerade Pixelzahl) des um das Cursor-Pixel
         # gemittelten Bereichs fuer Live-Verlauf/-Anzeige (Werkzeuge-Menue
         # "Live-Cursor-Bereichsgröße") -- Standard: 5x5.
@@ -225,6 +243,11 @@ class MainWindow(
         # (siehe shrinkage_ops.py:_on_shrinkage_color_clicked), analog zu
         # self._ruler_color oben.
         self._shrinkage_color_area = "#34d399"
+        # Farbe der erkannten Kontur-Linie im Thermobild (Nutzerwunsch,
+        # bisher fest Rot) -- separat von der Boxfarbe, aus demselben Grund:
+        # Rot kann im aktuell gewaehlten Farbverlauf ebenfalls kaum zu
+        # erkennen sein.
+        self._shrinkage_color_contour = "#ef4444"
         # Zeitachsen-Anzeige beider Kurven-Graphen: "clock" (echte Uhrzeit,
         # Standard) oder "runtime" (relative Laufzeit ab Aufnahmebeginn) --
         # ueber je einen Umschalter unten rechts an beiden Graphen wählbar,

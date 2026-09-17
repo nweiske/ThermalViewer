@@ -1,12 +1,71 @@
-"""Wiederverwendbare Export-Einstellungs-Bloecke (Farbskala, Achsen), die
-sowohl von GraphicExportDialog als auch von VideoExportDialog eingebunden
-werden."""
+"""Wiederverwendbare Export-Einstellungs-Bloecke (Farbskala, Achsen,
+Vorschau), die sowohl von GraphicExportDialog als auch von
+VideoExportDialog eingebunden werden."""
 from __future__ import annotations
 
-from qtpy import QtWidgets
+from qtpy import QtCore, QtGui, QtWidgets
 
 from ..widgets import LocaleTolerantDoubleSpinBox
 from .misc_dialogs import AxisSettingsDialog
+
+
+class ExportPreviewPanel:
+    """Kleine Live-Vorschau (Nutzerwunsch: "eine kleine Vorschau, wie das
+    Zielbild/-video dann ausschauen wird ... noch halbwegs erkennen
+    können") -- gemeinsam genutzt von GraphicExportDialog und
+    VideoExportDialog. schedule_refresh(provider) wird an jedes relevante
+    Steuerelement angeschlossen (siehe jeweiliger Dialog), debounced
+    (150ms) ueber einen einzigen QTimer, damit schnelle Checkbox-Klicks
+    nicht mehrfach unnoetig neu rendern -- seltener geaenderte
+    Feineinstellungen (Achsen-Panel, Maßstab/Messungen) aktualisieren die
+    Vorschau bewusst NICHT live (Scope-Entscheidung, siehe Plan)."""
+
+    def __init__(self, max_width: int = 340, max_height: int = 220) -> None:
+        self.group_box = QtWidgets.QGroupBox("Vorschau")
+        layout = QtWidgets.QVBoxLayout(self.group_box)
+        self._max_width = max_width
+        self._max_height = max_height
+        self.label = QtWidgets.QLabel("Vorschau erscheint hier.")
+        self.label.setAlignment(QtCore.Qt.AlignCenter)
+        self.label.setMinimumHeight(max_height)
+        self.label.setWordWrap(True)
+        layout.addWidget(self.label)
+        self._timer = QtCore.QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(150)
+        self._connected = False
+
+    def stop(self) -> None:
+        """Bricht eine evtl. noch ausstehende, debounced Aktualisierung ab --
+        vom jeweiligen Dialog aufzurufen, NACHDEM exec() akzeptiert wurde
+        (siehe export_image.py/export_video.py), damit der 150ms-Timer nicht
+        WAEHREND des eigentlichen (laenger laufenden) Exports feuert und
+        dessen eigene Sichtbarkeits-/Farb-Manipulationen durchkreuzt."""
+        self._timer.stop()
+
+    def schedule_refresh(self, provider) -> None:
+        # Eigene Verbunden-Markierung statt disconnect()-im-try/except:
+        # ein disconnect() ohne bestehende Verbindung (allererster Aufruf)
+        # wirft bei PySide6 keine Exception, sondern nur eine Laufzeit-
+        # Warnung -- die waere durch except TypeError nicht abgefangen.
+        if self._connected:
+            self._timer.timeout.disconnect()
+        self._timer.timeout.connect(lambda: self._refresh_now(provider))
+        self._connected = True
+        self._timer.start()
+
+    def _refresh_now(self, provider) -> None:
+        image = provider()
+        if image is None or image.isNull():
+            self.label.setPixmap(QtGui.QPixmap())
+            self.label.setText("Vorschau nicht verfügbar (z.B. keine Aufnahme geladen).")
+            return
+        self.label.setText("")
+        pixmap = QtGui.QPixmap.fromImage(image).scaled(
+            self._max_width, self._max_height,
+            QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation,
+        )
+        self.label.setPixmap(pixmap)
 
 
 class ColorScaleOverridePanel:

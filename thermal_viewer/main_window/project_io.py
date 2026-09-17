@@ -221,6 +221,10 @@ class _ProjectMixin:
                 "kenngroesse": self._shrinkage_metric,
                 "box_flaeche": _shrink_box_data(self.roi_shrink_area),
                 "box_flaeche_farbe": self._shrinkage_color_area,
+                # Neu (Nutzerwunsch: Kontur-Farbe waehlbar statt fest Rot) --
+                # fehlt bei alten Projektdateien, _load_project_shrinkage
+                # behaelt dann den aktuellen/Standard-Wert.
+                "kontur_farbe": self._shrinkage_color_contour,
             },
         }
         return data
@@ -834,6 +838,11 @@ class _ProjectMixin:
             if isinstance(color, str) and QtGui.QColor(color).isValid():
                 self._shrinkage_color_area = color
             self._apply_shrinkage_box_colors()
+
+            contour_color = shrink_data.get("kontur_farbe")
+            if isinstance(contour_color, str) and QtGui.QColor(contour_color).isValid():
+                self._shrinkage_color_contour = contour_color
+            self._apply_shrinkage_contour_color()
 
             # Migration: aeltere Projektdateien (vor der Vereinheitlichung
             # auf EINE Box + nachtraeglich waehlbare Kenngroesse) hatten

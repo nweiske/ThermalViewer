@@ -788,7 +788,10 @@ def test_measurement_tool_uses_scale_without_modifying_it():
     assert win._measurement_start is not None
     win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, m2))
 
-    assert not win._measurement_armed
+    # Messmodus ist ein Dauerschalter (Nutzerwunsch): bleibt nach EINER
+    # Messung bewusst weiter armiert, bis er explizit ausgeschaltet wird.
+    assert win._measurement_armed
+    win._cancel_measurement_tool()
     assert win._px_to_mm == px_to_mm, "Messen darf den bestehenden Maßstab nicht veraendern"
     assert len(win.measurements) == 1
     entry = win.measurements[0]
@@ -1868,7 +1871,7 @@ def test_title_font_immune_to_image_dpi_metadata():
     # wurde dadurch ein zweites Mal (quadratisch) skaliert und ueberdeckte
     # grossflaechig den Bereich darunter. setPixelSize() muss dagegen immun
     # sein: dieselbe sichtbare Groesse unabhaengig von der Bild-DPI-Metadaten.
-    layout = MainWindow._combined_layout(300, (2000, 1500), (2000, 800))
+    layout = MainWindow._combined_layout(300, [(2000, 1500), (2000, 800)])
     image = QtGui.QImage(10, 10, QtGui.QImage.Format_ARGB32)
     dots_per_meter = round(300 / 0.0254)
     image.setDotsPerMeterX(dots_per_meter)
@@ -2118,7 +2121,10 @@ check("graphic export SVG (combined) has correct background fill + physical size
 def test_graphic_export_separate():
     win._settings.setValue("export/separate_images", True)
     p = OUT / "graphic_sep.png"
-    for f in [OUT / "graphic_sep_Bild.png", OUT / "graphic_sep_Kurve.png"]:
+    # Dateiname des Graphen-Teils heisst seit der Mehrfach-Graph-Auswahl nach
+    # dem jeweiligen Graphen (hier: Standardauswahl "Zeitverlauf"), nicht mehr
+    # generisch "_Kurve" -- siehe export_visuals.py:_EXPORT_GRAPH_LABELS.
+    for f in [OUT / "graphic_sep_Bild.png", OUT / "graphic_sep_Zeitverlauf.png"]:
         if f.exists():
             f.unlink()
 
@@ -2139,7 +2145,7 @@ def test_graphic_export_separate():
     finally:
         QtWidgets.QFileDialog.getSaveFileName = orig
     assert (OUT / "graphic_sep_Bild.png").exists()
-    assert (OUT / "graphic_sep_Kurve.png").exists()
+    assert (OUT / "graphic_sep_Zeitverlauf.png").exists()
 
     # Vorher aktiver Tab muss unveraendert wiederhergestellt sein (kein
     # sichtbarer Sprung fuer den Nutzer).
@@ -2147,7 +2153,7 @@ def test_graphic_export_separate():
 
     import numpy as np
 
-    qimg = QtGui.QImage(str(OUT / "graphic_sep_Kurve.png"))
+    qimg = QtGui.QImage(str(OUT / "graphic_sep_Zeitverlauf.png"))
     # Nur grob auf "nicht winzig/leer" pruefen -- die genaue Breite haengt
     # vom verfuegbaren Dock-Platz in diesem Test-Fenster ab (kein Bug), nur
     # eine kaputt gebliebene 252x54-Groesse (siehe Docstring oben) waere
@@ -4031,7 +4037,7 @@ def test_render_video_frame_with_graph_widget_adds_curve_below_image():
     )
     img_with_graph = win._render_video_frame(
         1.0, QtGui.QColor(win._graph_bg), "none", frame_indices[0], frame_indices, unix, segments,
-        win.timeseries_plot,
+        [win.timeseries_plot],
     )
     assert img_with_graph.height() > img_without_graph.height(), (
         "mit Graph muss das Bild hoeher sein als ohne"
@@ -4040,7 +4046,7 @@ def test_render_video_frame_with_graph_widget_adds_curve_below_image():
     # Muss auch fuer den Live-Graphen funktionieren, nicht nur Zeitverlauf.
     img_with_live_graph = win._render_video_frame(
         1.0, QtGui.QColor(win._graph_bg), "none", frame_indices[0], frame_indices, unix, segments,
-        win.live_plot,
+        [win.live_plot],
     )
     assert img_with_live_graph.height() > img_without_graph.height()
 
@@ -4048,7 +4054,7 @@ def test_render_video_frame_with_graph_widget_adds_curve_below_image():
     # nochmal hoeher sein als nur mit Graph allein.
     img_with_graph_and_overlay = win._render_video_frame(
         1.0, QtGui.QColor(win._graph_bg), "timeline", frame_indices[0], frame_indices, unix, segments,
-        win.timeseries_plot,
+        [win.timeseries_plot],
     )
     assert img_with_graph_and_overlay.height() > img_with_graph.height()
 
@@ -4080,11 +4086,11 @@ def test_render_video_frame_graph_area_uses_graph_background_not_base_canvas_fil
     # weit genug von Achsen/Kurven entfernt, um reinen Hintergrund zu zeigen.
     img_without_fix = win._render_video_frame(
         1.0, dark_base, "none", frame_indices[0], frame_indices, unix, segments,
-        win.timeseries_plot, "oben",
+        [win.timeseries_plot], "oben",
     )  # kein graph_background -> reproduziert den alten Bug
     img_with_fix = win._render_video_frame(
         1.0, dark_base, "none", frame_indices[0], frame_indices, unix, segments,
-        win.timeseries_plot, "oben", graph_background=light_graph,
+        [win.timeseries_plot], "oben", graph_background=light_graph,
     )
 
     color_without_fix = QtGui.QColor(img_without_fix.pixel(5, 5))
@@ -4118,11 +4124,12 @@ def test_video_export_dialog_graph_option_defaults_off():
         roi_entries=[(101, "X"), (102, "Y")], live_available=True,
     )
     try:
-        assert dlg.chk_show_graph.text() == "Graph mit exportieren"
+        assert dlg.chk_graph_zeitverlauf.text() == "Zeitverlauf"
         assert dlg.show_graph() is False, "Standard muss AUS sein"
         assert dlg._content_selector.group_box.isEnabled() is False
-        dlg.chk_show_graph.setChecked(True)
+        dlg.chk_graph_zeitverlauf.setChecked(True)
         assert dlg.show_graph() is True
+        assert dlg.selected_graph_keys() == ["zeitverlauf"]
         assert dlg._content_selector.group_box.isEnabled() is True
         assert dlg.included_roi_numbers() == {101, 102}, "Standard: alle ROIs vorausgewaehlt"
         assert dlg.include_live() is False, "Standard: Live-Cursor aus"
@@ -4269,7 +4276,7 @@ def test_combine_image_and_graph_all_four_positions():
     fg = QtGui.QColor(win._graph_fg)
     sizes = {}
     for pos in ("unten", "oben", "links", "rechts"):
-        combined = win._combine_image_and_graph(img_a, "Bild", img_b, "Kurve", pos, 96, bg, fg)
+        combined = win._combine_image_and_graph(img_a, "Bild", [(img_b, "Kurve")], pos, 96, bg, fg)
         assert combined.width() > 0 and combined.height() > 0
         sizes[pos] = (combined.width(), combined.height())
     assert sizes["unten"] == sizes["oben"], "oben/unten muessen dieselbe Gesamtgroesse ergeben"
@@ -4278,10 +4285,20 @@ def test_combine_image_and_graph_all_four_positions():
         "Seite-an-Seite vs. gestapelt muessen zu unterschiedlichen Canvas-Groessen fuehren"
     )
 
+    # Verallgemeinerung auf mehrere Graphen (Nutzerwunsch): zwei Graphen
+    # gleichzeitig muessen zu einer sichtbar GROESSEREN Gesamtgrafik fuehren
+    # als nur einer, bei ansonsten gleicher Position.
+    combined_two = win._combine_image_and_graph(
+        img_a, "Bild", [(img_b, "Kurve 1"), (img_b, "Kurve 2")], "unten", 96, bg, fg
+    )
+    assert combined_two.height() > sizes["unten"][1], (
+        "zwei Graphen untereinander muessen hoeher sein als nur einer"
+    )
+
     svg_path = OUT / "combine_position_check.svg"
     for pos in ("unten", "oben", "links", "rechts"):
         w, h = win._save_combined_svg(
-            svg_path, win.glw, "Bild", win.timeseries_plot, "Kurve", pos, 96, fg, bg
+            svg_path, win.glw, "Bild", [(win.timeseries_plot, "Kurve")], pos, 96, fg, bg
         )
         assert w > 0 and h > 0
         assert svg_path.exists() and svg_path.stat().st_size > 0
@@ -4434,20 +4451,20 @@ def test_video_export_dialog_cursor_independent_of_graph_box_and_beides_default(
         # dlg._scale_selector.group_box, mit entsprechend erweitertem Titel.
         assert cursor_box.title() == "Cursor & Maßstab im Bild", cursor_box.title()
         assert dlg._scale_selector.group_box is cursor_box
-        assert cursor_box is not dlg.chk_show_graph.parentWidget(), (
-            "Cursor-Kasten darf NICHT mehr im 'Temperaturverlauf-Graph'-Kasten liegen"
+        assert cursor_box is not dlg.chk_graph_zeitverlauf.parentWidget(), (
+            "Cursor-Kasten darf NICHT mehr im 'Graphen'-Kasten liegen"
         )
 
         # Unabhaengig von "Graph mit exportieren" bedienbar -- weder AUS noch
         # AN darf die Cursor-Checkbox deaktivieren.
-        assert dlg.chk_show_graph.isChecked() is False
+        assert dlg.chk_graph_zeitverlauf.isChecked() is False
         assert dlg.chk_cursor_position.isEnabled() is True
         dlg.chk_cursor_position.setChecked(True)
         assert dlg.export_cursor_position() is True
-        dlg.chk_show_graph.setChecked(True)
+        dlg.chk_graph_zeitverlauf.setChecked(True)
         assert dlg.chk_cursor_position.isEnabled() is True
         assert dlg.export_cursor_position() is True
-        dlg.chk_show_graph.setChecked(False)
+        dlg.chk_graph_zeitverlauf.setChecked(False)
         assert dlg.chk_cursor_position.isEnabled() is True
         assert dlg.export_cursor_position() is True, "Cursor-Wert muss trotz 'Graph aus' erhalten bleiben"
     finally:
@@ -4474,7 +4491,7 @@ def test_video_export_dialog_graph_position_options():
             "unten", "oben", "links", "rechts",
         ]
         assert dlg.graph_position() == "rechts"  # Standard (Nutzerwunsch)
-        dlg.chk_show_graph.setChecked(True)
+        dlg.chk_graph_zeitverlauf.setChecked(True)
         assert dlg.combo_graph_position.isEnabled() is True
         dlg.combo_graph_position.setCurrentIndex(dlg.combo_graph_position.findData("links"))
         assert dlg.graph_position() == "links"
@@ -4497,7 +4514,7 @@ def test_render_video_frame_graph_position_options():
     for pos in ("unten", "oben", "links", "rechts"):
         img = win._render_video_frame(
             1.0, QtGui.QColor(win._graph_bg), "none", frame_indices[0], frame_indices, unix, segments,
-            win.timeseries_plot, pos,
+            [win.timeseries_plot], pos,
         )
         assert img.width() > 0 and img.height() > 0
         sizes[pos] = (img.width(), img.height())
@@ -4961,7 +4978,7 @@ def test_end_to_end_export_state_restoration_with_dynamic_roi_selection():
         self.radio_output_images.setChecked(True)
         self.spin_start.setValue(1)
         self.spin_end.setValue(min(2, self.spin_end.maximum()))
-        self.chk_show_graph.setChecked(True)
+        self.chk_graph_zeitverlauf.setChecked(True)
         checks = self._content_selector.checks
         for number, chk in checks.items():
             chk.setChecked(number == keep_number)
@@ -5870,7 +5887,7 @@ def test_export_video_graph_time_axis_follows_zeitanzeige_im_bild():
             self.radio_output_images.setChecked(True)
             self.spin_start.setValue(1)
             self.spin_end.setValue(min(2, self.spin_end.maximum()))
-            self.chk_show_graph.setChecked(True)
+            self.chk_graph_zeitverlauf.setChecked(True)
             overlay_setter(self)
             for chk in self._content_selector.checks.values():
                 chk.setChecked(True)

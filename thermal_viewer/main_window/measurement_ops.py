@@ -9,7 +9,13 @@ from qtpy import QtCore, QtGui, QtWidgets
 from ..dialogs import (
     RulerLengthDialog,
 )
-from ..measurement import MEASUREMENT_PREVIEW_COLOR, DraggableTextItem, MeasurementEntry, clamp_label_offset
+from ..measurement import (
+    MAX_MEASUREMENT_COUNT,
+    MEASUREMENT_PREVIEW_COLOR,
+    DraggableTextItem,
+    MeasurementEntry,
+    clamp_label_offset,
+)
 from ..roi_entry import (
     mm_value_de,
     roi_color_for_number,
@@ -298,15 +304,38 @@ class _MeasurementMixin:
         )
 
     # ------------------------------------------------------- Messungen (nutzen Maßstab)
-    def _start_measurement_tool(self) -> None:
+    def _on_measurement_mode_toggled(self, checked: bool) -> None:
+        """Nutzerwunsch: "Messmodus" ist ein echter Ein/Aus-Schalter (statt
+        vorher pro Klick genau eine Strecke) -- eingeschaltet bleibt er
+        armiert, bis er wieder ausgeschaltet oder von einem anderen
+        Werkzeug (ROI-Platzieren/Maßstab) verdraengt wird (siehe
+        _cancel_measurement_tool)."""
+        if not checked:
+            self._cancel_measurement_tool()
+            return
+        if not self._start_measurement_tool():
+            # Guard in _start_measurement_tool (keine Aufnahme/kein
+            # Maßstab) hat bereits einen Hinweisdialog gezeigt -- Knopf
+            # wieder zuruecknehmen, ohne dessen eigenen toggled(False)-Zweig
+            # (der hier ohnehin nichts zu tun haette) erneut zu durchlaufen.
+            self.btn_add_measurement.blockSignals(True)
+            self.btn_add_measurement.setChecked(False)
+            self.btn_add_measurement.blockSignals(False)
+
+    def _start_measurement_tool(self) -> bool:
+        """Armiert die naechste Zwei-Klick-Streckenerfassung -- gibt False
+        zurueck (ohne etwas zu armieren), wenn eine Voraussetzung fehlt, True
+        bei Erfolg. Der Rueckgabewert erlaubt _on_measurement_mode_toggled,
+        den Messmodus-Knopf bei einem fehlgeschlagenen Start wieder
+        auszuschalten."""
         if self.recording is None:
             QtWidgets.QMessageBox.information(self, "Keine Daten", "Bitte zuerst eine Messreihe laden.")
-            return
+            return False
         if self._px_to_mm is None:
             QtWidgets.QMessageBox.information(
                 self, "Kein Maßstab", "Bitte zuerst über \"Festlegen…\" einen Maßstab definieren."
             )
-            return
+            return False
         if self._armed_entry is not None:
             self._armed_entry.btn_place.blockSignals(True)
             self._armed_entry.btn_place.setChecked(False)
@@ -317,16 +346,28 @@ class _MeasurementMixin:
         self._set_active_layer_tab("scale")
         self._measurement_armed = True
         self._measurement_start = None
-        self.statusBar().showMessage("Neue Messung: Startpunkt der Strecke im Bild anklicken.")
+        self.statusBar().showMessage(
+            "Messmodus aktiv: Startpunkt der Strecke im Bild anklicken (beliebig viele Messungen "
+            "möglich, zum Beenden den Messmodus-Knopf erneut klicken)."
+        )
+        return True
 
     def _cancel_measurement_tool(self) -> None:
-        """Bricht nur eine GERADE laufende Zwei-Klick-Erfassung ab -- bereits
-        fertig platzierte Messungen (self.measurements) bleiben unberuehrt,
-        siehe _hide_measurement_visuals() dafuer."""
+        """Beendet den Messmodus VOLLSTAENDIG (nicht nur eine gerade laufende
+        Zwei-Klick-Erfassung) -- bereits fertig platzierte Messungen
+        (self.measurements) bleiben unberuehrt, siehe _hide_measurement_
+        visuals() dafuer. Haelt btn_add_measurement IMMER konsistent mit
+        _measurement_armed, unabhaengig davon, welcher der mehreren
+        Aufrufer (Toggle-Knopf selbst, ROI-Armieren, Maßstab-Start, Maßstab
+        geloescht) den Modus beendet."""
         if self._measurement_preview_marker is not None:
             self._measurement_preview_marker.setVisible(False)
         self._measurement_armed = False
         self._measurement_start = None
+        if self.btn_add_measurement.isChecked():
+            self.btn_add_measurement.blockSignals(True)
+            self.btn_add_measurement.setChecked(False)
+            self.btn_add_measurement.blockSignals(False)
 
     def _hide_measurement_visuals(self) -> None:
         """Blendet ALLE platzierten Messungen aus (z.B. beim Laden einer neuen
@@ -351,6 +392,15 @@ class _MeasurementMixin:
         point = (view_pos.x(), view_pos.y())
 
         if self._measurement_start is None:
+            if len(self.measurements) >= MAX_MEASUREMENT_COUNT:
+                # Sicherheitsgrenze (wie MAX_ROI_COUNT) -- ohne den Messmodus
+                # als Dauerschalter waere das vorher nie erreichbar gewesen.
+                self._cancel_measurement_tool()
+                QtWidgets.QMessageBox.information(
+                    self, "Maximum erreicht",
+                    f"Maximal {MAX_MEASUREMENT_COUNT} Messungen gleichzeitig möglich.",
+                )
+                return
             self._measurement_start = point
             if self._measurement_preview_marker is None:
                 self._measurement_preview_marker = pg.PlotDataItem(
@@ -369,7 +419,10 @@ class _MeasurementMixin:
 
         start = self._measurement_start
         end = point
-        self._measurement_armed = False
+        # _measurement_armed bleibt bewusst unveraendert (Messmodus ist ein
+        # Dauerschalter, siehe _on_measurement_mode_toggled) -- nur die
+        # gerade abgeschlossene Zwei-Klick-Erfassung wird zurueckgesetzt,
+        # damit der naechste Klick eine NEUE Messung beginnt.
         self._measurement_start = None
         self._measurement_preview_marker.setVisible(False)
         pixel_distance = ((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2) ** 0.5

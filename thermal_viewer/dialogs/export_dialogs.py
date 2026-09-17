@@ -11,8 +11,14 @@ from ..widgets import LocaleTolerantDoubleSpinBox
 from ._base import _disable_enter_auto_accept, _NoEnterAutoAccept
 from .filename_tokens import INDEX_TOKEN, render_export_filename, render_index_token, render_runtime_token, sanitize_filename_prefix
 from .graph_selector import GraphContentSelector, _CursorCurveLink
-from .panels import AxisOverridePanel, ColorScaleOverridePanel, _color_scale_range_invalid
+from .panels import AxisOverridePanel, ColorScaleOverridePanel, ExportPreviewPanel, _color_scale_range_invalid
 from .scale_selector import ScaleContentSelector
+
+# Reihenfolge/Anzeigenamen der "Graphen"-Checkboxen (Nutzerwunsch: beliebig
+# viele gleichzeitig einbettbar) -- dieselbe Zuordnung wie
+# export_visuals.py:_EXPORT_GRAPH_ORDER/_EXPORT_GRAPH_LABELS, hier separat
+# gehalten, da dialogs/ bewusst KEINE Abhaengigkeit von main_window/ hat.
+_GRAPH_CHECKBOX_KEYS = ["zeitverlauf", "schwindung", "querschnitt"]
 
 
 class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
@@ -58,16 +64,37 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         left_col = QtWidgets.QVBoxLayout()
         right_col = QtWidgets.QVBoxLayout()
 
-        # LINKE Spalte: welche Kurve(n) -- einzelne Messbereiche und/oder
-        # Live-Cursor -- sowie an welcher Position relativ zum Thermobild.
-        # Punkt 7 (Nutzerwunsch): "Position" und "Cursor-Position im Bild
-        # anzeigen" gehoerten bisher optisch NICHT erkennbar zu "Graph-
-        # Inhalt" (nur per Einrueckung angedeutet, aber ausserhalb von dessen
-        # eigener Box) -- beides jetzt DIREKT in dieselbe Box gehaengt.
+        # LINKE Spalte: WELCHE Graphen (Nutzerwunsch: beliebig viele
+        # gleichzeitig, per Checkbox statt bisher fest einem einzigen),
+        # welche Kurve(n) darin -- einzelne Messbereiche und/oder Live-
+        # Cursor, nur fuer "Zeitverlauf" relevant -- sowie an welcher
+        # Position relativ zum Thermobild. Punkt 7 (Nutzerwunsch): "Position"
+        # und "Cursor-Position im Bild anzeigen" gehoerten bisher optisch
+        # NICHT erkennbar zu "Graph-Inhalt" (nur per Einrueckung angedeutet,
+        # aber ausserhalb von dessen eigener Box) -- beides jetzt DIREKT in
+        # dieselbe Box gehaengt.
         self._content_selector: GraphContentSelector | None = None
         self.combo_graph_position = None
         self.chk_cursor_position = None
+        self.chk_graph_zeitverlauf = None
+        self.chk_graph_schwindung = None
+        self.chk_graph_querschnitt = None
         if show_graph_source_choice:
+            graphs_box = QtWidgets.QGroupBox("Graphen")
+            graphs_layout = QtWidgets.QVBoxLayout(graphs_box)
+            self.chk_graph_zeitverlauf = QtWidgets.QCheckBox("Zeitverlauf")
+            self.chk_graph_zeitverlauf.setChecked(True)  # bisheriger Standard, keine Ueberraschung
+            self.chk_graph_schwindung = QtWidgets.QCheckBox("Schwindung")
+            self.chk_graph_querschnitt = QtWidgets.QCheckBox("Querschnitt")
+            for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
+                graphs_layout.addWidget(chk)
+            graphs_box.setToolTip(
+                "Beliebig viele gleichzeitig einbetten (auch alle) -- \"Schwindung\"/\"Querschnitt\" "
+                "werden dabei immer mit ihren AKTUELL im Hauptfenster gezeigten Einstellungen "
+                "(Kenngröße bzw. Richtung) exportiert."
+            )
+            left_col.addWidget(graphs_box)
+
             self._content_selector = GraphContentSelector(
                 roi_entries or [], live_available, default_live_checked=False
             )
@@ -214,6 +241,15 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         layout_top.addLayout(right_col, 1)
         layout.addLayout(layout_top)
 
+        # Vorschau (Nutzerwunsch) -- volle Zeile UNTER den beiden Spalten
+        # (die 2-spaltige layout_top ist oben bereits voll), vor den
+        # Dialog-Buttons. Nur sichtbar/aktiv, wenn der Aufrufer per
+        # enable_preview(...) tatsaechlich einen Renderer bereitstellt
+        # (siehe dort) -- ohne Aufruf bleibt die Box unsichtbar.
+        self._preview_panel = ExportPreviewPanel()
+        self._preview_panel.group_box.setVisible(False)
+        layout.addWidget(self._preview_panel.group_box)
+
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
         )
@@ -221,6 +257,38 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         buttons.rejected.connect(self.reject)
         _disable_enter_auto_accept(buttons)
         layout.addWidget(buttons)
+
+    def enable_preview(self, provider) -> None:
+        """Blendet die Vorschau-Box ein und haengt provider (liefert ein
+        QImage oder None, siehe MainWindow._render_export_preview_image) an
+        alle Steuerelemente, die das Ergebnis SICHTBAR veraendern (siehe
+        Scope-Entscheidung im Plan -- nicht jede Feineinstellung). provider
+        ist eine Closure des Aufrufers, die DIESEN Dialog bereits kennt
+        (z.B. ein lambda mit export_dialog im Closure) -- der Dialog selbst
+        haelt keine Referenz auf MainWindow."""
+        self._preview_panel.group_box.setVisible(True)
+        refresh = lambda *_args: self._preview_panel.schedule_refresh(provider)
+        for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
+            chk.toggled.connect(refresh)
+        if self.combo_graph_position is not None:
+            self.combo_graph_position.currentIndexChanged.connect(refresh)
+        if self.chk_cursor_position is not None:
+            self.chk_cursor_position.toggled.connect(refresh)
+        refresh()
+
+    def selected_graph_keys(self) -> list[str]:
+        """Ausgewaehlte Graphen in fester Reihenfolge (Zeitverlauf/
+        Schwindung/Querschnitt), unabhaengig von der Klick-Reihenfolge --
+        leere Liste, falls der Dialog gar keine Graphen-Auswahl anbietet
+        (show_graph_source_choice=False)."""
+        if self.chk_graph_zeitverlauf is None:
+            return []
+        checks = {
+            "zeitverlauf": self.chk_graph_zeitverlauf,
+            "schwindung": self.chk_graph_schwindung,
+            "querschnitt": self.chk_graph_querschnitt,
+        }
+        return [key for key in _GRAPH_CHECKBOX_KEYS if checks[key].isChecked()]
 
     def _update_graph_position_enabled(self) -> None:
         self.combo_graph_position.setEnabled(self.chk_combined.isChecked())
@@ -233,10 +301,19 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                     "Bitte mindestens „Kombiniert“ oder „Getrennt“ auswählen."
                 )
                 return
-        if self._content_selector is not None and not self._content_selector.has_any_selected():
+        if self.chk_graph_zeitverlauf is not None and not self.selected_graph_keys():
+            QtWidgets.QMessageBox.information(
+                self, "Keine Auswahl", "Bitte mindestens einen Graphen auswählen."
+            )
+            return
+        if (
+            self._content_selector is not None
+            and self.chk_graph_zeitverlauf.isChecked()
+            and not self._content_selector.has_any_selected()
+        ):
             QtWidgets.QMessageBox.information(
                 self, "Keine Auswahl",
-                "Bitte mindestens einen Messbereich und/oder Live-Cursor auswählen."
+                "Bitte für den Zeitverlauf mindestens einen Messbereich und/oder Live-Cursor auswählen."
             )
             return
         if self._color_panel.range_invalid():
@@ -308,9 +385,12 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         return self.combo_graph_position.currentData()
 
     def has_graph_content(self) -> bool:
-        """Ob ueberhaupt ein Graph exportiert werden soll -- False nur, wenn
-        show_graph_source_choice=False war (kein Graph in diesem Export)."""
-        return self._content_selector is not None
+        """Ob dieser Dialog UEBERHAUPT eine Graphen-Auswahl anbietet -- False
+        nur, wenn show_graph_source_choice=False war (kein Graph in diesem
+        Export moeglich, z.B. reiner Thermobild-Einzelexport). Sagt NICHTS
+        darueber aus, ob AKTUELL mindestens einer angehakt ist -- dafuer
+        siehe selected_graph_keys()."""
+        return self.chk_graph_zeitverlauf is not None
 
     def export_cursor_position(self) -> bool:
         return self.chk_cursor_position is not None and self.chk_cursor_position.isChecked()
@@ -585,20 +665,29 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.radio_custom_settings.toggled.connect(self._update_legend_options_enabled)
         self._update_legend_options_enabled()
 
-        # Graph (Temperaturverlauf) zusaetzlich zum Thermobild im Export --
-        # mit der ohnehin schon vorhandenen wandernden Markierungslinie
-        # (frame_marker/live_frame_marker), genau wie im Hauptfenster
-        # (Bugreport: "genauso wie in der UI"). Punkt: "Graph mit anzeigen"
-        # -> "Graph mit exportieren" (klarer, da es um den fertigen Export
-        # geht, nicht die aktuelle Anzeige).
-        graph_box = QtWidgets.QGroupBox("Temperaturverlauf-Graph")
+        # Graphen zusaetzlich zum Thermobild im Export -- Nutzerwunsch:
+        # beliebig viele gleichzeitig (statt bisher nur der Zeitverlauf),
+        # per Checkbox statt Dropdown, damit theoretisch auch alle
+        # gleichzeitig gewaehlt werden koennen. Mit der ohnehin schon
+        # vorhandenen wandernden Markierungslinie (frame_marker/
+        # live_frame_marker) im Zeitverlauf, genau wie im Hauptfenster
+        # (Bugreport: "genauso wie in der UI").
+        graph_box = QtWidgets.QGroupBox("Graphen")
         graph_layout = QtWidgets.QVBoxLayout(graph_box)
-        self.chk_show_graph = QtWidgets.QCheckBox("Graph mit exportieren")
-        self.chk_show_graph.setToolTip(
-            "Zeigt den gewählten Kurven-Graphen (mit der wandernden Zeit-Markierung, "
-            "genau wie im Hauptfenster) zusätzlich im Export an."
+        # Bisheriger Standard war HIER (anders als bei GraphicExportDialog)
+        # "kein Graph" (chk_show_graph.setChecked(...) wurde nie aufgerufen)
+        # -- alle drei bleiben daher unangehakt, keine Ueberraschung.
+        self.chk_graph_zeitverlauf = QtWidgets.QCheckBox("Zeitverlauf")
+        self.chk_graph_schwindung = QtWidgets.QCheckBox("Schwindung")
+        self.chk_graph_querschnitt = QtWidgets.QCheckBox("Querschnitt")
+        for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
+            graph_layout.addWidget(chk)
+        graph_box.setToolTip(
+            "Beliebig viele gleichzeitig exportieren (auch alle), mit der wandernden Zeit-"
+            "Markierung genau wie im Hauptfenster -- \"Schwindung\"/\"Querschnitt\" werden dabei "
+            "immer mit ihren AKTUELL im Hauptfenster gezeigten Einstellungen (Kenngröße bzw. "
+            "Richtung) exportiert."
         )
-        graph_layout.addWidget(self.chk_show_graph)
 
         # Eingerueckt unter "Graph mit exportieren" -- Inhalt/Position sind
         # nur relevant, wenn ueberhaupt ein Graph exportiert wird. Der Cursor
@@ -643,8 +732,9 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         graph_indent_row.addLayout(graph_indent_col)
         graph_layout.addLayout(graph_indent_row)
 
-        self.chk_show_graph.toggled.connect(self._update_graph_export_enabled)
-        self._update_graph_export_enabled(False)
+        for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
+            chk.toggled.connect(self._update_graph_export_enabled)
+        self._update_graph_export_enabled()
         row2.addWidget(graph_box, 1)
         layout.addLayout(row2)
 
@@ -724,6 +814,14 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         overlay_row.addWidget(overlay_box, 1)
         layout.addLayout(overlay_row)
 
+        # Vorschau (Nutzerwunsch) -- als letzte volle Zeile vor den Dialog-
+        # Buttons, analog zu GraphicExportDialog. Nur sichtbar/aktiv, wenn
+        # der Aufrufer per enable_preview(...) tatsaechlich einen Renderer
+        # bereitstellt.
+        self._preview_panel = ExportPreviewPanel()
+        self._preview_panel.group_box.setVisible(False)
+        layout.addWidget(self._preview_panel.group_box)
+
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
         )
@@ -795,11 +893,32 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         for w in (self.combo_cmap, self.chk_invert, self.combo_level_mode, self.spin_min, self.spin_max):
             w.setEnabled(custom_enabled)
 
-    def _update_graph_export_enabled(self, checked: bool) -> None:
+    def selected_graph_keys(self) -> list[str]:
+        """Ausgewaehlte Graphen in fester Reihenfolge (Zeitverlauf/
+        Schwindung/Querschnitt), unabhaengig von der Klick-Reihenfolge."""
+        checks = {
+            "zeitverlauf": self.chk_graph_zeitverlauf,
+            "schwindung": self.chk_graph_schwindung,
+            "querschnitt": self.chk_graph_querschnitt,
+        }
+        return [key for key in _GRAPH_CHECKBOX_KEYS if checks[key].isChecked()]
+
+    def _update_graph_export_enabled(self, _checked: bool = False) -> None:
+        checked = bool(self.selected_graph_keys())
         self._content_selector.group_box.setEnabled(checked)
         self.combo_graph_position.setEnabled(checked)
         if self._axis_panel is not None:
             self._axis_panel.group_box.setEnabled(checked)
+
+    def enable_preview(self, provider) -> None:
+        """Siehe GraphicExportDialog.enable_preview -- identisches Muster."""
+        self._preview_panel.group_box.setVisible(True)
+        refresh = lambda *_args: self._preview_panel.schedule_refresh(provider)
+        for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
+            chk.toggled.connect(refresh)
+        self.combo_graph_position.currentIndexChanged.connect(refresh)
+        self.chk_cursor_position.toggled.connect(refresh)
+        refresh()
 
     def _on_accept(self) -> None:
         if self.spin_end.value() < self.spin_start.value():
@@ -814,14 +933,14 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 self, "Ungültiger Bereich", "Bei der Farbskala muss „Max“ größer als „Min“ sein."
             )
             return
-        if self.chk_show_graph.isChecked() and not self._content_selector.has_any_selected():
+        if "zeitverlauf" in self.selected_graph_keys() and not self._content_selector.has_any_selected():
             QtWidgets.QMessageBox.information(
                 self, "Keine Auswahl",
-                "Bitte mindestens einen Messbereich und/oder Live-Cursor für den Graphen auswählen."
+                "Bitte mindestens einen Messbereich und/oder Live-Cursor für den Zeitverlauf auswählen."
             )
             return
         if (
-            self.chk_show_graph.isChecked()
+            self.selected_graph_keys()
             and self._axis_panel is not None
             and self._axis_panel.incomplete()
         ):
@@ -880,7 +999,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         return self._axis_panel.custom_overrides() if self._axis_panel is not None else None
 
     def show_graph(self) -> bool:
-        return self.chk_show_graph.isChecked()
+        return bool(self.selected_graph_keys())
 
     def included_roi_numbers(self) -> set[int]:
         return self._content_selector.included_numbers()

@@ -8,12 +8,12 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pyqtgraph as pg
 from qtpy import QtGui, QtWidgets
 
 from .constants import (
     COLORMAPS,
 )
+from .export_visuals import _EXPORT_GRAPH_LABELS
 
 if TYPE_CHECKING:
     from ..dialogs import GraphicExportDialog
@@ -23,10 +23,12 @@ class _ImageExportMixin:
     def _export_graphic(self) -> None:
         """Einziges Grafik-Export-Fenster (statt getrennter "Zeitverlauf-"/
         "Live-Grafik"-Menüpunkte, Nutzerwunsch: "nur noch ein einziges CSV/-
-        Bild-Export Fenster"). Der Dialog fragt ab, welche Kurven -- einzelne
-        Messbereiche und/oder Live-Cursor -- tatsächlich exportiert werden
-        sollen (Nutzerwunsch: "einzelne ROIs (+Live-Cursor) zur Auswahl");
-        beides landet gemeinsam in EINEM Graphen (self.timeseries_plot, siehe
+        Bild-Export Fenster"). Der Dialog fragt ueber Checkboxen ab, WELCHE
+        der vorhandenen Graphen (Zeitverlauf/Schwindung/Querschnitt --
+        beliebig viele gleichzeitig, Nutzerwunsch) exportiert werden, und
+        (nur fuer "Zeitverlauf") ZUSAETZLICH welche Kurven -- einzelne
+        Messbereiche und/oder Live-Cursor -- darin auftauchen (Nutzerwunsch:
+        "einzelne ROIs (+Live-Cursor) zur Auswahl"; siehe
         _temporary_graph_content)."""
         if self.recording is None:
             QtWidgets.QMessageBox.information(self, "Keine Daten", "Bitte zuerst eine Messreihe laden.")
@@ -55,6 +57,7 @@ class _ImageExportMixin:
             ruler_available=self._px_to_mm is not None,
             measurement_entries=[(e.number, e.name) for e in self.measurements],
         )
+        export_dialog.enable_preview(lambda: self._render_export_preview_image(export_dialog))
         # Schleife statt einmaligem exec() (Punkt 3): bricht der Nutzer den
         # nachfolgenden Speichern-Dialog ab (siehe _export_combined_image,
         # Rueckgabewert True = "Speichern-Dialog abgebrochen"), geht es
@@ -63,22 +66,32 @@ class _ImageExportMixin:
         while True:
             if export_dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
                 return
+            # Verhindert, dass eine noch ausstehende, debounced Vorschau-
+            # Aktualisierung (siehe enable_preview) WAEHREND des eigentlichen
+            # Exports feuert (der selbst wiederholt processEvents() aufruft
+            # und der Vorschau damit ungewollt eine Chance zum Feuern gaebe).
+            export_dialog._preview_panel.stop()
 
             selected_numbers = export_dialog.included_roi_numbers()
             include_live = export_dialog.include_live() and live_available
-            curve_widget = self.timeseries_plot
-            suggested_name = "Zeitverlauf_mit_Position.png"
-            if selected_numbers and include_live:
-                curve_title = "Temperaturverlauf (Messbereiche + Live-Cursor)"
-            elif include_live:
-                curve_title = "Temperaturverlauf (Live-Cursor)"
-            else:
-                curve_title = "Temperaturverlauf (Messbereiche)"
+            selected_keys = export_dialog.selected_graph_keys()
+            graphs = [
+                (
+                    self._export_graph_widget(key),
+                    self._export_graph_title(key, selected_numbers=selected_numbers, include_live=include_live),
+                    _EXPORT_GRAPH_LABELS[key],
+                )
+                for key in selected_keys
+            ]
+            suggested_name = "Export_mit_Position.png"
+            axis_ctx = (
+                self._temporary_axis_override(self.timeseries_plot, export_dialog.custom_axis_overrides())
+                if "zeitverlauf" in selected_keys else contextlib.nullcontext()
+            )
 
-            with self._temporary_graph_content(selected_numbers, include_live), \
-                    self._temporary_axis_override(curve_widget, export_dialog.custom_axis_overrides()):
+            with self._temporary_graph_content(selected_numbers, include_live), axis_ctx:
                 retry = self._export_combined_image(
-                    export_dialog, curve_widget, suggested_name, self._timeseries_metadata, curve_title
+                    export_dialog, graphs, suggested_name, self._timeseries_metadata,
                 )
             if not retry:
                 return
@@ -245,18 +258,18 @@ class _ImageExportMixin:
     def _export_combined_image(
         self,
         export_dialog: GraphicExportDialog,
-        curve_widget: pg.PlotWidget,
+        graphs: list[tuple[QtWidgets.QWidget, str, str]],
         suggested_name: str,
         metadata_fn,
-        curve_title: str,
     ) -> bool:
         """Speichert Thermobild (mit Position der Messbereiche, optional auch
         des Cursors -- siehe GraphicExportDialog.export_cursor_position(),
-        Standard aus) und den zugehörigen Temperaturverlauf -- wahlweise
-        kombiniert als eine Grafik oder getrennt als zwei Dateien (Punkt 5).
-        export_dialog ist bereits ausgefuellt/bestaetigt (siehe _export_graphic
-        -- dort wird VOR dem Aufruf entschieden, welcher curve_widget/
-        metadata_fn/curve_title ueberhaupt zum Einsatz kommt).
+        Standard aus) und die ausgewaehlten Graphen (Nutzerwunsch: beliebig
+        viele gleichzeitig, je ein (widget, titel, datei_suffix)-Tripel) --
+        wahlweise kombiniert als eine Grafik oder getrennt als mehrere
+        Dateien (Punkt 5). export_dialog ist bereits ausgefuellt/bestaetigt
+        (siehe _export_graphic -- dort wird VOR dem Aufruf entschieden,
+        welche graphs/metadata_fn ueberhaupt zum Einsatz kommen).
 
         Rueckgabe (Punkt 3): True, wenn der Speichern-Dialog abgebrochen
         wurde -- der Aufrufer soll dann zurueck zum (unveraendert
@@ -272,8 +285,14 @@ class _ImageExportMixin:
         selected_scale_numbers = export_dialog.included_scale_measurement_numbers()
         use_custom_colors = export_dialog.use_custom_colors()
         time_axis_mode = export_dialog.time_axis_mode()
+        # Dual-Zeitachse/Rebasing (siehe Scope-Entscheidung im Plan) bleibt
+        # ein Zeitverlauf-spezifisches Konzept -- _time_axis_widget_parts
+        # (export_visuals.py) liefert fuer shrinkage_plot/crosssection_plot
+        # ohnehin None und macht beide Context-Manager dafuer automatisch
+        # zu No-ops, ein Aufruf mit self.timeseries_plot ist daher immer
+        # sicher, unabhaengig davon, ob es tatsaechlich ausgewaehlt ist.
         time_axis_ctx = (
-            self._dual_time_axis_export(curve_widget) if time_axis_mode == "both"
+            self._dual_time_axis_export(self.timeseries_plot) if time_axis_mode == "both"
             else self._temporary_time_display_mode(time_axis_mode)
         )
 
@@ -321,44 +340,56 @@ class _ImageExportMixin:
             if use_custom_colors:
                 self._apply_custom_color_dialog_state(export_dialog, prev_level_state)
             with self._frozen_ui_during_export(), \
-                    self._widget_raised_for_export(curve_widget), \
                     self._maybe_hidden_live_cursor(include_cursor), \
                     self._temporary_scale_visuals(include_scale_ruler, selected_scale_numbers), \
                     time_axis_ctx, \
-                    (self._rebased_time_axis(curve_widget) if is_svg else contextlib.nullcontext()), \
                     self._paused_background_timers(), \
                     self._scaled_export_visuals(scale, pen_scale):
-                # Bugfix: siehe _export_video fuer den vollen Grund -- das
-                # Einblenden der oberen Zeitachse (time_axis_ctx, "Beide")
-                # und das Hochholen einer tabifizierten Dock-Registerkarte
-                # (_widget_raised_for_export) wirken bei pyqtgraph ERST nach
-                # dem naechsten Event-Loop-Durchlauf. Ohne diesen Aufruf
-                # fehlte die obere Achse im Export vollstaendig (kein
-                # weiterer Frame/processEvents()-Aufruf folgt hier wie beim
-                # Video, der das "von selbst" korrigieren wuerde).
-                QtWidgets.QApplication.processEvents()
+                # Jeden ausgewaehlten Graphen EINMAL kurz in den Vordergrund
+                # holen (siehe _widget_raised_for_export -- ein noch nie
+                # gezeigter, tabifizierter Dock-Reiter behaelt sonst eine
+                # winzige/veraltete Groesse). Einmaliges Aufwaermen VOR dem
+                # eigentlichen Rendern reicht: einmal korrekt layoutet,
+                # bleibt die Groesse auch nach dem Zurueckwechseln des Tabs
+                # erhalten -- Bugfix: siehe _export_video fuer denselben
+                # Grund, warum danach zusaetzlich processEvents() folgt
+                # (das Einblenden der oberen Zeitachse fuer "Beide" wirkt bei
+                # pyqtgraph sonst ebenfalls erst einen Event-Loop-Durchlauf
+                # spaeter).
+                for widget, _title, _suffix in graphs:
+                    with self._widget_raised_for_export(widget):
+                        QtWidgets.QApplication.processEvents()
                 # Punkt 9 (Nutzerwunsch): "Kombiniert" und "Getrennt" sind
                 # unabhaengige Checkboxen -- beide angehakt erzeugt in EINEM
-                # Durchgang sowohl die kombinierte Grafik als auch die zwei
+                # Durchgang sowohl die kombinierte Grafik als auch die
                 # Einzeldateien, statt sich gegenseitig auszuschliessen.
                 saved_paths = []
                 if want_separate:
                     image_path = path_obj.with_name(f"{path_obj.stem}_Bild{path_obj.suffix}")
-                    curve_path = path_obj.with_name(f"{path_obj.stem}_Kurve{path_obj.suffix}")
                     sizes_px[image_path.name] = self._save_single_part(self.glw, image_path, scale, image_bg, is_svg)
-                    sizes_px[curve_path.name] = self._save_single_part(curve_widget, curve_path, scale, bg, is_svg)
-                    saved_paths += [image_path, curve_path]
+                    saved_paths.append(image_path)
+                    for widget, _title, suffix in graphs:
+                        graph_path = path_obj.with_name(f"{path_obj.stem}_{suffix}{path_obj.suffix}")
+                        with (self._rebased_time_axis(widget) if is_svg else contextlib.nullcontext()):
+                            sizes_px[graph_path.name] = self._save_single_part(widget, graph_path, scale, bg, is_svg)
+                        saved_paths.append(graph_path)
                 if want_combined:
                     if is_svg:
-                        sizes_px[path_obj.name] = self._save_combined_svg(
-                            path_obj, self.glw, "Position im Thermobild", curve_widget, curve_title,
-                            graph_position, dpi, fg, bg,
-                        )
+                        with contextlib.ExitStack() as stack:
+                            for widget, _title, _suffix in graphs:
+                                stack.enter_context(self._rebased_time_axis(widget))
+                            sizes_px[path_obj.name] = self._save_combined_svg(
+                                path_obj, self.glw, "Position im Thermobild",
+                                [(widget, title) for widget, title, _suffix in graphs],
+                                graph_position, dpi, fg, bg,
+                            )
                     else:
                         image_scene = self._render_widget_image(self.glw, scale, image_bg)
-                        image_curve = self._render_widget_image(curve_widget, scale, bg)
+                        graph_images = [
+                            (self._render_widget_image(widget, scale, bg), title) for widget, title, _suffix in graphs
+                        ]
                         combined_image = self._combine_image_and_graph(
-                            image_scene, "Position im Thermobild", image_curve, curve_title, graph_position, dpi, bg, fg
+                            image_scene, "Position im Thermobild", graph_images, graph_position, dpi, bg, fg
                         )
                         if not combined_image.save(path):
                             raise OSError(f"Konnte Bild nicht speichern: {path}")

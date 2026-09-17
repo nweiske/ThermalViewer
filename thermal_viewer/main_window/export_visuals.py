@@ -23,7 +23,84 @@ from ..plot_items import (
 )
 
 
+# Nutzerwunsch: Grafik-/Video-/Bilderstapel-Export sollen beliebig viele
+# der vorhandenen Graphen gleichzeitig einbetten koennen (statt wie bisher
+# GENAU EINEN, fest self.timeseries_plot) -- eine zentrale Schluessel-
+# Zuordnung statt drei verstreuter if/elif-Ketten. self.live_plot bleibt
+# bewusst aussen vor (schon bisher nie eigenstaendig exportierbar, siehe
+# window.py -- seine einzige Kurve ist Teil des Zeitverlauf-Graphen).
+_EXPORT_GRAPH_ORDER = ["zeitverlauf", "schwindung", "querschnitt"]
+_EXPORT_GRAPH_LABELS = {"zeitverlauf": "Zeitverlauf", "schwindung": "Schwindung", "querschnitt": "Querschnitt"}
+
+
 class _ExportVisualsMixin:
+    def _export_graph_widget(self, key: str) -> QtWidgets.QWidget:
+        return {
+            "zeitverlauf": self.timeseries_plot,
+            "schwindung": self.shrinkage_plot,
+            "querschnitt": self.crosssection_plot,
+        }[key]
+
+    def _export_graph_title(
+        self, key: str, *, selected_numbers: set[int] | None = None, include_live: bool = False
+    ) -> str:
+        """Ueberschrift je eingebettetem Graphen im kombinierten Bild-Export
+        (siehe render_pipeline.py:_combine_image_and_graph/_save_combined_svg)
+        -- der Video-/Bildstapel-Export zeichnet dagegen (wie bisher) keine
+        Titel in den Frame, braucht diese Funktion also nicht.
+        "schwindung"/"querschnitt" nutzen bewusst IMMER die aktuellen
+        Anzeige-Einstellungen (Kenngroesse bzw. Richtung), siehe Scope-
+        Entscheidung im Plan -- keine eigenen Export-Overrides dafuer."""
+        if key == "zeitverlauf":
+            if selected_numbers and include_live:
+                return "Temperaturverlauf (Messbereiche + Live-Cursor)"
+            if include_live:
+                return "Temperaturverlauf (Live-Cursor)"
+            return "Temperaturverlauf (Messbereiche)"
+        if key == "schwindung":
+            return f"Schwindung ({self._shrinkage_metric_label()})"
+        direction = "Horizontal" if self.radio_crosssection_horizontal.isChecked() else "Vertikal"
+        return f"Querschnitt ({direction})"
+
+    def _render_export_preview_image(self, export_dialog) -> QtGui.QImage | None:
+        """Kleine, "gut genug"-Vorschau (Nutzerwunsch: "eine kleine
+        Vorschau, wie das Zielbild/-video dann ausschauen wird") fuer
+        GraphicExportDialog/VideoExportDialog -- liest die AKTUELL im
+        Dialog gewaehlten Graphen/Position/Cursor-Option und rendert sie
+        ueber DIESELBEN Funktionen wie der echte Export, nur bei kleiner
+        Skalierung. Bewusst OHNE die volle Overrides-Tiefe (kein SVG-Pfad,
+        keine eigene Farbskala/Achsen-Feineinstellungen) -- siehe Scope-
+        Entscheidung im Plan: "gut genug, um die Anordnung zu sehen", kein
+        1:1-Pixel-Vorschau jeder Export-Option. Gibt None zurueck, wenn
+        (noch) keine Aufnahme geladen ist oder das Rendern fehlschlaegt --
+        der Aufrufer (ExportPreviewPanel) zeigt dann einen Platzhaltertext."""
+        if self.recording is None:
+            return None
+        selected_keys = export_dialog.selected_graph_keys()
+        graph_position = export_dialog.graph_position()
+        include_cursor = export_dialog.export_cursor_position()
+        preview_scale = 0.5
+        image_bg = QtGui.QColor(self._image_bg)
+        bg = QtGui.QColor(self._graph_bg)
+        fg = QtGui.QColor(self._graph_fg)
+        try:
+            with self._maybe_hidden_live_cursor(include_cursor):
+                for key in selected_keys:
+                    with self._widget_raised_for_export(self._export_graph_widget(key)):
+                        QtWidgets.QApplication.processEvents()
+                image_scene = self._render_widget_image(self.glw, preview_scale, image_bg)
+                if not selected_keys:
+                    return image_scene
+                graph_images = [
+                    (self._render_widget_image(self._export_graph_widget(key), preview_scale, bg), _EXPORT_GRAPH_LABELS[key])
+                    for key in selected_keys
+                ]
+                return self._combine_image_and_graph(
+                    image_scene, "Thermobild", graph_images, graph_position, 96, bg, fg
+                )
+        except Exception:
+            return None
+
     @staticmethod
     def _scaled_size(widget: QtWidgets.QWidget, scale: float, align: int = 1) -> tuple[int, int]:
         """Zielgroesse in Geraete-Pixeln fuer den Export eines Widgets mit

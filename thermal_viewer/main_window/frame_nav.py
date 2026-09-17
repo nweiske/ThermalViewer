@@ -46,6 +46,15 @@ class _FrameNavMixin:
         self._measurement_next_number = 1
         for _ in range(len(ROI_COLORS)):
             self._add_roi_entry()
+        # Jede Neuanlage oben armiert ueber denselben Listenauswahl-
+        # Mechanismus wie ein echter Klick automatisch sich selbst (siehe
+        # roi_panel_build.py:_on_roi_list_row_changed) -- am Ende der
+        # Schleife bliebe dadurch das ZULETZT angelegte ROI ("Unten") scharf.
+        # Nutzerwunsch: nach dem Laden einer Aufnahme soll kein Messbereich
+        # vorab armiert sein, ein Klick ins Bild darf nicht ungewollt eines
+        # verschieben.
+        if self._armed_entry is not None:
+            self._armed_entry.btn_place.setChecked(False)
         # Rohdaten-Bereinigung (siehe data_cleaning_ops.py): Referenzpunkte
         # sind Pixelkoordinaten der ALTEN Aufnahme, ausgeblendete Bild-Indizes
         # beziehen sich auf deren Frame-Anzahl -- beides fuer die neue
@@ -165,9 +174,20 @@ class _FrameNavMixin:
             "Maus über das Bild bewegen, um den Temperaturverlauf am Cursor-Pixel live zu sehen. "
             "Linksklick fixiert die Stelle, Rechtsklick löst die Fixierung wieder."
         )
+        # Bugfix: muss VOR _reset_crosssection_state_for_recording() stehen --
+        # dessen sofortige Zentrierung berechnet bereits ein Bild
+        # (self.recording.frames[self.current_index]) und wuerde sonst noch
+        # den (evtl. viel groesseren) current_index der VORHERIGEN Aufnahme
+        # verwenden, was bei einer kuerzeren neuen Aufnahme zu einem
+        # IndexError fuehrt.
+        self.current_index = 0
+        # Querschnitt-Graph (siehe crosssection_ops.py): eigene Position
+        # (_crosssection_row/_col), unabhaengig vom Live-Cursor oben --
+        # bezieht sich ebenso auf Pixel-Koordinaten der ALTEN Aufnahme und
+        # wird daher auf die Mitte der NEUEN Aufnahme zurueckgesetzt.
+        self._reset_crosssection_state_for_recording()
 
         self.view_box.setRange(xRange=(0, cols), yRange=(0, rows), padding=0.02)
-        self.current_index = 0
         # defer_display=True (Nutzerwunsch): nach "Ordner öffnen…" MUSS die
         # Rohdaten-Bereinigung (modaler Dialog) abgeschlossen sein, bevor
         # ueberhaupt ein Bild im Hauptfenster erscheint -- der Aufrufer

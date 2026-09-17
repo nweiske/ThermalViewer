@@ -76,6 +76,19 @@ class _RoiMixin:
         self._push_undo_snapshot()
         entry.set_color(color.name())
 
+    def _on_arm_roi_shortcut(self, number: int) -> None:
+        """Tasten 1-5 (siehe ui_build.py:_build_shortcuts) armieren direkt
+        den Messbereich mit dieser (1-basierten) Erzeugungsnummer zum
+        Platzieren -- 1=Oben, 2=Links, 3=Mitte, 4=Rechts, 5=Unten (siehe
+        DEFAULT_ROI_NAMES in roi_entry.py). setChecked(True) laesst
+        _on_roi_place_toggled unveraendert die komplette Mutual-Exclusion/
+        Statuszeilen-Logik erledigen, exakt wie ein echter Knopfklick."""
+        if self.recording is None:
+            return
+        entry = next((e for e in self.roi_entries if e.number == number), None)
+        if entry is not None and entry.btn_place is not None:
+            entry.btn_place.setChecked(True)
+
     def _on_roi_place_toggled(self, entry: RoiEntry, checked: bool) -> None:
         if checked:
             for other in self.roi_entries:

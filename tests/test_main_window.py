@@ -81,6 +81,21 @@ def test_apply_default_theme_sets_window_image_and_graph_together(main_window):
         mw._apply_graph_theme("light")
 
 
+def test_crosssection_plot_background_matches_other_curve_graphs(main_window):
+    # Bugfix: der Querschnitt-Graph (crosssection_ops.py) fehlte in
+    # _apply_curve_colors und blieb dadurch immer beim pyqtgraph-Standard
+    # (schwarz), unabhaengig vom gewaehlten Graph-Design -- wich damit
+    # sichtbar von "Zeitverlauf"/"Schwindung" ab.
+    mw = main_window
+    mw._apply_graph_theme("light")
+    timeseries_bg = mw.timeseries_plot.backgroundBrush().color().name()
+    assert mw.crosssection_plot.backgroundBrush().color().name() == timeseries_bg
+
+    mw._apply_graph_theme("dark")
+    timeseries_bg = mw.timeseries_plot.backgroundBrush().color().name()
+    assert mw.crosssection_plot.backgroundBrush().color().name() == timeseries_bg
+
+
 def test_no_leftover_single_dark_mode_toggle_attributes(main_window):
     # Regression: der frühere einzelne "Dunkelmodus"-Umschalter (act_dark_mode)
     # wurde durch die beiden "Alles: ..."-Knoepfe PLUS ein eigenstaendiges
@@ -727,6 +742,61 @@ def test_cleaning_dialog_exclude_range_combines_with_existing_exclusions(loaded_
         dlg.close()
 
 
+def test_cleaning_dialog_actions_are_logged_in_main_window_status_bar(loaded_main_window):
+    # Nutzerwunsch: Aktionen im Bereinigungs-Dialog sollen auch in der
+    # Statusleiste des Hauptfensters sichtbar werden.
+    from thermal_viewer.dialogs import DataCleaningDialog
+
+    mw = loaded_main_window
+    dlg = DataCleaningDialog(mw)
+    try:
+        dlg.spin_manual_frame.setValue(2)
+        dlg.btn_set_eval_start.click()
+        assert mw.statusBar().currentMessage() == "Auswertungsstart auf Bild 2 gesetzt."
+
+        dlg.spin_manual_frame.setValue(4)
+        dlg.btn_manual_exclude.click()
+        assert mw.statusBar().currentMessage() == "Bild 4 manuell ausgeschlossen."
+
+        dlg.spin_range_start.setValue(1)
+        dlg.spin_range_end.setValue(2)
+        dlg.btn_exclude_range.click()
+        assert mw.statusBar().currentMessage() == "Bilder 1-2 ausgeschlossen."
+
+        chk = dlg._candidate_checks[3]
+        chk.setChecked(False)
+        assert mw.statusBar().currentMessage() == "Bild 4 wieder eingeschlossen."
+    finally:
+        dlg.close()
+
+
+def test_cleaning_viewer_point_actions_are_logged_in_status_bar(loaded_main_window):
+    from thermal_viewer.dialogs.data_cleaning_viewer import CleaningPreviewViewer
+
+    mw = loaded_main_window
+    viewer = CleaningPreviewViewer(mw, lambda: None)
+    viewer.set_recording(mw.recording)
+    viewer.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+    viewer.view_box.mapSceneToView = lambda pos: pos
+
+    class FakeEvent:
+        def button(self):
+            return QtCore.Qt.LeftButton
+
+        def scenePos(self):
+            return QtCore.QPointF(5, 5)
+
+    viewer._on_scene_clicked(FakeEvent())
+    assert mw.statusBar().currentMessage() == "Referenzpunkt hinzugefügt."
+
+    class FakeTarget:
+        def pos(self):
+            return QtCore.QPointF(6, 6)
+
+    viewer._on_point_dragged(0, FakeTarget())
+    assert mw.statusBar().currentMessage() == "Referenzpunkt 1 verschoben."
+
+
 def test_cleaning_preview_viewer_shows_any_frame_independent_of_main_window(loaded_main_window):
     """Punkt 3/5 (Nutzerwunsch): das Hauptfenster darf NIE ein ausgeblendetes
     Bild zeigen (siehe test_excluded_frames_are_skipped_during_stepping_and_
@@ -1060,6 +1130,136 @@ def test_export_graphic_writes_a_png(roi_and_live_window, tmp_path, monkeypatch)
     assert out_path.stat().st_size > 0
 
 
+def test_graphic_export_dialog_graph_checkboxes_default_and_order(loaded_main_window):
+    # Nutzerwunsch: beliebig viele Graphen per Checkbox statt nur einem --
+    # Standard bleibt "nur Zeitverlauf" (bisheriges Verhalten, keine
+    # Ueberraschung), selected_graph_keys() ist dabei IMMER in fester
+    # Reihenfolge, unabhaengig von der Klick-Reihenfolge.
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    dlg = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=False, roi_entries=[(1, "ROI 1")],
+    )
+    try:
+        assert dlg.selected_graph_keys() == ["zeitverlauf"]
+        dlg.chk_graph_querschnitt.setChecked(True)
+        dlg.chk_graph_schwindung.setChecked(True)
+        assert dlg.selected_graph_keys() == ["zeitverlauf", "schwindung", "querschnitt"]
+        dlg.chk_graph_zeitverlauf.setChecked(False)
+        assert dlg.selected_graph_keys() == ["schwindung", "querschnitt"]
+    finally:
+        dlg.close()
+
+
+def test_graphic_export_dialog_requires_at_least_one_graph_selected(loaded_main_window, monkeypatch):
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    dlg = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=False, roi_entries=[(1, "ROI 1")],
+    )
+    dlg.chk_graph_zeitverlauf.setChecked(False)
+    dlg._on_accept()
+    assert dlg.result() != QtWidgets.QDialog.DialogCode.Accepted
+    dlg.close()
+
+
+def test_export_graphic_with_multiple_graphs_produces_wider_combined_image(roi_and_live_window, tmp_path, monkeypatch):
+    # End-to-End-Regressionsschutz fuer die N-Panel-Verallgemeinerung von
+    # render_pipeline.py: zwei ausgewaehlte Graphen (Zeitverlauf +
+    # Querschnitt) muessen ein sichtbar BREITERES kombiniertes Bild ergeben
+    # als nur einer (Standard-Position "rechts" -> alle Panels liegen
+    # nebeneinander, siehe _combined_panel_order).
+    mw = roi_and_live_window
+    out_single = tmp_path / "single.png"
+    out_multi = tmp_path / "multi.png"
+
+    orig_dialog = mwmod.GraphicExportDialog
+
+    class AutoAcceptSingle(orig_dialog):
+        def exec(self):
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+    class AutoAcceptMulti(orig_dialog):
+        def exec(self):
+            self.chk_graph_querschnitt.setChecked(True)
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(out_single), "PNG-Bild (*.png)")),
+    )
+    monkeypatch.setattr(mwmod, "GraphicExportDialog", AutoAcceptSingle)
+    mw._export_graphic()
+    assert out_single.exists()
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(out_multi), "PNG-Bild (*.png)")),
+    )
+    monkeypatch.setattr(mwmod, "GraphicExportDialog", AutoAcceptMulti)
+    mw._export_graphic()
+    assert out_multi.exists()
+
+    from qtpy import QtGui as _QtGui
+    single_img = _QtGui.QImage(str(out_single))
+    multi_img = _QtGui.QImage(str(out_multi))
+    assert multi_img.width() > single_img.width()
+
+
+def test_render_export_preview_image_reflects_selected_graphs(roi_and_live_window):
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    mw = roi_and_live_window
+    dlg = GraphicExportDialog(
+        mw, mw._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=True,
+        roi_entries=[(e.number, e.name) for e in mw.roi_entries if e.placed],
+    )
+    try:
+        image_one = mw._render_export_preview_image(dlg)
+        assert image_one is not None and not image_one.isNull()
+
+        dlg.chk_graph_querschnitt.setChecked(True)
+        image_two = mw._render_export_preview_image(dlg)
+        assert image_two is not None and not image_two.isNull()
+        # Standard-Position "rechts" -> zusaetzliche Graphen liegen
+        # nebeneinander (siehe render_pipeline.py:_combined_panel_order).
+        assert image_two.width() > image_one.width()
+
+        dlg.chk_graph_zeitverlauf.setChecked(False)
+        dlg.chk_graph_querschnitt.setChecked(False)
+        image_none = mw._render_export_preview_image(dlg)
+        assert image_none is not None and not image_none.isNull()  # nur noch das Thermobild
+    finally:
+        dlg.close()
+
+
+def test_video_export_dialog_graph_checkboxes_default_to_none_selected(qapp):
+    # Anders als GraphicExportDialog war der bisherige Standard hier "kein
+    # Graph" (chk_show_graph startete unangehakt) -- bleibt so.
+    from thermal_viewer.dialogs import VideoExportDialog
+
+    dlg = VideoExportDialog(
+        None, n_frames=5, colormaps=[("Grau", "grey")], current_colormap_index=0,
+        current_invert=False, current_level_mode="global", current_min=0.0, current_max=100.0,
+        current_fps=5.0,
+    )
+    try:
+        assert dlg.selected_graph_keys() == []
+        assert dlg.show_graph() is False
+    finally:
+        dlg.close()
+
+
 @pytest.mark.parametrize("fmt,check", [
     ("csv", ";"),
     ("text", "\t"),
@@ -1212,14 +1412,37 @@ def test_row_runs_finds_contiguous_true_segments():
     assert _row_runs(np.array([])) == []
 
 
-def test_run_containing_or_nearest_prefers_containment_then_distance():
-    from thermal_viewer.main_window.shrinkage_ops import _run_containing_or_nearest
+def test_run_containing_or_largest_prefers_containment_then_size():
+    from thermal_viewer.main_window.shrinkage_ops import _run_containing_or_largest
 
     runs = [(2, 5), (10, 14)]
-    assert _run_containing_or_nearest(runs, 3) == (2, 5)
-    assert _run_containing_or_nearest(runs, 20) == (10, 14)  # naeher an 14 als an 5
-    assert _run_containing_or_nearest(runs, 0) == (2, 5)
-    assert _run_containing_or_nearest([], 3) is None
+    assert _run_containing_or_largest(runs, 3) == (2, 5)
+    # col 0 liegt in KEINEM Run -- (10, 14) ist breiter (4px) als (2, 5)
+    # (3px) und gewinnt daher, obwohl (2, 5) naeher an col 0 liegt (Bugfix:
+    # der fruehere "naechstgelegen"-Fallback haette hier faelschlich den
+    # kleineren Run gewaehlt, siehe Docstring von _run_containing_or_largest).
+    assert _run_containing_or_largest(runs, 0) == (10, 14)
+    assert _run_containing_or_largest([], 3) is None
+
+
+def test_run_containing_or_largest_regression_ignores_tiny_noise_blob_near_seed():
+    # Nutzer-Reproduktion (echte, kontrastarme Aufnahme, siehe Bugreport):
+    # die Box wird nur GROB ueber die Probe gezogen -- ihr Mittelpunkt
+    # (Saat-Spalte) landet dadurch oft knapp im Hintergrund statt exakt auf
+    # der Probe. Ein winziger, durch Rauschen entstandener Hintergrund-Fleck
+    # in unmittelbarer Naehe der Saat-Spalte darf dann NICHT die tatsaechliche,
+    # deutlich breitere Probe verdraengen -- sonst verfolgt die gesamte
+    # Kontur-Kette (_run_overlapping_most kennt nur Ueberlappung, nicht
+    # Groesse) fortan den falschen, winzigen Fleck durchs ganze Bild.
+    from thermal_viewer.main_window.shrinkage_ops import _run_containing_or_largest, _row_runs
+
+    row = np.zeros(60, dtype=bool)
+    row[10:50] = True  # die eigentliche Probe: 40px breit
+    row[52:54] = True  # winziger Rausch-Fleck direkt neben der Saat-Spalte
+    runs = _row_runs(row)
+    # Saat-Spalte (Boxmitte) liegt bewusst knapp NEBEN der Probe, direkt beim
+    # Rausch-Fleck -- der Naehe-Fallback waere hier klar naeher am Fleck.
+    assert _run_containing_or_largest(runs, 51) == (10, 50)
 
 
 def test_run_overlapping_most_requires_actual_overlap():
@@ -1326,6 +1549,18 @@ def test_shrinkage_measurement_end_to_end_tracks_shrinking_sample(loaded_main_wi
     mw.combo_shrinkage_metric.setCurrentIndex(mw.combo_shrinkage_metric.findData("breite_rechteckig"))
     x, y = mw.shrinkage_curve.getData()
     assert len(x) == 5
+
+
+def test_shrinkage_compute_reports_progress_in_status_bar(loaded_main_window):
+    # Nutzerfeedback: "Berechnen" laeuft synchron und blockiert die UI fuer
+    # mehrere Sekunden -- ohne Rueckmeldung wirkte die App dabei
+    # eingefroren. Statuszeile muss VOR und NACH der (potenziell langen)
+    # Berechnung einen erkennbaren Text zeigen.
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw.roi_shrink_area.setPos((5, 5), update=False)
+    mw.roi_shrink_area.setSize((50, 10))
+    mw._on_shrinkage_compute_clicked()
+    assert "abgeschlossen" in mw.statusBar().currentMessage()
 
 
 def test_shrinkage_toggle_controls_box_and_curve_visibility(loaded_main_window):
@@ -1573,7 +1808,7 @@ def test_csv_export_includes_shrinkage_area_column(loaded_main_window, tmp_path,
     mw._export_csv()
 
     records = json.loads(out_path.read_text(encoding="utf-8"))
-    col_key = next(k for k in records[0] if k.startswith("Schwindung (Fläche)"))
+    col_key = next(k for k in records[0] if k.startswith("Schwindung ("))
     assert "px²" in col_key
     for i, rec in enumerate(records):
         assert rec[col_key] == pytest.approx(round(float(areas[i]), 3))
@@ -1748,10 +1983,13 @@ def test_save_and_load_project_roundtrips_shrinkage_state(loaded_main_window, tm
     mw.roi_shrink_area.setSize((3, 3))
     mw.combo_shrinkage_metric.setCurrentIndex(mw.combo_shrinkage_metric.findData("breite_rund"))
     mw.chk_shrinkage_enabled.setChecked(True)
-    # Boxfarbe (Nutzerwunsch, siehe _on_shrinkage_color_clicked) gehoert
-    # zum "vollstaendigen Programmzustand" ebenso wie Position/Groesse.
+    # Box-/Konturfarbe (Nutzerwunsch, siehe _on_shrinkage_color_clicked/
+    # _on_shrinkage_contour_color_clicked) gehoeren zum "vollstaendigen
+    # Programmzustand" ebenso wie Position/Groesse.
     mw._shrinkage_color_area = "#112233"
     mw._apply_shrinkage_box_colors()
+    mw._shrinkage_color_contour = "#445566"
+    mw._apply_shrinkage_contour_color()
 
     proj_path = tmp_path / "shrinkage.tvproj"
     monkeypatch.setattr(
@@ -1765,6 +2003,7 @@ def test_save_and_load_project_roundtrips_shrinkage_state(loaded_main_window, tm
     assert saved["schwindung"]["kenngroesse"] == "breite_rund"
     assert saved["schwindung"]["box_flaeche"]["x"] == 1.0
     assert saved["schwindung"]["box_flaeche_farbe"] == "#112233"
+    assert saved["schwindung"]["kontur_farbe"] == "#445566"
     # Kein manueller Schwellenwert/keine "wärmer/kälter"-Auswahl/kein
     # Messart-Modus mehr in der Projektdatei -- beides wird beim
     # Neuberechnen nach dem Laden automatisch neu ermittelt (siehe
@@ -1781,6 +2020,8 @@ def test_save_and_load_project_roundtrips_shrinkage_state(loaded_main_window, tm
     mw.combo_shrinkage_metric.setCurrentIndex(mw.combo_shrinkage_metric.findData("flaeche"))
     mw._shrinkage_color_area = "#ffffff"
     mw._apply_shrinkage_box_colors()
+    mw._shrinkage_color_contour = "#ffffff"
+    mw._apply_shrinkage_contour_color()
 
     monkeypatch.setattr(
         QtWidgets.QFileDialog, "getOpenFileName",
@@ -1796,6 +2037,8 @@ def test_save_and_load_project_roundtrips_shrinkage_state(loaded_main_window, tm
     assert tuple(mw.roi_shrink_area.size()) == (3.0, 3.0)
     assert mw._shrinkage_color_area == "#112233"
     assert mw.roi_shrink_area.pen.color().name() == "#112233"
+    assert mw._shrinkage_color_contour == "#445566"
+    assert mw.shrinkage_contour_line.opts['pen'].color().name() == "#445566"
     # Ergebnis wurde aus den wiederhergestellten Eingaben neu berechnet,
     # nicht leer gelassen.
     assert mw._shrinkage_result is not None
@@ -2357,6 +2600,30 @@ def test_shrinkage_box_color_change_updates_pen_and_swatch(loaded_main_window, m
     assert "#abcdef" in mw.btn_shrinkage_color.styleSheet()
 
 
+def test_shrinkage_contour_color_change_updates_pen_and_swatch(loaded_main_window, monkeypatch):
+    # Nutzerwunsch: Konturfarbe (bisher fest Rot) unabhaengig von der
+    # Boxfarbe waehlbar machen.
+    mw = loaded_main_window
+    old_pen_color = mw.shrinkage_contour_line.opts['pen'].color().name()
+
+    monkeypatch.setattr(
+        QtWidgets.QColorDialog, "getColor", staticmethod(lambda *a, **k: QtGui.QColor())
+    )
+    mw._on_shrinkage_contour_color_clicked()
+    assert mw.shrinkage_contour_line.opts['pen'].color().name() == old_pen_color
+
+    monkeypatch.setattr(
+        QtWidgets.QColorDialog, "getColor", staticmethod(lambda *a, **k: QtGui.QColor("#123abc"))
+    )
+    mw._on_shrinkage_contour_color_clicked()
+
+    assert mw.shrinkage_contour_line.opts['pen'].color().name() == "#123abc"
+    assert old_pen_color != "#123abc"
+    assert "#123abc" in mw.btn_shrinkage_contour_color.styleSheet()
+    # Die Boxfarbe bleibt davon unberuehrt -- beide Farben sind unabhaengig.
+    assert mw.roi_shrink_area.pen.color().name() != "#123abc"
+
+
 def test_shrinkage_contour_overlay_appears_after_compute_and_tracks_frame(loaded_main_window):
     """Nutzerwunsch: "wenn ich auf Berechnen klicke, die Kontur auch im
     Bild sehen" -- eine Ueberlagerung der tatsaechlich als Probe erkannten
@@ -2410,6 +2677,41 @@ def test_on_add_roi_clicked_switches_to_roi_tab(loaded_main_window):
     assert mw._active_layer_tab == "roi"
 
 
+def test_no_roi_armed_right_after_startup_or_reload(loaded_main_window, synthetic_recording_folder):
+    # Nutzerwunsch: nach dem Programmstart/dem Laden einer (weiteren)
+    # Aufnahme soll KEIN Messbereich vorab zum Platzieren armiert sein --
+    # bisher blieb (ueber den Listenauswahl-Nebeneffekt beim automatischen
+    # Aufbau der 5 Standard-ROIs) eines davon scharf.
+    mw = loaded_main_window
+    assert mw._armed_entry is None
+
+    mw._confirm_discard_current_recording = lambda: True
+    assert mw._load_paths(sorted(synthetic_recording_folder.glob("*.csv")))
+    assert mw._armed_entry is None
+
+
+def test_number_keys_arm_the_matching_default_roi(loaded_main_window):
+    # Tasten 1-5 -- siehe roi_ops.py:_on_arm_roi_shortcut -- entsprechen den
+    # 5 Standard-Messbereichen in Erzeugungsreihenfolge (1=Oben..5=Unten).
+    mw = loaded_main_window
+    assert mw._armed_entry is None
+
+    mw._on_arm_roi_shortcut(3)
+    assert mw._armed_entry is mw.roi_entries[2]
+    assert mw.roi_entries[2].btn_place.isChecked()
+
+    mw._on_arm_roi_shortcut(1)
+    assert mw._armed_entry is mw.roi_entries[0]
+    # Taste 3 wurde durch Taste 1 wieder entarmiert (Mutual Exclusion).
+    assert not mw.roi_entries[2].btn_place.isChecked()
+
+
+def test_number_key_shortcut_is_noop_without_recording(main_window):
+    mw = main_window
+    mw._on_arm_roi_shortcut(1)
+    assert mw._armed_entry is None
+
+
 def test_shrinkage_enable_switches_tab_but_disable_does_not(loaded_main_window):
     mw = loaded_main_window
     mw._set_active_layer_tab("roi")
@@ -2433,6 +2735,88 @@ def test_ruler_and_measurement_tools_switch_to_scale_tab(loaded_main_window):
     assert mw._active_layer_tab == "scale"
 
 
+class _FakeSceneClickEvent:
+    """Minimaler Stub fuer ein pyqtgraph-Szenen-Klick-Event -- Muster aus
+    test_cleaning_point_add_and_drag_push_snapshots (CleaningPreviewViewer)
+    uebernommen: view_box.sceneBoundingRect()/mapSceneToView() werden im
+    Test durch die Identitaet ersetzt, scenePos() liegt dann direkt in
+    View-Koordinaten."""
+    def __init__(self, x: float, y: float, button=QtCore.Qt.LeftButton):
+        self._pos = QtCore.QPointF(x, y)
+        self._button = button
+
+    def button(self):
+        return self._button
+
+    def scenePos(self):
+        return self._pos
+
+    def double(self):
+        return False
+
+
+def _click_measurement(mw, x: float, y: float) -> None:
+    mw._handle_measurement_click(_FakeSceneClickEvent(x, y))
+
+
+def test_measurement_mode_toggle_allows_unlimited_measurements_while_on(loaded_main_window):
+    # Nutzerwunsch: "Messmodus" bleibt nach EINER Messung weiterhin
+    # eingeschaltet, statt (wie vorher "Neue Messung") nach genau einer
+    # Strecke automatisch abzuschalten.
+    mw = loaded_main_window
+    mw._px_to_mm = 0.5
+    mw.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+    mw.view_box.mapSceneToView = lambda pos: pos
+
+    mw.btn_add_measurement.setChecked(True)
+    assert mw._measurement_armed is True
+
+    _click_measurement(mw, 0, 0)
+    _click_measurement(mw, 10, 0)
+    assert len(mw.measurements) == 1
+    assert mw._measurement_armed is True  # Modus bleibt an
+    assert mw.btn_add_measurement.isChecked()
+
+    _click_measurement(mw, 20, 0)
+    _click_measurement(mw, 30, 0)
+    assert len(mw.measurements) == 2
+
+    mw.btn_add_measurement.setChecked(False)
+    assert mw._measurement_armed is False
+
+
+def test_measurement_mode_disarmed_when_roi_placement_armed(loaded_main_window):
+    mw = loaded_main_window
+    mw._px_to_mm = 0.5
+    mw.btn_add_measurement.setChecked(True)
+    assert mw._measurement_armed is True
+
+    mw._on_arm_roi_shortcut(1)
+    assert mw._measurement_armed is False
+    assert not mw.btn_add_measurement.isChecked()
+
+
+def test_measurement_mode_respects_max_measurement_count(loaded_main_window, monkeypatch):
+    import thermal_viewer.main_window.measurement_ops as measurement_ops_mod
+
+    mw = loaded_main_window
+    mw._px_to_mm = 0.5
+    monkeypatch.setattr(measurement_ops_mod, "MAX_MEASUREMENT_COUNT", 1)
+    mw.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+    mw.view_box.mapSceneToView = lambda pos: pos
+
+    mw.btn_add_measurement.setChecked(True)
+    _click_measurement(mw, 0, 0)
+    _click_measurement(mw, 10, 0)
+    assert len(mw.measurements) == 1
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    _click_measurement(mw, 0, 0)
+    assert len(mw.measurements) == 1  # Grenze erreicht -- keine weitere Messung
+    assert mw._measurement_armed is False
+    assert not mw.btn_add_measurement.isChecked()
+
+
 def test_open_data_cleaning_dialog_is_modal_and_reachable_via_menu(loaded_main_window, monkeypatch):
     """Die Rohdaten-Bereinigung hat seit dem Umbau KEINEN eigenen Ebenen-Tab
     mehr (weder oben am Bild noch im rechten Panel) -- der Dialog ist jetzt
@@ -2452,3 +2836,252 @@ def test_open_data_cleaning_dialog_is_modal_and_reachable_via_menu(loaded_main_w
     assert mw._cleaning_dialog is not None
     assert closed == [mw._cleaning_dialog]
     assert mw._cleaning_dialog.windowModality() == QtCore.Qt.WindowModality.ApplicationModal
+
+
+# ------------------------------------------------------------ Querschnitt-Graph
+
+def _make_gradient_recording_window(loaded_main_window):
+    """Deterministisches Bild -- frame[i, row, col] = row*100 + col + i --
+    macht erwartete Querschnitt-Werte trivial nachrechenbar."""
+    mw = loaded_main_window
+    rows, cols, n = 20, 30, 3
+    frames = np.zeros((n, rows, cols), dtype=np.float32)
+    for i in range(n):
+        for r in range(rows):
+            frames[i, r, :] = r * 100 + np.arange(cols) + i
+    mw.recording.frames = frames
+    # timestamps/paths auf dieselbe Laenge (n Frames) kuerzen -- sonst
+    # klaffen unix_seconds() (Laenge timestamps) und die Frame-Achse
+    # auseinander (siehe _update_live_cursor).
+    mw.recording.timestamps = mw.recording.timestamps[:n]
+    mw.recording.paths = mw.recording.paths[:n]
+    mw._set_recording(mw.recording)
+    return mw
+
+
+def test_crosssection_shows_full_row_for_horizontal_direction(loaded_main_window):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._set_crosssection_position(5, 7)
+    xs, ys = mw.crosssection_curve.getData()
+    assert list(xs) == list(range(30))
+    assert np.allclose(ys, mw.recording.frames[0, 5, :])
+    assert "Zeile 5" in mw.lbl_crosssection_position.text()
+
+
+def test_crosssection_switches_to_vertical_direction(loaded_main_window):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._set_crosssection_position(5, 7)
+    mw.radio_crosssection_vertical.setChecked(True)
+    xs, ys = mw.crosssection_curve.getData()
+    assert list(xs) == list(range(20))
+    assert np.allclose(ys, mw.recording.frames[0, :, 7])
+    assert "Spalte 7" in mw.lbl_crosssection_position.text()
+
+
+def test_crosssection_updates_on_frame_change_without_position_change(loaded_main_window):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._set_crosssection_position(5, 7)
+    mw._show_frame(2)
+    _xs, ys = mw.crosssection_curve.getData()
+    assert np.allclose(ys, mw.recording.frames[2, 5, :])
+
+
+def test_crosssection_defaults_to_image_center_after_loading(loaded_main_window):
+    # Nutzerwunsch: die Position ist eine EIGENE Ablage, unabhaengig vom
+    # normalen (der Maus folgenden) Live-Cursor -- nach dem Laden zeigt der
+    # Graph daher sofort etwas (Bildmitte), statt auf eine Mausbewegung zu
+    # warten (die es in diesem Tab nicht mehr gibt, siehe Moduldocstring von
+    # crosssection_ops.py).
+    mw = _make_gradient_recording_window(loaded_main_window)
+    rows, cols = mw.recording.shape
+    assert mw._crosssection_row == rows // 2
+    assert mw._crosssection_col == cols // 2
+    xs, _ys = mw.crosssection_curve.getData()
+    assert len(xs) == cols
+
+
+def test_normal_live_cursor_ignores_mouse_move_while_crosssection_tab_active(loaded_main_window, monkeypatch):
+    # Nutzerwunsch: der normale, der Maus folgende Live-Cursor ist
+    # deaktiviert, waehrend der "Querschnitt"-Tab im Vordergrund ist --
+    # _hover_row/_hover_col (die eigene Position des Querschnitt-Grafen
+    # bleibt davon ohnehin unberuehrt, siehe crosssection_ops.py Moduldocstring)
+    # duerfen sich durch eine reine Mausbewegung nicht mehr aendern.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (9, 12))
+
+    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
+    mw._on_scene_mouse_moved(QtCore.QPointF(50, 50))
+    assert mw._hover_row is None and mw._hover_col is None
+
+    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: False)
+    mw._on_scene_mouse_moved(QtCore.QPointF(50, 50))
+    assert (mw._hover_row, mw._hover_col) == (9, 12)
+
+
+def test_crosssection_left_click_sets_position_while_tab_active(loaded_main_window, monkeypatch):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (9, 12))
+    event = _FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton)
+    mw._on_scene_mouse_clicked(event)
+    assert (mw._crosssection_row, mw._crosssection_col) == (9, 12)
+    assert mw._crosssection_pinned is True
+
+
+def test_crosssection_hover_follows_mouse_until_pinned_then_rightclick_resumes(loaded_main_window, monkeypatch):
+    # Nutzerwunsch: reines Hover (ohne Klick) soll die Position/Linie schon
+    # live der Maus folgen lassen; Linksklick fixiert (pinnt) sie, ein
+    # weiteres Hover aendert danach nichts mehr; Rechtsklick loest die
+    # Fixierung wieder und aktualisiert sofort auf die aktuelle Mausposition
+    # -- exaktes Gegenstueck-Muster zum normalen Live-Cursor der anderen Tabs.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
+
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (9, 12))
+    mw._on_scene_mouse_moved(QtCore.QPointF(0, 0))
+    assert (mw._crosssection_row, mw._crosssection_col) == (9, 12)
+    assert mw._crosssection_pinned is False
+
+    left_click = _FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton)
+    mw._on_scene_mouse_clicked(left_click)
+    assert mw._crosssection_pinned is True
+
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (1, 2))
+    mw._on_scene_mouse_moved(QtCore.QPointF(0, 0))
+    assert (mw._crosssection_row, mw._crosssection_col) == (9, 12)  # weiterhin fixiert
+
+    right_click = _FakeSceneClickEvent(0, 0, button=QtCore.Qt.RightButton)
+    mw._on_scene_mouse_clicked(right_click)
+    assert mw._crosssection_pinned is False
+    assert (mw._crosssection_row, mw._crosssection_col) == (1, 2)  # sofort aktualisiert
+
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (3, 3))
+    mw._on_scene_mouse_moved(QtCore.QPointF(0, 0))
+    assert (mw._crosssection_row, mw._crosssection_col) == (3, 3)  # folgt wieder
+
+
+def test_crosssection_image_line_drag_updates_position_and_pins(loaded_main_window):
+    # Echte Maus-Drag-Events sind im Test nicht simulierbar -- die Linie
+    # wird daher wie bei einem echten Drag manuell per setPos() bewegt,
+    # dann der sigDragged-Handler direkt aufgerufen (genau das, was
+    # pyqtgraph bei einem echten Drag ohnehin nur intern tut).
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._set_crosssection_position(5, 5, pin=False)
+    assert mw.radio_crosssection_horizontal.isChecked()
+    mw.crosssection_image_line.setPos(8.5)
+    mw._on_crosssection_image_line_dragged(mw.crosssection_image_line)
+    assert mw._crosssection_row == 8
+    assert mw._crosssection_col == 5
+    assert mw._crosssection_pinned is True
+
+
+def test_crosssection_row_col_spinboxes_stay_in_sync_with_position(loaded_main_window):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._set_crosssection_position(3, 4)
+    assert mw.spin_crosssection_row.value() == 3
+    assert mw.spin_crosssection_col.value() == 4
+    mw.spin_crosssection_row.setValue(9)
+    assert mw._crosssection_row == 9
+    mw.spin_crosssection_col.setValue(11)
+    assert mw._crosssection_col == 11
+
+
+def test_arrow_keys_move_crosssection_position_only_while_tab_active(loaded_main_window, monkeypatch):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._set_crosssection_position(5, 5)
+
+    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: False)
+    frames_before = []
+    monkeypatch.setattr(mw, "_step_frame", lambda delta: frames_before.append(delta))
+    mw._on_key_step_col(1)
+    assert frames_before == [1]
+    assert (mw._crosssection_row, mw._crosssection_col) == (5, 5)  # unveraendert
+
+    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
+    mw._on_key_step_col(1)
+    mw._on_key_step_row(-1)
+    assert (mw._crosssection_row, mw._crosssection_col) == (4, 6)
+
+
+def test_crosssection_roi_marker_appears_only_when_row_intersects(loaded_main_window):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    entry = mw.roi_entries[0]
+    entry.place(5, 5, 10, 10)  # deckt rows 5:15, cols 5:15 ab
+    mw._recompute_curves(entries=[entry])
+
+    mw._set_crosssection_position(8, 7)  # innerhalb der ROI-Zeile
+    assert len(mw._crosssection_markers) >= 2
+
+    mw._set_crosssection_position(18, 7)  # ausserhalb
+    assert len(mw._crosssection_markers) == 1  # nur noch der Cursor-Marker
+
+
+def test_crosssection_contour_marker_matches_shrinkage_spans(loaded_main_window):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    # Box bewusst weit weg von den getesteten Zeilen 5/6 -- sonst wuerde der
+    # NEUE Bounding-Box-Marker (siehe folgender Test) die hier erwarteten
+    # Kontur-only-Zaehlungen verfaelschen.
+    mw.roi_shrink_area.setPos((0, 0), update=False)
+    mw.roi_shrink_area.setSize((1, 1))
+    mw._shrinkage_enabled = True
+    mw._shrinkage_result = {"spans": {0: {5: (2, 9)}}}
+
+    mw._set_crosssection_position(5, 7)
+    assert len(mw._crosssection_markers) >= 3  # Cursor + 2 Kontur-Raender
+
+    mw._set_crosssection_position(6, 7)  # Zeile 6 hat keine Kontur-Spans im Frame 0
+    assert len(mw._crosssection_markers) == 1
+
+
+def test_crosssection_shrinkage_box_marker_appears_only_when_enabled_and_intersecting(loaded_main_window):
+    # Nutzerwunsch: "Ich möchte im 'Querschnitt'-Graphen auch die
+    # Boundingbox sehen" -- die Schwindungsmessung-Box (roi_shrink_area),
+    # unabhaengig davon, ob "Berechnen" schon lief.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw.roi_shrink_area.setPos((5, 5), update=False)
+    mw.roi_shrink_area.setSize((10, 10))  # deckt rows 5:15, cols 5:15 ab
+
+    mw._set_crosssection_position(8, 7)
+    assert len(mw._crosssection_markers) == 1  # nur Cursor -- Messung nicht aktiviert
+
+    mw._shrinkage_enabled = True
+    mw._set_crosssection_position(8, 7)
+    assert len(mw._crosssection_markers) == 3  # Cursor + 2 Box-Raender
+
+    mw._set_crosssection_position(18, 7)  # ausserhalb der Box
+    assert len(mw._crosssection_markers) == 1
+
+
+def test_crosssection_markers_follow_active_layer_tab(loaded_main_window):
+    # Nutzerwunsch: bei "Temperatur-Messung" nur ROI-Marker, bei
+    # "Schwindungsmessung" nur Kontur-Marker, statt (wie zuvor) immer beide
+    # gleichzeitig unabhaengig vom oben gewaehlten Ebenen-Tab.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    entry = mw.roi_entries[0]
+    entry.place(5, 5, 10, 10)
+    mw._recompute_curves(entries=[entry])
+    # Box bewusst weit weg von Zeile 8 -- sonst wuerde der Bounding-Box-
+    # Marker die hier erwarteten ROI-/Kontur-only-Zaehlungen verfaelschen.
+    mw.roi_shrink_area.setPos((0, 0), update=False)
+    mw.roi_shrink_area.setSize((1, 1))
+    mw._shrinkage_enabled = True
+    mw._shrinkage_result = {"spans": {0: {8: (2, 9)}}}
+    mw._set_crosssection_position(8, 7)
+    assert len(mw._crosssection_markers) >= 5  # Cursor + ROI-Raender + Kontur-Raender
+
+    mw._set_active_layer_tab("roi")
+    assert len(mw._crosssection_markers) == 3  # Cursor + 2 ROI-Raender, KEINE Kontur
+
+    mw._set_active_layer_tab("shrinkage")
+    assert len(mw._crosssection_markers) == 3  # Cursor + 2 Kontur-Raender, KEIN ROI
+
+
+def test_crosssection_image_line_visible_only_while_tab_active(loaded_main_window, monkeypatch):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: False)
+    mw._update_crosssection_image_line()
+    assert mw.crosssection_image_line.isVisible() is False
+
+    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
+    mw._update_crosssection_image_line()
+    assert mw.crosssection_image_line.isVisible() is True

@@ -53,6 +53,7 @@ class _VideoExportMixin:
             measurement_entries=[(e.number, e.name) for e in self.measurements],
             has_excluded_frames=bool(self._excluded_frame_indices),
         )
+        dialog.enable_preview(lambda: self._render_export_preview_image(dialog))
         # Schleife statt einmaligem exec() (Punkt 3): bricht der Nutzer den
         # NACHFOLGENDEN Datei-/Ordner-Dialog ab (z.B. weil ihm ein Fehler im
         # Export-Manager selbst auffaellt), geht es zurueck zu GENAU diesem
@@ -62,6 +63,10 @@ class _VideoExportMixin:
         while True:
             if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
                 return
+            # Siehe export_image.py:_export_graphic fuer den vollen Grund --
+            # verhindert, dass eine noch ausstehende Vorschau-Aktualisierung
+            # WAEHREND des eigentlichen (laenger laufenden) Exports feuert.
+            dialog._preview_panel.stop()
 
             output_mode = dialog.output_mode()
             if output_mode == "video":
@@ -85,14 +90,19 @@ class _VideoExportMixin:
             freeze_excluded_pixels = dialog.freeze_excluded_frame_pixels()
             include_scale_ruler = dialog.include_scale_ruler()
             selected_scale_numbers = dialog.included_scale_measurement_numbers()
-            graph_widget = None
-            graph_position = "unten"
+            # Nutzerwunsch: beliebig viele Graphen gleichzeitig statt bisher
+            # nur GENAU EINEM (fest Zeitverlauf) -- ROI-/Live-Kurven-Auswahl,
+            # Achsen-Overrides und die Dual-Zeitachse bleiben dabei ein
+            # Zeitverlauf-spezifisches Konzept (siehe Scope-Entscheidung im
+            # Plan), Schwindung/Querschnitt werden IMMER mit ihren aktuellen
+            # Anzeige-Einstellungen exportiert.
+            selected_keys = dialog.selected_graph_keys()
+            graph_widgets: list[QtWidgets.QWidget] = [self._export_graph_widget(key) for key in selected_keys]
+            graph_position = dialog.graph_position() if selected_keys else "unten"
             selected_roi_numbers: set[int] = set()
             include_live_curve = False
             axis_overrides = None
-            if dialog.show_graph():
-                graph_widget = self.timeseries_plot
-                graph_position = dialog.graph_position()
+            if "zeitverlauf" in selected_keys:
                 selected_roi_numbers = dialog.included_roi_numbers()
                 include_live_curve = dialog.include_live()
                 axis_overrides = dialog.custom_axis_overrides()
@@ -106,7 +116,11 @@ class _VideoExportMixin:
             # statt eine zweite, separate Zeitachsen-Auswahl einzufuehren.
             # "Keine" (kein Zeit-Overlay im Bild) hat keine Entsprechung im
             # Graphen -- dort bleibt die aktuelle App-Anzeige unveraendert.
-            graph_time_axis_mode = {"timeline": "runtime", "timestamp": "clock"}.get(overlay_mode)
+            # Betrifft (siehe Scope-Entscheidung) ohnehin nur den Zeitverlauf.
+            graph_time_axis_mode = (
+                {"timeline": "runtime", "timestamp": "clock"}.get(overlay_mode)
+                if "zeitverlauf" in selected_keys else None
+            )
 
             if output_mode == "video":
                 video_filters = {
@@ -305,29 +319,30 @@ class _VideoExportMixin:
             with self._frozen_ui_during_export(), \
                     self._maybe_hidden_live_cursor(include_cursor), \
                     self._temporary_scale_visuals(include_scale_ruler, selected_scale_numbers), \
-                    (self._widget_raised_for_export(graph_widget) if graph_widget is not None
-                     else contextlib.nullcontext()), \
-                    (self._temporary_graph_content(selected_roi_numbers, include_live_curve)
-                     if graph_widget is not None else contextlib.nullcontext()), \
-                    (self._temporary_axis_override(graph_widget, axis_overrides)
-                     if graph_widget is not None else contextlib.nullcontext()), \
-                    (self._dual_time_axis_export(graph_widget)
-                     if graph_widget is not None and overlay_mode == "both"
-                     else self._temporary_time_display_mode(
-                         graph_time_axis_mode if graph_widget is not None else None
-                     )), \
+                    self._temporary_graph_content(selected_roi_numbers, include_live_curve), \
+                    (self._temporary_axis_override(self.timeseries_plot, axis_overrides)
+                     if "zeitverlauf" in selected_keys else contextlib.nullcontext()), \
+                    (self._dual_time_axis_export(self.timeseries_plot)
+                     if "zeitverlauf" in selected_keys and overlay_mode == "both"
+                     else self._temporary_time_display_mode(graph_time_axis_mode)), \
                     self._paused_background_timers(), \
                     self._scaled_export_visuals(scale):
+                # Jeden ausgewaehlten Graphen EINMAL kurz in den Vordergrund
+                # holen (siehe export_image.py:_export_combined_image fuer
+                # denselben Grund/dieselbe Begruendung, warum einmaliges
+                # Aufwaermen VOR dem Rendern genuegt, auch fuer mehrere
+                # tabifizierte Widgets).
+                for widget in graph_widgets:
+                    with self._widget_raised_for_export(widget):
+                        QtWidgets.QApplication.processEvents()
                 # Bugfix: das Ein-/Ausblenden der oberen Zeitachse
-                # (_dual_time_axis_export, "Beides") und das Hochholen einer
-                # tabifizierten Dock-Registerkarte (_widget_raised_for_export)
-                # loesen bei pyqtgraph eine ERST BEIM NAECHSTEN Event-Loop-
-                # Durchlauf tatsaechlich wirksame Neuberechnung des Layouts
-                # aus. Ohne diesen Aufruf hier zeigte GENAU der ERSTE
-                # gerenderte Frame die obere Achse noch nicht (ab dem
-                # zweiten Frame -- nach dem naechsten processEvents() in der
-                # Schleife unten -- korrekt), da vorher noch kein
-                # Event-Loop-Durchlauf stattgefunden hatte.
+                # (_dual_time_axis_export, "Beides") loest bei pyqtgraph eine
+                # ERST BEIM NAECHSTEN Event-Loop-Durchlauf tatsaechlich
+                # wirksame Neuberechnung des Layouts aus. Ohne diesen Aufruf
+                # hier zeigte GENAU der ERSTE gerenderte Frame die obere
+                # Achse noch nicht (ab dem zweiten Frame -- nach dem
+                # naechsten processEvents() in der Schleife unten -- korrekt),
+                # da vorher noch kein Event-Loop-Durchlauf stattgefunden hatte.
                 QtWidgets.QApplication.processEvents()
                 # EINMALIG (nicht pro Frame) berechnet -- siehe
                 # _render_video_frame fuer den Grund (sonst leicht
@@ -355,7 +370,7 @@ class _VideoExportMixin:
                                 self._show_frame(idx)
                             image = self._render_video_frame(
                                 scale, bg, overlay_mode, idx, frame_indices, unix, segments,
-                                graph_widget, graph_position, foreground=fg, graph_background=graph_bg,
+                                graph_widgets, graph_position, foreground=fg, graph_background=graph_bg,
                             )
                             writer.append_data(self._qimage_to_rgb_array(image))
                             progress.setValue(n + 1)
@@ -369,7 +384,7 @@ class _VideoExportMixin:
                         self._show_frame(idx)
                         image = self._render_video_frame(
                             scale, bg, overlay_mode, idx, frame_indices, unix, segments,
-                            graph_widget, graph_position, foreground=fg, graph_background=graph_bg,
+                            graph_widgets, graph_position, foreground=fg, graph_background=graph_bg,
                         )
                         # Zeitstempel-Platzhalter (YYYY/MM/DD/hh/mm/ss) im
                         # Praefix werden mit dem Zeitstempel dieses Frames

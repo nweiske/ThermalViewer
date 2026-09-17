@@ -76,7 +76,14 @@ class _CsvExportMixin:
             ref_value_mm = ref_value_px * scale if scale is not None else None
             unit_suffix = ("mm²" if is_area else "mm") if self._px_to_mm is not None else ("px²" if is_area else "px")
             dialog_entries.append({
-                "name": f"Schwindung ({self._shrinkage_metric_label()})",
+                # Nutzerwunsch: nur "Schwindung", ohne die Kenngroesse in
+                # Klammern (frueher z.B. "Schwindung (Breite (quaderförmig,
+                # Median))") -- gilt sowohl fuer den festen Anzeige-Text als
+                # auch fuer den editierbaren Spaltenname-Vorschlag, da
+                # CsvColumnDialog beide direkt aus "name" ableitet (siehe
+                # dort). Der Einheiten-Suffix (unit_suffix, "px"/"mm"/...)
+                # bleibt davon unabhaengig erhalten.
+                "name": "Schwindung",
                 "width_px": ref_value_px,
                 "height_px": ref_value_px,
                 "width_mm": ref_value_mm,

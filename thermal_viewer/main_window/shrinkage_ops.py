@@ -204,24 +204,32 @@ def _row_runs(bool_row: np.ndarray) -> list[tuple[int, int]]:
     return list(zip(starts, ends))
 
 
-def _run_containing_or_nearest(runs: list[tuple[int, int]], col: int) -> tuple[int, int] | None:
+def _run_containing_or_largest(runs: list[tuple[int, int]], col: int) -> tuple[int, int] | None:
     """Waehlt aus runs (siehe _row_runs) den Run, der col enthaelt, oder --
-    falls keiner col direkt enthaelt -- den ihm naechstgelegenen. Nur fuer
-    die SAAT-Zeile (Boxmitte, siehe Modul-Docstring) -- alle weiteren
-    Zeilen verwenden _run_overlapping_most (Ueberlappung mit einer
-    Zeilenspanne statt Naehe zu einem einzelnen Punkt, robuster bei sich
-    verschiebenden Kanten)."""
+    falls keiner col direkt enthaelt -- den GROESSTEN. Nur fuer die SAAT-
+    ZEILE (Boxmitte, siehe Modul-Docstring) -- alle weiteren Zeilen
+    verwenden _run_overlapping_most (Ueberlappung mit einer Zeilenspanne).
+
+    Bugfix (Nutzer-Reproduktion anhand echter, kontrastarmer Aufnahmen): die
+    Box wird nur GROB ueber die Probe gezogen, ihr Mittelpunkt (col) landet
+    dadurch in der Praxis oft nicht EXAKT auf der Probe, sondern knapp
+    daneben im Hintergrund. Der fruehere Fallback ("naechstgelegener Run")
+    griff dann leicht zu einem winzigen, durch Rauschen entstandenen
+    Hintergrund-Fleck statt der tatsaechlichen, deutlich breiteren Probe --
+    einmal auf dem falschen Run gestartet, lief die gesamte Kontur-
+    Verfolgung (_run_overlapping_most kennt nur Ueberlappung, keine
+    Groesse) fortan querfeldein durchs Bild statt der echten Kontur zu
+    folgen. Der GROESSTE Run in der Saat-Zeile ist die weit zuverlaessigere
+    Annahme: echte Rausch-Flecken sind nach der Vorglaettung (siehe
+    _horizontal_blur_region) typischerweise winzig gegenueber der Probe,
+    die die Box laut Anleitung "mit etwas Rand" ohnehin grossflaechig
+    ausfuellen soll."""
     if not runs:
         return None
     for c0, c1 in runs:
         if c0 <= col < c1:
             return c0, c1
-
-    def _distance(run: tuple[int, int]) -> int:
-        c0, c1 = run
-        return c0 - col if col < c0 else col - (c1 - 1)
-
-    return min(runs, key=_distance)
+    return max(runs, key=lambda run: run[1] - run[0])
 
 
 def _run_overlapping_most(runs: list[tuple[int, int]], anchor: tuple[int, int]) -> tuple[int, int] | None:
@@ -247,13 +255,13 @@ def _sweep_spans_from_seed(
     """Baut die Zeilen-Spans (siehe Modul-Docstring) einer einzelnen Probe
     ausgehend von EINER Saat-Zeile/-Spalte (fensterlokale Indizes, i.d.R.
     die Boxmitte) -- zuerst wird der Run in der Saat-Zeile bestimmt
-    (_run_containing_or_nearest), dann zeilenweise nach oben UND unten
+    (_run_containing_or_largest), dann zeilenweise nach oben UND unten
     fortgesetzt (_run_overlapping_most), bis eine Richtung keinen
     ueberlappenden Run mehr findet -- das ergibt automatisch auch die
     vertikale Ausdehnung der Probe. Ergebnis-Keys/-Werte sind ABSOLUTE
     Bildkoordinaten (row_offset/col_offset addiert)."""
     seed_runs = _row_runs(mask[seed_row])
-    seed_span = _run_containing_or_nearest(seed_runs, seed_col)
+    seed_span = _run_containing_or_largest(seed_runs, seed_col)
     if seed_span is None:
         return {}
     spans: dict[int, tuple[int, int]] = {
@@ -352,9 +360,16 @@ def _track_sample_blob(
     kann nie erreicht werden, selbst wenn er denselben Otsu-Schwellenwert
     ueberschreitet. Jedes Bild wird VOR der Maskenbildung horizontal
     vorgeglaettet (_horizontal_blur_region, Fensterbreite proportional zur
-    Boxbreite, siehe _adaptive_blur_kernel) UND danach zeilenweise
+    Boxbreite, siehe _adaptive_blur_kernel) UND danach ZWEIFACH zeilenweise
     nachgeglaettet (_smooth_spans) -- siehe Modul-Docstring fuer die
-    Begruendung der zweistufigen Rauschunterdrueckung."""
+    Begruendung der zweistufigen Rauschunterdrueckung. Der zweite Durchlauf
+    (Nutzerfeedback: selbst bei gutem Kontrast blieb am oberen Proben-Rand
+    ein kleiner Rest-Zickzack) ist fuer bereits einmal geglaettete, echte
+    mehrzeilige Kruemmungen NACHWEISLICH idempotent (siehe die Tests fuer
+    _smooth_spans/die 3-Zeilen-Woelbungs-Testfixture: exakt gleiche Werte
+    nach ein oder zwei Durchlaeufen) -- veraendert also nichts an bereits
+    bekannten/getesteten Faellen, daempft aber verbleibendes
+    Einzelzeilen-Rauschen auf echten Aufnahmen zusaetzlich."""
     seed_row_local = max(0, min(row1 - row0 - 1, seed_row - row0))
     seed_col_local = max(0, min(col1 - col0 - 1, seed_col - col0))
     blur_kernel = _adaptive_blur_kernel(col1 - col0)
@@ -363,7 +378,7 @@ def _track_sample_blob(
         region = _horizontal_blur_region(frames[idx][row0:row1, col0:col1], blur_kernel)
         mask = _candidate_mask(region, warmer)
         spans = _sweep_spans_from_seed(mask, seed_row_local, seed_col_local, row0, col0)
-        result[idx] = _smooth_spans(spans)
+        result[idx] = _smooth_spans(_smooth_spans(spans))
     return result
 
 
@@ -384,10 +399,12 @@ class _ShrinkageMixin:
         self.view_box.addItem(self.roi_shrink_area)
 
         # Kontur-Ueberlagerung im Thermobild NACH "Berechnen" (Nutzerwunsch:
-        # die tatsaechlich erkannte Kontur als ROTE LINIE sehen) -- EINE
-        # geschlossene Linie, die pro Frame neu gezeichnet wird (siehe
-        # _rebuild_shrinkage_contour_overlay).
-        self.shrinkage_contour_line = pg.PlotDataItem(pen=pg.mkPen("#ef4444", width=2))
+        # die tatsaechlich erkannte Kontur sehen) -- EINE geschlossene Linie,
+        # die pro Frame neu gezeichnet wird (siehe
+        # _rebuild_shrinkage_contour_overlay). Farbe eigenstaendig waehlbar
+        # (Nutzerwunsch, bisher fest Rot -- siehe _shrinkage_color_contour
+        # in window.py), analog zur Boxfarbe.
+        self.shrinkage_contour_line = pg.PlotDataItem(pen=pg.mkPen(self._shrinkage_color_contour, width=2))
         self.shrinkage_contour_line.setZValue(11)
         self.shrinkage_contour_line.setVisible(False)
         self.view_box.addItem(self.shrinkage_contour_line)
@@ -449,13 +466,15 @@ class _ShrinkageMixin:
 
         # Box- und Ergebnis-Bereich optisch klar getrennt (Nutzerwunsch:
         # UI "professioneller") -- analog zum bestehenden gerahmten
-        # Spalten-Muster an anderer Stelle im Panel.
+        # Spalten-Muster an anderer Stelle im Panel. Boxfarbe/Konturfarbe/
+        # Kenngröße bewusst in EINER Zeile (Nutzerwunsch: "aktuell wird viel
+        # Platz für wenig Widgets verbraucht") statt je einer eigenen Zeile
+        # für die beiden kompakten Farb-Swatches.
         box_frame = QtWidgets.QFrame()
         box_frame.setFrameShape(QtWidgets.QFrame.StyledPanel)
-        box_frame_layout = QtWidgets.QVBoxLayout(box_frame)
+        box_frame_layout = QtWidgets.QHBoxLayout(box_frame)
 
-        color_row = QtWidgets.QHBoxLayout()
-        color_row.addWidget(QtWidgets.QLabel("Boxfarbe:"))
+        box_frame_layout.addWidget(QtWidgets.QLabel("Boxfarbe:"))
         self.btn_shrinkage_color = QtWidgets.QPushButton()
         self.btn_shrinkage_color.setFixedSize(20, 20)
         self.btn_shrinkage_color.setCursor(QtCore.Qt.PointingHandCursor)
@@ -464,13 +483,24 @@ class _ShrinkageMixin:
             "erkennen ist."
         )
         self.btn_shrinkage_color.clicked.connect(self._on_shrinkage_color_clicked)
-        color_row.addWidget(self.btn_shrinkage_color)
-        color_row.addStretch(1)
-        box_frame_layout.addLayout(color_row)
+        box_frame_layout.addWidget(self.btn_shrinkage_color)
         self._apply_shrinkage_box_colors()
 
-        metric_row = QtWidgets.QHBoxLayout()
-        metric_row.addWidget(QtWidgets.QLabel("Kenngröße:"))
+        box_frame_layout.addSpacing(12)
+        box_frame_layout.addWidget(QtWidgets.QLabel("Konturfarbe:"))
+        self.btn_shrinkage_contour_color = QtWidgets.QPushButton()
+        self.btn_shrinkage_contour_color.setFixedSize(20, 20)
+        self.btn_shrinkage_contour_color.setCursor(QtCore.Qt.PointingHandCursor)
+        self.btn_shrinkage_contour_color.setToolTip(
+            "Farbe der erkannten Kontur-Linie im Thermobild ändern -- hilfreich, falls sie im aktuell "
+            "gewählten Farbverlauf kaum zu erkennen ist."
+        )
+        self.btn_shrinkage_contour_color.clicked.connect(self._on_shrinkage_contour_color_clicked)
+        box_frame_layout.addWidget(self.btn_shrinkage_contour_color)
+        self._apply_shrinkage_contour_color()
+
+        box_frame_layout.addSpacing(12)
+        box_frame_layout.addWidget(QtWidgets.QLabel("Kenngröße:"))
         self.combo_shrinkage_metric = QtWidgets.QComboBox()
         for value, label in _SHRINKAGE_METRIC_LABELS.items():
             self.combo_shrinkage_metric.addItem(label, value)
@@ -481,8 +511,7 @@ class _ShrinkageMixin:
             "Wechsel sofort, ohne erneut berechnen zu müssen."
         )
         self.combo_shrinkage_metric.currentIndexChanged.connect(self._on_shrinkage_metric_changed)
-        metric_row.addWidget(self.combo_shrinkage_metric, 1)
-        box_frame_layout.addLayout(metric_row)
+        box_frame_layout.addWidget(self.combo_shrinkage_metric, 1)
         layout.addWidget(box_frame)
 
         self.btn_shrinkage_compute = QtWidgets.QPushButton("Berechnen")
@@ -501,7 +530,10 @@ class _ShrinkageMixin:
         self._set_shrinkage_controls_enabled(False)
 
     def _set_shrinkage_controls_enabled(self, enabled: bool) -> None:
-        for widget in (self.combo_shrinkage_metric, self.btn_shrinkage_compute, self.btn_shrinkage_color):
+        for widget in (
+            self.combo_shrinkage_metric, self.btn_shrinkage_compute,
+            self.btn_shrinkage_color, self.btn_shrinkage_contour_color,
+        ):
             widget.setEnabled(enabled)
 
     def _apply_shrinkage_roi_visibility(self) -> None:
@@ -527,11 +559,31 @@ class _ShrinkageMixin:
         """Uebertraegt self._shrinkage_color_area auf die Box-Umrandung UND
         den Farb-Swatch-Knopf -- gemeinsame Stelle fuer _on_shrinkage_
         color_clicked, den initialen Aufbau und das Laden eines Projekts
-        (siehe project_io.py). Die berechnete Kontur selbst
-        (shrinkage_contour_line) ist davon unabhaengig immer rot."""
+        (siehe project_io.py). Die Kontur-Linie selbst hat eine eigene,
+        unabhaengig waehlbare Farbe, siehe _apply_shrinkage_contour_color."""
         self.roi_shrink_area.setPen(pg.mkPen(self._shrinkage_color_area, width=2))
         self.btn_shrinkage_color.setStyleSheet(
             f"background-color:{self._shrinkage_color_area}; border:1px solid #333; border-radius:4px;"
+        )
+
+    def _on_shrinkage_contour_color_clicked(self) -> None:
+        color = QtWidgets.QColorDialog.getColor(
+            QtGui.QColor(self._shrinkage_color_contour), self, "Farbe der Kontur-Linie wählen",
+        )
+        if not color.isValid():
+            return
+        self._push_undo_snapshot()
+        self._shrinkage_color_contour = color.name()
+        self._apply_shrinkage_contour_color()
+
+    def _apply_shrinkage_contour_color(self) -> None:
+        """Uebertraegt self._shrinkage_color_contour auf die Kontur-Linie
+        (shrinkage_contour_line) UND den Farb-Swatch-Knopf -- gemeinsame
+        Stelle fuer _on_shrinkage_contour_color_clicked, den initialen
+        Aufbau und das Laden eines Projekts (siehe project_io.py)."""
+        self.shrinkage_contour_line.setPen(pg.mkPen(self._shrinkage_color_contour, width=2))
+        self.btn_shrinkage_contour_color.setStyleSheet(
+            f"background-color:{self._shrinkage_color_contour}; border:1px solid #333; border-radius:4px;"
         )
 
     def _rebuild_shrinkage_contour_overlay(self) -> None:
@@ -620,32 +672,47 @@ class _ShrinkageMixin:
         row0, row1, col0, col1 = self.roi_shrink_area.bounds_px((rows, cols))
         n = self.recording.n_frames
         frames = self.recording.frames
-        # Polaritaet einmalig am aktuell angezeigten Bild automatisch
-        # ermittelt und fuer die gesamte Messung festgehalten (kein
-        # "Startbild"-Konzept mehr, siehe Modul-Docstring).
-        warmer = _detect_polarity_area(frames[min(self.current_index, n - 1)], row0, row1, col0, col1)
-        # Saatpunkt = Boxzentrum, JEDES Bild unabhaengig (siehe
-        # _track_sample_blob) -- dieselbe Annahme, die _detect_polarity_area
-        # bereits macht.
-        seed_row = (row0 + row1) // 2
-        seed_col = (col0 + col1) // 2
-        spans_by_frame = _track_sample_blob(frames, row0, row1, col0, col1, warmer, seed_row, seed_col)
+        # Nutzerfeedback: die Berechnung laeuft synchron im UI-Thread und
+        # kann bei vielen Bildern mehrere Sekunden dauern -- ohne jegliche
+        # Rueckmeldung wirkte die App dabei "eingefroren". Statuszeile +
+        # Sanduhr-Cursor VOR dem eigentlichen (blockierenden) Rechenschritt
+        # setzen und per processEvents() erzwungen einmal anzeigen lassen,
+        # da Qt Statuszeilen-Text sonst erst beim naechsten Event-Loop-
+        # Durchlauf tatsaechlich neu zeichnen wuerde -- der direkt
+        # anschliessende, lange Rechenschritt kaeme dafuer nie dazu.
+        self.statusBar().showMessage(f"Schwindungsberechnung läuft… ({n} Bilder)")
+        QtWidgets.QApplication.setOverrideCursor(QtGui.QCursor(QtCore.Qt.WaitCursor))
+        QtWidgets.QApplication.processEvents()
+        try:
+            # Polaritaet einmalig am aktuell angezeigten Bild automatisch
+            # ermittelt und fuer die gesamte Messung festgehalten (kein
+            # "Startbild"-Konzept mehr, siehe Modul-Docstring).
+            warmer = _detect_polarity_area(frames[min(self.current_index, n - 1)], row0, row1, col0, col1)
+            # Saatpunkt = Boxzentrum, JEDES Bild unabhaengig (siehe
+            # _track_sample_blob) -- dieselbe Annahme, die _detect_polarity_area
+            # bereits macht.
+            seed_row = (row0 + row1) // 2
+            seed_col = (col0 + col1) // 2
+            spans_by_frame = _track_sample_blob(frames, row0, row1, col0, col1, warmer, seed_row, seed_col)
 
-        areas_px = np.empty(n, dtype=float)
-        rect_widths_px = np.empty(n, dtype=float)
-        round_widths_px = np.empty(n, dtype=float)
-        for i in range(n):
-            areas_px[i], rect_widths_px[i], round_widths_px[i] = _spans_metrics(spans_by_frame[i])
+            areas_px = np.empty(n, dtype=float)
+            rect_widths_px = np.empty(n, dtype=float)
+            round_widths_px = np.empty(n, dtype=float)
+            for i in range(n):
+                areas_px[i], rect_widths_px[i], round_widths_px[i] = _spans_metrics(spans_by_frame[i])
 
-        self._shrinkage_result = {
-            "areas_px": areas_px, "rect_widths_px": rect_widths_px, "round_widths_px": round_widths_px,
-            "warmer": warmer,
-            # Zeilen-Spans je Bild -- Grundlage der Kontur-Ueberlagerung im
-            # Bild (siehe _rebuild_shrinkage_contour_overlay).
-            "spans": spans_by_frame,
-        }
+            self._shrinkage_result = {
+                "areas_px": areas_px, "rect_widths_px": rect_widths_px, "round_widths_px": round_widths_px,
+                "warmer": warmer,
+                # Zeilen-Spans je Bild -- Grundlage der Kontur-Ueberlagerung im
+                # Bild (siehe _rebuild_shrinkage_contour_overlay).
+                "spans": spans_by_frame,
+            }
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
         self._update_shrinkage_curve()
         self._set_shrinkage_polarity_label(warmer)
+        self.statusBar().showMessage(f"Schwindungsberechnung abgeschlossen ({n} Bilder).", 4000)
 
     def _set_shrinkage_polarity_label(self, warmer: bool) -> None:
         """Zeigt die automatisch erkannte Polaritaet an (Nutzerwunsch,

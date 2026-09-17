@@ -205,22 +205,27 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # Knopfklick bekommt aber nie ein editingFinished, also hier
         # explizit schliessen, statt die Gruppierung offen zu lassen.
         self._mw._end_grouped_undo_edit()
+        self._mw.statusBar().showMessage(f"Auswertungsstart auf Bild {idx + 1} gesetzt.", 4000)
 
     def _on_set_eval_end_clicked(self) -> None:
         idx = self.spin_manual_frame.value() - 1
         self._mw.spin_eval_end.setValue(idx + 1)
         self._mw._end_grouped_undo_edit()
+        self._mw.statusBar().showMessage(f"Auswertungsende auf Bild {idx + 1} gesetzt.", 4000)
 
     # ------------------------------------------------------------- Punkte
     def _on_point_enabled_toggled(self, row_index: int, checked: bool) -> None:
         self._mw._push_undo_snapshot()
         self._mw._set_cleaning_point_enabled(row_index, checked)
         self.refresh_points()
+        state = "aktiviert" if checked else "deaktiviert"
+        self._mw.statusBar().showMessage(f"Referenzpunkt {row_index + 1} {state}.", 3000)
 
     def _on_point_remove_clicked(self, row_index: int) -> None:
         self._mw._push_undo_snapshot()
         self._mw._remove_cleaning_point(row_index)
         self.refresh_points()
+        self._mw.statusBar().showMessage(f"Referenzpunkt {row_index + 1} entfernt.", 3000)
 
     def _on_point_logic_combo_changed(self, row_index: int, combo_index: int) -> None:
         if not (0 <= row_index < len(self._point_row_widgets)):
@@ -229,6 +234,9 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._mw._push_undo_snapshot()
         self._mw._set_cleaning_point_logic(row_index, logic)
         self.refresh_candidates()
+        self._mw.statusBar().showMessage(
+            f"Punkt {row_index + 1}: Logik auf {'ODER' if logic == 'or' else 'UND'} gesetzt.", 3000,
+        )
 
     # -------------------------------------------------- Mittelungsbereich
     def sync_kernel_size_combo(self) -> None:
@@ -244,9 +252,11 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
     def _on_kernel_size_changed(self, index: int) -> None:
         self._mw._push_undo_snapshot()
-        self._mw._cleaning_kernel_size = self.combo_kernel.itemData(index)
+        size = self.combo_kernel.itemData(index)
+        self._mw._cleaning_kernel_size = size
         self.preview.draw_points()
         self.refresh_candidates()
+        self._mw.statusBar().showMessage(f"Mittelungsbereich auf {size}×{size} gesetzt.", 3000)
 
     def _on_show_kernel_area_toggled(self, checked: bool) -> None:
         # Rein visuelle Einstellung, nicht Teil des gespeicherten Projekt-
@@ -334,6 +344,10 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._mw._begin_grouped_undo_edit()
         self._mw._cleaning_threshold = value
         self.refresh_candidates()
+        # Laeuft wie andere Live-Statuszeilen (z.B. der Cursor-Wert in
+        # mouse_ops.py) bei jeder Aenderung neu -- unkritisch, ueberschreibt
+        # nur denselben Text.
+        self._mw.statusBar().showMessage(f"Schwellenwert auf {value:g} gesetzt.", 3000)
 
     # --------------------------------------------------------- Vorschau
     def refresh_candidates(self) -> None:
@@ -379,7 +393,7 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             self._candidate_checks[idx] = chk
             self._candidates_layout.insertWidget(self._candidates_layout.count() - 1, chk)
 
-    def _on_candidate_checkbox_toggled(self, _checked: bool) -> None:
+    def _on_candidate_checkbox_toggled(self, checked: bool) -> None:
         """Jeder Checkbox-Klick wirkt SOFORT auf Viewer/Kurven/Export -- kein
         separater "Anwenden"-Knopf. Baut die Ausschluss-Menge komplett aus
         dem aktuellen Zustand ALLER Checkboxen neu auf (nicht nur der
@@ -389,6 +403,15 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._mw._push_undo_snapshot()
         self._mw._apply_cleaning_exclusions(exclude)
         self._refresh_preview()
+        # sender() statt eines mit partial() gebundenen Index (wie bei den
+        # Punkte-Zeilen oben) -- diese Checkboxen werden bei jedem
+        # refresh_candidates() komplett neu aufgebaut, ein gebundener Index
+        # waere hier also nicht robuster als die Objekt-Identitaet.
+        sender = self.sender()
+        idx = next((i for i, chk in self._candidate_checks.items() if chk is sender), None)
+        if idx is not None:
+            action = "ausgeschlossen" if checked else "wieder eingeschlossen"
+            self._mw.statusBar().showMessage(f"Bild {idx + 1} {action}.", 3000)
 
     # -------------------------------------------------- Manuelle Vorschau
     def _on_manual_frame_changed(self, _value: int) -> None:
@@ -413,6 +436,7 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._mw._apply_cleaning_exclusions(exclude)
         self.refresh_candidates()
         self._refresh_preview()
+        self._mw.statusBar().showMessage(f"Bild {idx + 1} manuell ausgeschlossen.", 3000)
 
     def _on_exclude_range_clicked(self) -> None:
         """Blendet einen ganzen Bereich (Bild-Nr. "von".."bis", beide
@@ -434,3 +458,6 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._mw._apply_cleaning_exclusions(exclude)
         self.refresh_candidates()
         self._refresh_preview()
+        self._mw.statusBar().showMessage(
+            f"Bilder {start_idx + 1}-{end_idx + 1} ausgeschlossen.", 3000,
+        )

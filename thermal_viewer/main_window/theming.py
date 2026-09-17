@@ -85,9 +85,15 @@ class _ThemeMixin:
         self.timeseries_plot.setBackground(bg)
         self.live_plot.setBackground(bg)
         self.shrinkage_plot.setBackground(bg)
+        # Bugfix: der Querschnitt-Graph (siehe crosssection_ops.py) fehlte
+        # hier -- er blieb dadurch immer beim pyqtgraph-Standard (schwarz),
+        # unabhaengig vom gewaehlten Graph-Design, waehrend alle anderen
+        # Kurven-Graphen bereits mitschalteten.
+        self.crosssection_plot.setBackground(bg)
 
         for plot_item in (
             self.timeseries_plot.getPlotItem(), self.live_plot.getPlotItem(), self.shrinkage_plot.getPlotItem(),
+            self.crosssection_plot.getPlotItem(),
         ):
             for axis_name in ("left", "bottom", "right", "top"):
                 axis = plot_item.getAxis(axis_name)

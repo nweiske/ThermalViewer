@@ -164,25 +164,33 @@ class _RenderPipelineMixin:
         frame_indices: list[int],
         unix: np.ndarray,
         segments: list[QtCore.QRectF],
-        graph_widget: QtWidgets.QWidget | None = None,
+        graph_widgets: list[QtWidgets.QWidget] | None = None,
         graph_position: str = "unten",
         foreground: QtGui.QColor | None = None,
         graph_background: QtGui.QColor | None = None,
     ) -> QtGui.QImage:
         """Wie _render_widget_image(self.glw, ...), erweitert um (a) einen
         optionalen Zeitanzeige-Streifen unten im Bild (Punkt "Zeitanzeige im
-        Video" im Video-Export-Dialog) und (b) einen optionalen Kurven-
-        Graphen (timeseries_plot ODER live_plot), frei positionierbar ueber/
-        unter/links/rechts vom Thermobild (graph_position), mit derselben
-        wandernden Zeit-Markierungslinie (frame_marker/live_frame_marker),
-        die _show_frame() ohnehin schon pro Frame aktualisiert -- also
-        "genauso wie in der UI" (Bugreport). Haengt den Zeitanzeige-Streifen
-        NACH allem anderen an (statt es zu ueberdecken) und rundet erst die
-        GESAMTGROESSE auf ein Vielfaches von 16 auf, damit das Endergebnis
-        weiterhin ffmpeg-kompatibel bleibt (siehe _scaled_size). Rendert das
-        Thermobild in mehreren nebeneinanderliegenden Segmenten (siehe
-        _tight_glw_segments), um den durch das aspect-locked Thermobild
-        sonst verschwendeten Leerraum links/rechts zu entfernen.
+        Video" im Video-Export-Dialog) und (b) beliebig viele Kurven-
+        Graphen (Zeitverlauf/Schwindung/Querschnitt, Nutzerwunsch: mehrere
+        gleichzeitig), frei positionierbar ueber/unter/links/rechts vom
+        Thermobild (graph_position) -- mehrere Graphen reihen sich dabei
+        ENTLANG DERSELBEN Achse wie das Bild an (oben/unten: alle Panels
+        untereinander; links/rechts: alle Panels nebeneinander, exakt wie
+        _combine_image_and_graph im Bild-Export, siehe _combined_panel_order).
+        Mit der wandernden Zeit-Markierungslinie (frame_marker/
+        live_frame_marker), die _show_frame() ohnehin schon pro Frame
+        aktualisiert -- also "genauso wie in der UI" (Bugreport). Haengt den
+        Zeitanzeige-Streifen NACH allem anderen an (statt es zu
+        ueberdecken) und rundet erst die GESAMTGROESSE auf ein Vielfaches
+        von 16 auf, damit das Endergebnis weiterhin ffmpeg-kompatibel
+        bleibt (siehe _scaled_size). Rendert das Thermobild in mehreren
+        nebeneinanderliegenden Segmenten (siehe _tight_glw_segments), um den
+        durch das aspect-locked Thermobild sonst verschwendeten Leerraum
+        links/rechts zu entfernen.
+
+        Fuer GENAU EINEN Graphen (bisheriger Regelfall) IDENTISCHES Ergebnis
+        wie zuvor (Regressionsschutz) -- reine Verallgemeinerung auf N.
 
         segments wird von _export_video EINMALIG vor der Frame-Schleife
         berechnet (nicht pro Frame neu): bei automatischer Farbskalierung
@@ -192,7 +200,7 @@ class _RenderPipelineMixin:
         minimal nachjustieren kann -- pro Frame neu berechnete Segmente
         ergaben dadurch leicht unterschiedliche Bildgroessen zwischen Frames
         (Bugreport/Crash: "All images in a movie should have same size").
-        graph_widget aendert seine Groesse dagegen nie zwischen Frames
+        graph_widgets aendern ihre Groesse dagegen nie zwischen Frames
         (fixe Achsenspanne, nur die Markierungslinie wandert), ein einmaliges
         Berechnen ausserhalb dieser Methode ist dafuer daher nicht noetig."""
         source_height = segments[0].height()
@@ -200,21 +208,23 @@ class _RenderPipelineMixin:
         base_width = max(1, round(source_width * scale))
         base_height = max(1, round(source_height * scale))
 
-        graph_width = graph_height = 0
-        gap = 0
-        if graph_widget is not None:
-            graph_width, graph_height = self._scaled_size(graph_widget, scale)
-            gap = round(10 * scale)
+        graph_widgets = graph_widgets or []
+        gap = round(10 * scale) if graph_widgets else 0
+        graph_sizes = [self._scaled_size(w, scale) for w in graph_widgets]
 
-        side_by_side = graph_position in ("links", "rechts")
-        if graph_widget is None:
+        vertical, image_first = self._combined_panel_order(graph_position)
+        image_block = (True, base_width, base_height)
+        graph_blocks = [(False, w, h) for w, h in graph_sizes]
+        blocks = [image_block] + graph_blocks if image_first else graph_blocks + [image_block]
+
+        if not graph_widgets:
             content_width, content_height = base_width, base_height
-        elif side_by_side:
-            content_width = base_width + gap + graph_width
-            content_height = max(base_height, graph_height)
+        elif vertical:
+            content_width = max(w for _is_image, w, _h in blocks)
+            content_height = sum(h for _is_image, _w, h in blocks) + gap * (len(blocks) - 1)
         else:
-            content_width = max(base_width, graph_width)
-            content_height = base_height + gap + graph_height
+            content_width = sum(w for _is_image, w, _h in blocks) + gap * (len(blocks) - 1)
+            content_height = max(h for _is_image, _w, h in blocks)
 
         overlay_height = round(54 * scale) if overlay_mode != "none" else 0
         aligned_width = -(-content_width // 16) * 16
@@ -225,34 +235,37 @@ class _RenderPipelineMixin:
         painter = QtGui.QPainter(image)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
 
-        # Ohne Graph bleibt das Verhalten exakt wie zuvor (Bild bei (0, 0)),
-        # damit bestehende Pixel-Positionen (z.B. der Zeitleisten-Marker)
-        # unveraendert bleiben. Mit Graph wird je nach Position zentriert
-        # bzw. neben den Graphen gesetzt.
-        if graph_widget is None:
-            image_x, image_y = 0.0, 0.0
-        elif graph_position == "oben":
-            image_x, image_y = max(0.0, (content_width - base_width) / 2), graph_height + gap
-        elif graph_position == "links":
-            image_x, image_y = graph_width + gap, max(0.0, (content_height - base_height) / 2)
-        elif graph_position == "rechts":
-            image_x, image_y = 0.0, max(0.0, (content_height - base_height) / 2)
-        else:  # "unten" (Standard)
-            image_x, image_y = max(0.0, (content_width - base_width) / 2), 0.0
+        # Positionen sequentiell entlang der Stapel-Achse berechnen, jedes
+        # Panel quer dazu zentriert -- ohne Graph bleibt das Verhalten exakt
+        # wie zuvor (Bild bei (0, 0)), damit bestehende Pixel-Positionen
+        # (z.B. der Zeitleisten-Marker) unveraendert bleiben.
+        image_x, image_y = 0.0, 0.0
+        graph_rects: list[tuple[float, float, int, int]] = []
+        if graph_widgets:
+            if vertical:
+                y = 0.0
+                for is_image, w, h in blocks:
+                    x = max(0.0, (content_width - w) / 2)
+                    if is_image:
+                        image_x, image_y = x, y
+                    else:
+                        graph_rects.append((x, y, w, h))
+                    y += h + gap
+            else:
+                x = 0.0
+                for is_image, w, h in blocks:
+                    y = max(0.0, (content_height - h) / 2)
+                    if is_image:
+                        image_x, image_y = x, y
+                    else:
+                        graph_rects.append((x, y, w, h))
+                    x += w + gap
 
         self._render_glw_segments_into_painter(
             painter, image_x, image_y, base_width, base_height, scale, segments=segments
         )
 
-        if graph_widget is not None:
-            if graph_position == "oben":
-                graph_x, graph_y = max(0.0, (content_width - graph_width) / 2), 0.0
-            elif graph_position == "links":
-                graph_x, graph_y = 0.0, max(0.0, (content_height - graph_height) / 2)
-            elif graph_position == "rechts":
-                graph_x, graph_y = base_width + gap, max(0.0, (content_height - graph_height) / 2)
-            else:  # "unten" (Standard)
-                graph_x, graph_y = max(0.0, (content_width - graph_width) / 2), base_height + gap
+        for widget, (graph_x, graph_y, graph_width, graph_height) in zip(graph_widgets, graph_rects):
             # Bugfix ("Hintergrund im Graph schwarz" beim Video-Export):
             # _render_widget_into_painter rendert fuer Nicht-glw-Widgets ueber
             # widget.scene().render() DIREKT auf die Szene -- pyqtgraphs
@@ -275,7 +288,7 @@ class _RenderPipelineMixin:
             # die Zielposition verschoben.
             painter.save()
             painter.translate(graph_x, graph_y)
-            self._render_widget_into_painter(painter, graph_widget, graph_width, graph_height, scale)
+            self._render_widget_into_painter(painter, widget, graph_width, graph_height, scale)
             painter.restore()
 
         if overlay_mode != "none":
@@ -412,20 +425,21 @@ class _RenderPipelineMixin:
 
     @staticmethod
     def _combined_layout(
-        dpi: int, first_size: tuple[int, int], second_size: tuple[int, int], vertical: bool = True
+        dpi: int, sizes: list[tuple[int, int]], vertical: bool = True
     ) -> dict:
         """Gemeinsame Layout-Berechnung (Ränder/Zwischenraum/Titelhöhe/
-        Gesamtgröße/Titel-Schrift) für die kombinierte Bild+Kurve-Grafik --
-        von _combine_image_and_graph (Raster) UND _save_combined_svg (Vektor)
-        genutzt, damit beide exakt dasselbe Layout erzeugen.
+        Gesamtgröße/Titel-Schrift) für die kombinierte Grafik (Thermobild +
+        beliebig viele Graphen) -- von _combine_image_and_graph (Raster) UND
+        _save_combined_svg (Vektor) genutzt, damit beide exakt dasselbe
+        Layout erzeugen.
 
-        first_size/second_size beziehen sich auf die ZEICHEN-Reihenfolge
-        (oben/links zuerst, dann unten/rechts -- siehe _combined_panel_order),
-        NICHT zwingend auf Bild/Graph -- welches Element zuerst kommt, hängt
-        von der gewählten Position ab (Punkt "gleiche Wahlmöglichkeiten wie
-        beim Video-Export: oben/unten/links/rechts"). vertical=True stapelt
-        untereinander (bisheriges Verhalten), False setzt beide Panels mit je
-        eigenem Titel NEBENEINANDER.
+        sizes ist in der ZEICHEN-Reihenfolge (oben/links zuerst, siehe
+        _combined_panel_order) -- Bild und Graph(en) gemeinsam, in genau der
+        Reihenfolge, in der sie auch gezeichnet werden (verallgemeinert das
+        fruehere first_size/second_size auf N Panels, ein GENAU-ZWEI-Element
+        großer sizes ergibt exakt dasselbe Ergebnis wie zuvor). vertical=True
+        stapelt alle Panels UNTEREINANDER (bisheriges Verhalten bei 2), False
+        setzt sie mit je eigenem Titel NEBENEINANDER.
 
         Schriftgroesse/Raender werden bewusst ueber setPixelSize() und den
         Skalierungsfaktor (dpi/96, dieselbe Konvention wie ueberall sonst im
@@ -443,14 +457,15 @@ class _RenderPipelineMixin:
         gap = round(14 * scale)
         title_px = max(16, round(22 * scale))
         title_height = round(title_px * 1.6)
-        w1, h1 = first_size
-        w2, h2 = second_size
+        n = len(sizes)
+        widths = [w for w, _h in sizes]
+        heights = [h for _w, h in sizes]
         if vertical:
-            width = max(w1, w2) + 2 * margin
-            height = 2 * margin + 2 * title_height + gap + h1 + h2
+            width = max(widths) + 2 * margin
+            height = 2 * margin + n * title_height + (n - 1) * gap + sum(heights)
         else:
-            width = 2 * margin + gap + w1 + w2
-            height = 2 * margin + title_height + max(h1, h2)
+            width = 2 * margin + (n - 1) * gap + sum(widths)
+            height = 2 * margin + title_height + max(heights)
         font = QtGui.QFont()
         font.setBold(True)
         font.setPixelSize(title_px)
@@ -479,30 +494,31 @@ class _RenderPipelineMixin:
     def _combine_image_and_graph(
         image: QtGui.QImage,
         image_title: str,
-        graph: QtGui.QImage,
-        graph_title: str,
+        graphs: list[tuple[QtGui.QImage, str]],
         position: str,
         dpi: int,
         background: QtGui.QColor,
         foreground: QtGui.QColor,
     ) -> QtGui.QImage:
-        """Setzt zwei bereits gerenderte Grafiken (Thermobild + Kurve) mit
-        Überschriften zu einer Gesamtgrafik zusammen -- position ("unten"/
-        "oben"/"links"/"rechts", siehe _combined_panel_order) legt fest, WO
-        der Graph relativ zum Bild landet (Nutzerwunsch: "gleiche
-        Wahlmöglichkeiten wie beim Video-Export", Standard: "rechts").
-        Ehemals _stack_images_vertically (nur "unten"). Hintergrund- und
-        Schriftfarbe folgen der aktuellen Grafik-Darstellung (Punkt 13),
-        sonst wirkt die Grafik im Dunkel-Modus wie ein dunkler Fleck auf
-        weissem Papier."""
+        """Setzt eine bereits gerenderte Thermobild-Grafik und beliebig
+        viele bereits gerenderte Graph-Grafiken (Nutzerwunsch: mehrere
+        Graphen gleichzeitig einbetten, siehe GraphicExportDialog/
+        VideoExportDialog "Graphen"-Checkboxen) mit Überschriften zu einer
+        Gesamtgrafik zusammen -- position ("unten"/"oben"/"links"/"rechts",
+        siehe _combined_panel_order) legt fest, WO der GESAMTE Graphen-
+        Block relativ zum Bild landet (Standard: "rechts"); mehrere Graphen
+        stapeln sich dabei IMMER untereinander (siehe _combined_layout).
+        Ehemals _stack_images_vertically (nur "unten", nur ein Graph).
+        Hintergrund- und Schriftfarbe folgen der aktuellen Grafik-
+        Darstellung (Punkt 13), sonst wirkt die Grafik im Dunkel-Modus wie
+        ein dunkler Fleck auf weissem Papier."""
         vertical, image_first = _RenderPipelineMixin._combined_panel_order(position)
         panels = (
-            [(image, image_title), (graph, graph_title)] if image_first
-            else [(graph, graph_title), (image, image_title)]
+            [(image, image_title)] + graphs if image_first
+            else graphs + [(image, image_title)]
         )
-        (first_img, first_title), (second_img, second_title) = panels
         layout = _RenderPipelineMixin._combined_layout(
-            dpi, (first_img.width(), first_img.height()), (second_img.width(), second_img.height()), vertical
+            dpi, [(img.width(), img.height()) for img, _title in panels], vertical
         )
         margin, gap, title_height = layout["margin"], layout["gap"], layout["title_height"]
         width, height = layout["width"], layout["height"]
@@ -536,7 +552,7 @@ class _RenderPipelineMixin:
             # bitte Mittig"). Der VIDEO-/Bildstapel-Export zentriert das bei
             # "links"/"rechts" bereits genauso (siehe _render_video_frame) --
             # hier fehlte das Gegenstueck fuer den Raster-/SVG-Grafikexport.
-            row_height = max(first_img.height(), second_img.height())
+            row_height = max(img.height() for img, _title in panels)
             x = margin
             for img, title in panels:
                 text_rect = QtCore.QRect(x, margin, img.width(), title_height)
@@ -611,43 +627,46 @@ class _RenderPipelineMixin:
         path: Path,
         image_widget: QtWidgets.QWidget,
         image_title: str,
-        curve_widget: QtWidgets.QWidget,
-        curve_title: str,
+        graph_widgets: list[tuple[QtWidgets.QWidget, str]],
         position: str,
         dpi: int,
         foreground: QtGui.QColor,
         background: QtGui.QColor,
     ) -> tuple[int, int]:
-        """SVG-Entsprechung von _combine_image_and_graph: zeichnet beide
-        Widgets direkt (statt vorgerenderter QImages) auf einen gemeinsamen
-        QSvgGenerator, damit z.B. der Kurvenverlauf als echte Vektorpfade
-        statt als eingebettete Rastergrafik im SVG landet. position siehe
-        _combined_panel_order."""
+        """SVG-Entsprechung von _combine_image_and_graph: zeichnet Bild UND
+        alle ausgewaehlten Graphen direkt (statt vorgerenderter QImages) auf
+        einen gemeinsamen QSvgGenerator, damit z.B. der Kurvenverlauf als
+        echte Vektorpfade statt als eingebettete Rastergrafik im SVG landet.
+        position siehe _combined_panel_order."""
         scale = dpi / 96.0
         img_w, img_h = self._widget_export_size(image_widget, scale)
-        curve_w, curve_h = self._widget_export_size(curve_widget, scale)
-        vertical, image_first = self._combined_panel_order(position)
         image_panel = (image_widget, image_title, img_w, img_h, True)
-        curve_panel = (curve_widget, curve_title, curve_w, curve_h, False)
-        panels = [image_panel, curve_panel] if image_first else [curve_panel, image_panel]
-        (_, _, w1, h1, _), (_, _, w2, h2, _) = panels
-        layout = self._combined_layout(dpi, (w1, h1), (w2, h2), vertical)
+        graph_panels = [
+            (widget, title, *self._widget_export_size(widget, scale), False)
+            for widget, title in graph_widgets
+        ]
+        vertical, image_first = self._combined_panel_order(position)
+        panels = [image_panel] + graph_panels if image_first else graph_panels + [image_panel]
+        layout = self._combined_layout(dpi, [(w, h) for _widget, _title, w, h, _is_image in panels], vertical)
         margin, gap, title_height = layout["margin"], layout["gap"], layout["title_height"]
         width, height = layout["width"], layout["height"]
 
         # Logisches (96-DPI-aequivalentes) Gegenstueck des obigen Layouts,
         # nur fuer generator.setSize() -- siehe _save_widget_svg fuer den
         # vollen Grund (Achsen-Tick-Beschriftung von image_widget/
-        # curve_widget wuerde bei generator.resolution() != 96 quadratisch
+        # graph_widgets wuerde bei generator.resolution() != 96 quadratisch
         # zu gross, da pyqtgraph sie ueber ein gecachtes QPicture zeichnet,
         # dessen Text beim Abspielen auf ein hoeher aufgeloestes Zielgeraet
         # zusaetzlich skaliert wird).
-        logical_img = self._widget_export_size(image_widget, 1.0)
-        logical_curve = self._widget_export_size(curve_widget, 1.0)
-        logical_first, logical_second = (
-            (logical_img, logical_curve) if image_first else (logical_curve, logical_img)
+        logical_image = (image_widget, image_title, *self._widget_export_size(image_widget, 1.0), True)
+        logical_graphs = [
+            (widget, title, *self._widget_export_size(widget, 1.0), False)
+            for widget, title in graph_widgets
+        ]
+        logical_panels = [logical_image] + logical_graphs if image_first else logical_graphs + [logical_image]
+        logical_layout = self._combined_layout(
+            96, [(w, h) for _widget, _title, w, h, _is_image in logical_panels], vertical
         )
-        logical_layout = self._combined_layout(96, logical_first, logical_second, vertical)
 
         generator = QtSvg.QSvgGenerator()
         generator.setFileName(str(path))
@@ -681,7 +700,7 @@ class _RenderPipelineMixin:
         else:
             # Siehe _combine_image_and_graph (Punkt 10) fuer den vollen
             # Grund -- dasselbe Zentrierungs-Gegenstueck fuer den SVG-Pfad.
-            row_height = max(h1, h2)
+            row_height = max(h for _widget, _title, _w, h, _is_image in panels)
             x = margin
             for widget, title, w, h, is_image in panels:
                 painter.drawText(

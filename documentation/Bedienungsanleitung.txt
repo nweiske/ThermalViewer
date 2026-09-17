@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-09-12
+Stand: 2026-09-17
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
@@ -34,6 +34,7 @@ INHALT
 18. Schwindungsmessung (experimentell)
 19. Ebenen-Tabs (Bereiche über dem Thermobild ein-/ausblenden)
 20. Rückgängig/Wiederholen
+21. Querschnitt-Graph
 
 
 ================================================================
@@ -322,6 +323,12 @@ editiert wird):
                               Start bereits AUSSERHALB dieses Bereichs, laeuft
                               die Wiedergabe stattdessen ungeklemmt bis zum
                               tatsaechlich letzten Frame.
+  - Ziffern 1-5            -> armieren direkt den jeweiligen Standard-
+                              Messbereich ("Oben".."Unten", siehe Abschnitt 6)
+                              zum Platzieren im Bild, ohne ihn erst in der
+                              Liste anklicken zu muessen -- Tippen in einem
+                              gerade fokussierten Zahlenfeld ist davon
+                              unberuehrt.
 
 Eine separate Kurzreferenz aller Tastatur-Shortcuts liegt in
 Tastatur-Shortcuts.txt (gleicher Ordner wie diese Datei).
@@ -728,22 +735,34 @@ Messbereiche zusammen mit dem zugehoerigen Temperaturverlauf, damit auf
 einen Blick nachvollziehbar ist, WO im Bild gemessen wurde und WIE sich
 die Temperatur dort entwickelt hat.
 
-  1. "Graph-Inhalt" -> per Checkbox waehlen, welche Kurve(n) exportiert
-     werden: JEDER platzierte Messbereich einzeln UND (sofern gerade
-     verfuegbar, siehe Abschnitt 8) "Live-Cursor" -- "Alle auswaehlen"/
-     "Keine auswaehlen" schalten ALLE davon (inklusive Live-Cursor) auf
-     einmal um (Standard: nur die Messbereiche an, Live-Cursor aus). Alle
-     angehakten Kurven erscheinen gemeinsam IM SELBEN Graphen. Mindestens
-     eine Kurve muss angehakt sein. Darunter "Position:" legt fest, WO der
-     Graph relativ zum Thermobild sitzt: Unter/Über/Links/Rechts vom Bild
-     (frei waehlbar, Standard: Rechts) -- nur im "Kombiniert"-Modus (siehe
-     Punkt 3) wirksam.
+  1. "Graphen" -> per Checkbox waehlen, WELCHE Graphen ueberhaupt
+     exportiert werden: "Zeitverlauf", "Schwindung" (Abschnitt 18) und/oder
+     "Querschnitt" (Abschnitt 21) -- beliebig viele gleichzeitig, auch
+     alle drei (Standard: nur "Zeitverlauf" an, wie bisher). "Schwindung"/
+     "Querschnitt" werden dabei immer mit ihren AKTUELL im Hauptfenster
+     gezeigten Einstellungen (gewaehlte Kenngroesse bzw. Richtung)
+     exportiert -- dafuer gibt es keine eigenen Export-Einstellungen.
+     Darunter "Graph-Inhalt" -> nur relevant, solange "Zeitverlauf"
+     angehakt ist: per Checkbox waehlen, welche Kurve(n) darin erscheinen
+     -- JEDER platzierte Messbereich einzeln UND (sofern gerade verfuegbar,
+     siehe Abschnitt 8) "Live-Cursor" -- "Alle auswaehlen"/"Keine
+     auswaehlen" schalten ALLE davon (inklusive Live-Cursor) auf einmal um
+     (Standard: nur die Messbereiche an, Live-Cursor aus). Alle angehakten
+     Kurven erscheinen gemeinsam IM SELBEN Zeitverlauf-Graphen. Mindestens
+     ein Graph muss angehakt sein (und, falls "Zeitverlauf" dabei ist,
+     mindestens eine Kurve darin). Darunter "Position:" legt fest, WO der
+     gesamte Graphen-Block relativ zum Thermobild sitzt: Unter/Über/Links/
+     Rechts vom Bild (frei waehlbar, Standard: Rechts) -- nur im
+     "Kombiniert"-Modus (siehe Punkt 3) wirksam; mehrere ausgewaehlte
+     Graphen reihen sich dabei stets entlang derselben Achse wie das Bild
+     an (untereinander bei Oben/Unten, nebeneinander bei Links/Rechts).
   2. Aufloesung in DPI eingeben (z.B. 150 fuer Bildschirm, 300-600 fuer
      Druck/Berichte).
-  3. Waehlen, ob Bild und Kurve KOMBINIERT (eine Grafik, Anordnung gemaess
-     "Position:" aus Punkt 1) oder GETRENNT (zwei einzelne Dateien
-     "..._Bild" und "..._Kurve") gespeichert werden sollen. Die Wahl wird
-     gemerkt.
+  3. Waehlen, ob Bild und Graph(en) KOMBINIERT (eine Grafik, Anordnung
+     gemaess "Position:" aus Punkt 1) oder GETRENNT (eine Datei "..._Bild"
+     plus je eine weitere Datei pro ausgewaehltem Graphen, z.B.
+     "..._Zeitverlauf"/"..._Schwindung"/"..._Querschnitt") gespeichert
+     werden sollen. Die Wahl wird gemerkt.
   4. "Farbskala / Legende" -> dieselbe Freiheit wie im Hauptfenster: entweder
      "Aktuelle Anzeige-Einstellungen uebernehmen" (Standard) oder "Eigene
      Einstellungen fuer diesen Export" mit eigenem Farbverlauf,
@@ -789,6 +808,15 @@ zugeschnitten: unnoetiger Leerraum zwischen Bild und Y-Achse bzw.
 zwischen Bild und Farbskala (durch das feste Bild-Seitenverhaeltnis bei
 "krummen" Bildschirm-/Exportgroessen) wird automatisch entfernt, Achse
 und Farbskala schliessen direkt am Thermobild an.
+
+VORSCHAU: unten im Export-Fenster zeigt eine kleine, verkleinerte
+Vorschau, wie das Ergebnis ungefaehr aussehen wird -- sie aktualisiert
+sich automatisch, sobald ein Graph an-/abgehakt, die Position geaendert
+oder "Cursor-Position im Bild anzeigen" umgeschaltet wird. Feinere
+Einstellungen (Achsen-Details, Farbskala, Maßstab/Messungen) wirken sich
+NICHT live auf die Vorschau aus -- sie dient nur dazu, die grobe
+Anordnung von Bild und Graph(en) auf einen Blick zu erkennen, nicht als
+pixelgenaue Voransicht jeder Feineinstellung.
 
 WERTE EXPORTIEREN ("Export > Werte exportieren..."):
 Fuer die reinen Zahlen zur Weiterverarbeitung (z.B. Excel, Python). Nur
@@ -964,27 +992,33 @@ Alle uebrigen Einstellungen im Dialog:
         Invertierung, Skalierungsmodus und Min/Max werden nur fuer
         diesen einen Export separat festgelegt, die Anzeige im
         Hauptfenster bleibt danach unveraendert.
-  - "Temperaturverlauf-Graph" -> "Graph mit exportieren" (Standard: AUS)
-    blendet zusaetzlich einen Kurven-Graphen mit ein -- mit derselben
-    wandernden Zeit-Markierungslinie, die auch im Hauptfenster den
-    aktuellen Frame auf der Kurve anzeigt, also genau wie in der
-    Anwendung selbst. "Graph-Inhalt" darunter waehlt PER CHECKBOX, welche
+  - "Graphen" -> per Checkbox waehlen, WELCHE Graphen zusaetzlich mit
+    eingeblendet werden: "Zeitverlauf", "Schwindung" (Abschnitt 18) und/
+    oder "Querschnitt" (Abschnitt 21) -- beliebig viele gleichzeitig, auch
+    alle drei (Standard: KEINER angehakt, wie bisher "Graph mit
+    exportieren" aus). Der Zeitverlauf-Graph zeigt dabei dieselbe
+    wandernde Zeit-Markierungslinie wie im Hauptfenster; "Schwindung"/
+    "Querschnitt" werden immer mit ihren AKTUELL im Hauptfenster gezeigten
+    Einstellungen exportiert. "Graph-Inhalt" darunter ist nur relevant,
+    solange "Zeitverlauf" angehakt ist, und waehlt PER CHECKBOX, welche
     Kurve(n) darin erscheinen: jeder platzierte Messbereich einzeln
     (Standard: alle an) und/oder "Live-Cursor" (nur verfuegbar, wenn
     gerade ein Live-Cursor-Pixel vorliegt, siehe Abschnitt 8; Standard:
     aus) -- genau wie beim Grafik-Export (Abschnitt 9). "Position:" legt
-    fest, WO der Graph relativ zum Thermobild sitzt: Unter/Über/Links/
-    Rechts vom Bild (frei waehlbar, Standard: Rechts). Darunter "Achsen" -- dieselbe Wahl wie
-    beim Grafik-Export (Abschnitt 9, Punkt 5): "Aktuelle Ansicht
-    uebernehmen" (Standard) oder ueber "Einstellen…" eigene Achsen-
-    Einstellungen (Wertebereich/Tick-Abstand) NUR fuer dieses eine Video/
-    diesen Bildstapel, gelten dann fuer ALLE exportierten Frames gleich.
-    Dieser gesamte Kasten betrifft NUR den Kurven-Graphen -- nicht das
-    Thermobild selbst.
+    fest, WO der gesamte Graphen-Block relativ zum Thermobild sitzt:
+    Unter/Über/Links/Rechts vom Bild (frei waehlbar, Standard: Rechts);
+    mehrere ausgewaehlte Graphen reihen sich dabei stets entlang derselben
+    Achse wie das Bild an. Darunter "Achsen" -- dieselbe Wahl wie beim
+    Grafik-Export (Abschnitt 9, Punkt 5), betrifft NUR den Zeitverlauf-
+    Graphen: "Aktuelle Ansicht uebernehmen" (Standard) oder ueber
+    "Einstellen…" eigene Achsen-Einstellungen (Wertebereich/Tick-Abstand)
+    NUR fuer dieses eine Video/diesen Bildstapel, gelten dann fuer ALLE
+    exportierten Frames gleich. Dieser gesamte Kasten betrifft NUR die
+    Kurven-Graphen -- nicht das Thermobild selbst.
   - "Cursor & Maßstab im Bild" -> EIGENER, vom Graphen UNABHAENGIGER Kasten
-    (bewusst NICHT Teil von "Temperaturverlauf-Graph", auch bei
-    ausgeschaltetem "Graph mit exportieren" bedienbar) fuer alles, was
-    zusaetzlich DIREKT AUF DEM THERMOBILD eingeblendet wird:
+    (bewusst NICHT Teil von "Graphen", auch ohne jede angehakte Graphen-
+    Checkbox bedienbar) fuer alles, was zusaetzlich DIREKT AUF DEM
+    THERMOBILD eingeblendet wird:
       * "Cursor-Position im Bild anzeigen" (Standard: AUS) blendet das
         Fadenkreuz samt Temperaturanzeige am fixierten/zuletzt
         angefahrenen Cursor-Pixel im THERMOBILD mit ein, unabhaengig von
@@ -1029,7 +1063,9 @@ Alle uebrigen Einstellungen im Dialog:
 
 Wie beim Bild-Export ist das Thermobild eng zugeschnitten (kein
 unnoetiger Leerraum links/rechts zwischen Bild und Achse bzw.
-Farbskala, siehe Abschnitt 9).
+Farbskala, siehe Abschnitt 9). Ebenso zeigt eine kleine Vorschau unten
+im Export-Fenster die grobe Anordnung von Bild und Graph(en), siehe
+Abschnitt 9.
 
 Der Export laeuft mit Fortschrittsanzeige (abbrechbar). Waehrend des
 Renderns bleibt die Anzeige im Hauptfenster VOLLSTAENDIG unveraendert --
@@ -1095,17 +1131,23 @@ Der Massstab wird beim Speichern eines Projekts (Abschnitt 12) mit
 gesichert und laesst sich beim CSV-Export als "mm"-Autofill fuer
 Spaltennamen nutzen (Abschnitt 9).
 
-MESSUNGEN (beliebig viele gleichzeitig):
-Sobald ein Massstab definiert ist, steht zusaetzlich der Knopf "Neue
-Messung" im Panel "Massstab & Messungen" zur Verfuegung: Start- und
-Endpunkt einer beliebigen Strecke im Bild anklicken, genau wie beim
+MESSUNGEN (beliebig viele gleichzeitig, per MESSMODUS):
+Sobald ein Massstab definiert ist, steht zusaetzlich der Knopf "Messmodus"
+im Panel "Massstab & Messungen" zur Verfuegung -- ein echter Ein/Aus-
+Schalter (kein einmaliger Klick pro Messung): einschalten, dann Start-
+und Endpunkt einer beliebigen Strecke im Bild anklicken, genau wie beim
 Festlegen des Massstabs -- NUR wird dabei NICHT nach einer realen Laenge
-gefragt und der Massstab selbst bleibt unveraendert. Stattdessen
-erscheint sofort die anhand des bestehenden Massstabs berechnete Laenge
-in mm als Beschriftung an der neu gezeichneten Messlinie UND als eigene
-Zeile im Panel darunter.
+gefragt und der Massstab selbst bleibt unveraendert. Direkt danach kann
+sofort die NAECHSTE Strecke (wieder Start-, dann Endpunkt) angeklickt
+werden, ohne den Knopf erneut zu druecken -- so lassen sich beliebig
+viele Messungen nacheinander anlegen, bis der Messmodus-Knopf wieder
+ausgeschaltet wird (oder ein anderes Werkzeug wie ein Messbereich-
+Platzieren/der Massstab selbst ihn automatisch beendet). Jede fertig
+gemessene Strecke erscheint sofort mit ihrer anhand des bestehenden
+Massstabs berechneten Laenge in mm als Beschriftung an der neu
+gezeichneten Messlinie UND als eigene Zeile im Panel darunter.
 
-Im Unterschied zum Massstab (immer genau EINER) lassen sich beliebig
+Im Unterschied zum Massstab (immer genau EINER) lassen sich so beliebig
 viele Messungen gleichzeitig anlegen -- praktisch, um z.B. mehrere
 Durchmesser desselben Objekts auf einmal im Bild zu behalten. Jede
 Messung erscheint als eigene Zeile im Panel mit:
@@ -1125,7 +1167,7 @@ Genau wie beim Massstab laesst sich auch die Beschriftung jeder Messung
 per Ziehen frei in deren Naehe positionieren, um Ueberlappungen zu
 vermeiden (z.B. bei mehreren Messungen desselben Objekts) -- der Versatz
 zur Linienmitte bleibt danach erhalten. Ohne definierten Massstab ist
-"Neue Messung" ausgegraut. Messungen werden wie der Massstab beim
+"Messmodus" ausgegraut. Messungen werden wie der Massstab beim
 Speichern eines Projekts (Abschnitt 12) mit gesichert.
 
 
@@ -1147,7 +1189,7 @@ mit den Rohdaten wieder oeffnet:
                               (Referenzpunkte, Schwellenwert und
                               ausgeblendete Bilder, siehe Abschnitt 17),
                               die Schwindungsmessung (Box, Boxfarbe,
-                              Kenngröße, siehe Abschnitt
+                              Konturfarbe, Kenngröße, siehe Abschnitt
                               18) UND den Quellordner der Messreihe in
                               eine Datei mit Endung ".tvproj" -- damit gibt
                               "Projekt speichern/laden" den vollstaen-
@@ -1519,7 +1561,11 @@ Dropdown gewählt -- siehe "KENNGRÖSSE WÄHLEN" unten.
      nachgeführt: sie muss die Probe über die gesamte Aufnahme hinweg
      umschließen (unkritisch, da die Probe laut Aufgabe nur schrumpft,
      nicht wächst).
-  3. "Berechnen" klicken.
+  3. "Berechnen" klicken. Bei vielen Bildern kann das einige Sekunden
+     dauern -- die Statuszeile unten links zeigt dabei "Schwindungs-
+     berechnung läuft…" und danach "…abgeschlossen", die Maus zeigt in
+     der Zwischenzeit eine Sanduhr. Die App ist in dieser Zeit nicht
+     eingefroren, reagiert aber bewusst erst nach Abschluss wieder.
 
 KEIN Schwellenwert und keine "wärmer/kälter als Hintergrund"-Auswahl von
 Hand: bei "Berechnen" ermittelt das Programm beides automatisch aus den
@@ -1534,17 +1580,19 @@ Die gezogene Box ist dabei nur ein grober AUSGANGSPUNKT, kein starres
 Messfenster: das Programm sucht darin die tatsächliche, zusammenhängende
 Kontur der Probe -- geometrieunabhängig, die Kanten müssen also nicht
 exakt gerade sein (auch runde/leicht deformierte Proben funktionieren).
-Nach "Berechnen" wird diese erkannte Kontur als EINE ROTE LINIE direkt im
-Thermobild angezeigt (folgt beim Durchblättern der Bilder automatisch mit,
-bleibt dabei stets INNERHALB der gezogenen Box) -- so lässt sich die
-Erkennung direkt überprüfen, statt nur verstreute Einzelpixel zu sehen.
-"Berechnen" wertet dabei JEDES Bild unabhängig aus (kein Startbild, keine
-Verfolgung nötig).
+Nach "Berechnen" wird diese erkannte Kontur als Linie direkt im Thermobild
+angezeigt (folgt beim Durchblättern der Bilder automatisch mit, bleibt
+dabei stets INNERHALB der gezogenen Box) -- so lässt sich die Erkennung
+direkt überprüfen, statt nur verstreute Einzelpixel zu sehen. Ihre Farbe
+(Standard Rot) ist über das Farbfeld "Konturfarbe" -- direkt neben
+"Boxfarbe" -- unabhängig davon änderbar. "Berechnen" wertet dabei JEDES
+Bild unabhängig aus (kein Startbild, keine Verfolgung nötig).
 
-KENNGRÖSSE WÄHLEN: das Dropdown "Kenngröße" (unter der Box) legt fest, WAS
-aus der erkannten Kontur berechnet/angezeigt wird -- alle drei Werte
-werden bei "Berechnen" ohnehin gemeinsam ermittelt, ein Wechsel wirkt also
-SOFORT, ohne erneut "Berechnen" zu müssen:
+KENNGRÖSSE WÄHLEN: das Dropdown "Kenngröße" (in derselben Zeile wie
+"Boxfarbe"/"Konturfarbe") legt fest, WAS aus der erkannten Kontur
+berechnet/angezeigt wird -- alle drei Werte werden bei "Berechnen" ohnehin
+gemeinsam ermittelt, ein Wechsel wirkt also SOFORT, ohne erneut
+"Berechnen" zu müssen:
 
   - "Fläche" (Standard): Pixelzahl INNERHALB der erkannten Kontur --
     geometrieunabhängig (funktioniert für eckige wie runde Proben
@@ -1581,11 +1629,11 @@ Knöpfen und Zeitachsen-Umschalter, genau wie beim Tab "Zeitverlauf". Von
 der Rohdaten-Bereinigung (Abschnitt 17) ausgeblendete Bilder fehlen in der
 Kurve. Wird eine WEITERE Messreihe geladen, werden Box und Ergebnis
 verworfen (wie bei Messbereichen/Bereinigung, siehe Abschnitt 3) und die
-Box neu (Standardposition) platziert -- die gewählte Kenngröße und die
-Boxfarbe selbst bleiben erhalten.
+Box neu (Standardposition) platziert -- die gewählte Kenngröße sowie
+Box-/Konturfarbe selbst bleiben erhalten.
 
-Boxposition/-größe, Boxfarbe, Kenngröße UND der Aktivieren-Haken werden
-beim "Projekt speichern…" mit gespeichert und bei "Projekt laden…"
+Boxposition/-größe, Box-/Konturfarbe, Kenngröße UND der Aktivieren-Haken
+werden beim "Projekt speichern…" mit gespeichert und bei "Projekt laden…"
 wiederhergestellt (siehe Abschnitt 12) -- das eigentliche Ergebnis (die
 Kurve) selbst wird dabei nicht als Rohwerte abgelegt, sondern aus diesen
 wiederhergestellten Einstellungen automatisch neu berechnet (inkl. neuer
@@ -1593,9 +1641,9 @@ automatischer Schwellenwert-/Polaritäts-Erkennung).
 
 Nach einer berechneten Messung steht der Wert auch im Werte-Export
 (Abschnitt 9, "Werte exportieren...") als zusätzliche, wählbare Spalte
-zur Verfügung -- benannt nach der aktuell gewählten Kenngröße (in mm/mm²
-bzw. px/px², wie in der Kurve) -- auch dann, wenn kein Messbereich
-platziert oder Live-Cursor-Pixel gewählt ist.
+"Schwindung" zur Verfügung (Einheit mm/mm² bzw. px/px² im Spaltennamen,
+wie in der Kurve) -- auch dann, wenn kein Messbereich platziert oder
+Live-Cursor-Pixel gewählt ist.
 
 
 19. EBENEN-TABS (BEREICHE ÜBER DEM THERMOBILD EIN-/AUSBLENDEN)
@@ -1646,7 +1694,7 @@ AUTOMATISCHES UMSCHALTEN: wird ein Werkzeug über seinen eigenen Knopf
 gestartet, springt die Tab-Auswahl (oben UND im Panel) von selbst dorthin
 -- "+ Messbereich" wechselt auf "Temperatur-Messung", die "Aktivieren"-
 Checkbox der Schwindungsmessung auf "Schwindungsmessung" (nur beim
-Anschalten, nicht beim Abschalten), "Festlegen…"/"Neue Messung" auf
+Anschalten, nicht beim Abschalten), "Festlegen…"/"Messmodus" auf
 "Maßstab". So landet man beim Start einer Aktion automatisch auf der dazu
 passenden Ansicht, ohne den Tab von Hand mitziehen zu müssen.
 
@@ -1689,3 +1737,67 @@ Ergebnis wird durch Rückgängig/Wiederholen NICHT automatisch neu berechnet
 (kann bei aktivierter Messung mehrere Sekunden dauern, siehe Abschnitt 18)
 -- stattdessen erscheint ein Hinweis, danach einmal erneut auf "Berechnen"
 zu klicken.
+
+
+================================================================
+21. QUERSCHNITT-GRAPH
+================================================================
+
+Zeigt die Temperaturverteilung entlang einer GANZEN Bildzeile oder
+-spalte des AKTUELL angezeigten Bilds als Kurve -- ergänzt die
+punktuelle Live-Cursor-Anzeige (Abschnitt 8) um einen vollständigen
+Schnitt durch das Bild. Als eigener Reiter "Querschnitt" neben
+"Zeitverlauf"/"Schwindung" verfügbar (wie jedes Dock in dieser App lässt
+sich auch dieser Reiter per Ziehen an der Titelzeile jederzeit zu einem
+frei schwebenden Fenster heraustrennen). Der Graph-Hintergrund folgt wie
+bei "Zeitverlauf"/"Schwindung" dem unter "Ansicht > Graph-Farbschema"
+gewählten Design (Abschnitt 4).
+
+BEDIENUNG: Solange dieser Tab im Vordergrund ist, verhält sich das
+Thermobild bewusst ANDERS als sonst -- der normale Live-Cursor
+(Abschnitt 8) ist deaktiviert, seine Fixierung/Freigabe-Logik gilt statt
+dessen fuer eine EIGENE, unabhängige Fadenkreuz-Position:
+
+  - Maus über das Bild bewegen -- die Position (und die Linie im Bild)
+    folgt live der Maus, SOLANGE sie nicht fixiert ist (Standard direkt
+    nach dem Laden: nicht fixiert, auf der Bildmitte stehend, bis die
+    Maus das erste Mal über das Bild bewegt wird).
+  - Linksklick ins Thermobild -- fixiert Zeile UND Spalte gemeinsam auf
+    die angeklickte Stelle (die Position folgt danach nicht mehr der
+    Maus, bis sie wieder gelöst wird).
+  - Rechtsklick ins Thermobild -- löst eine bestehende Fixierung wieder,
+    die Position folgt danach sofort wieder der Maus.
+  - Direkt an der gestrichelten Linie im Thermobild ziehen (Drag & Drop)
+    -- verschiebt sie unmittelbar und fixiert sie dabei ebenfalls.
+  - Pfeiltasten (Links/Rechts verschiebt die Spalte, Hoch/Runter die
+    Zeile) -- pixelgenau, jeweils um 1 verschoben, fixiert die Position
+    ebenfalls. Ausserhalb dieses Tabs navigieren Links/Rechts wie gewohnt
+    Frame vor/zurück (Abschnitt 5); Hoch/Runter sind dort ohne Funktion.
+  - Die beiden Felder "Zeile (Y)"/"Spalte (X)" unterhalb des Graphen --
+    zum zahlenwertigen, zeilen-/spaltengenauen Ansteuern, fixiert die
+    Position ebenfalls.
+
+Alle Wege halten sich automatisch synchron. Die aktuelle Position wird
+zusätzlich als dünne, gestrichelte Linie direkt im Thermobild
+eingezeichnet (gleiche Strichdicke wie die Messbereich-Rahmen, gelb beim
+Drüberfahren mit der Maus als Zeichen, dass sie greifbar ist), solange
+der Tab sichtbar ist. Über "Richtung: Horizontal (Zeile) / Vertikal
+(Spalte)" wird gewählt, ob die komplette BildZEILE (X-Achse = Spalten-
+Index) oder die komplette BildSPALTE (X-Achse = Zeilen-Index) angezeigt
+wird. Der Graph aktualisiert sich zusätzlich automatisch beim Wechsel des
+angezeigten Bilds (Frame), auch ohne Positionsänderung.
+
+MARKIERUNGEN: liegt die aktuell gewählte Zeile/Spalte innerhalb eines
+platzierten (und nicht ausgeblendeten) Messbereichs, erscheinen dessen
+beide Ränder als gestrichelte, in seiner Farbe eingezeichnete
+Markierungslinien mit Namen. Ist eine Schwindungsmessung aktiviert (siehe
+Abschnitt 18), erscheinen ebenso die beiden Ränder ihrer Bounding-Box
+(in der Boxfarbe) -- unabhängig davon, ob bereits "Berechnen" geklickt
+wurde. Wurde zusätzlich bereits berechnet, erscheinen auch die beiden
+Ränder der für das aktuelle Bild erkannten Probenkontur (in der unter
+"Konturfarbe" gewählten Farbe). Alle Markierungsarten folgen dabei dem
+oben am Thermobild gewählten Ebenen-Tab (Abschnitt 19): bei "Alle"
+erscheinen alle, bei "Temperatur-Messung" nur die Messbereich-, bei
+"Schwindungsmessung" nur die Box-/Kontur-Markierungen. "Achsen
+zurücksetzen" setzt Zoom/Verschieben dieses Graphen zurück, genau wie bei
+den anderen Graphen.

@@ -197,6 +197,7 @@ class CleaningPreviewViewer(QtWidgets.QWidget):
         self._mw._cleaning_points[index] = (col, row, logic, enabled)
         self.draw_points()
         self._on_points_changed()
+        self._mw.statusBar().showMessage(f"Referenzpunkt {index + 1} verschoben.", 3000)
 
     def _on_scene_clicked(self, event) -> None:
         """Klick auf freie Bildflaeche fuegt sofort einen neuen Punkt hinzu
@@ -221,6 +222,7 @@ class CleaningPreviewViewer(QtWidgets.QWidget):
         self._mw._cleaning_points.append((col, row, "and", True))
         self.draw_points()
         self._on_points_changed()
+        self._mw.statusBar().showMessage("Referenzpunkt hinzugefügt.", 3000)
 
     def _near_existing_point(self, col: int, row: int, tolerance: float = 3.0) -> bool:
         for existing_col, existing_row, _logic, enabled in self._mw._cleaning_points:

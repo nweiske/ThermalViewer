@@ -281,17 +281,23 @@ class _RoiPanelBuildMixin:
         scale_buttons_row.addWidget(self.chk_scale_visible)
         scale_layout.addLayout(scale_buttons_row)
         self._update_ruler_color_swatch()
+        # Nutzerwunsch: "Maßstab" und "Messungen" etwas deutlicher trennen --
+        # ein kleiner fester Abstand statt der beiden Abschnitte direkt
+        # aneinander.
+        scale_layout.addSpacing(12)
 
         measurements_header = QtWidgets.QHBoxLayout()
         measurements_header.addWidget(QtWidgets.QLabel("Messungen:"))
-        self.btn_add_measurement = QtWidgets.QPushButton("Neue Messung")
+        self.btn_add_measurement = QtWidgets.QPushButton("Messmodus")
+        self.btn_add_measurement.setCheckable(True)
         self.btn_add_measurement.setToolTip(
-            "Strecke im Bild anklicken (Start-, dann Endpunkt) und mit dem oben definierten "
-            "Maßstab in mm anzeigen -- ändert den Maßstab selbst NICHT, beliebig viele Messungen "
-            "gleichzeitig möglich. Erst verfügbar, wenn ein Maßstab festgelegt ist."
+            "Messmodus einschalten, dann beliebig viele Strecken im Bild anklicken (je Start-, "
+            "dann Endpunkt) und mit dem oben definierten Maßstab in mm anzeigen -- ändert den "
+            "Maßstab selbst NICHT. Zum Beenden erneut klicken. Erst verfügbar, wenn ein Maßstab "
+            "festgelegt ist."
         )
         self.btn_add_measurement.setEnabled(False)
-        self.btn_add_measurement.clicked.connect(self._start_measurement_tool)
+        self.btn_add_measurement.toggled.connect(self._on_measurement_mode_toggled)
         measurements_header.addWidget(self.btn_add_measurement)
         measurements_header.addStretch(1)
         scale_layout.addLayout(measurements_header)
@@ -364,6 +370,15 @@ class _RoiPanelBuildMixin:
         self.roi_split = roi_split
         if self.roi_list.count():
             self.roi_list.setCurrentRow(0)
+            # _on_roi_list_row_changed (oben verbunden) armiert die Auswahl
+            # automatisch zum Platzieren -- das ist fuer einen ECHTEN Klick
+            # in die Liste gewollt, aber nicht fuer diesen automatischen
+            # Aufbau beim Programmstart (Nutzerwunsch: nach dem Start/Laden
+            # soll noch kein Messbereich vorab armiert sein). Auswahl (Zeile
+            # bleibt markiert, Stack zeigt die richtige Seite) bleibt davon
+            # unberuehrt, nur das Platzieren-Armieren wird zurueckgenommen.
+            if self._armed_entry is not None:
+                self._armed_entry.btn_place.setChecked(False)
 
         # Das rechte Panel als ECHTES QTabWidget statt gestapelter
         # Gruppenboxen -- zeigt immer nur die gerade relevanten Optionen.

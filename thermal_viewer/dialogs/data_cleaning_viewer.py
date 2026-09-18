@@ -219,7 +219,13 @@ class CleaningPreviewViewer(QtWidgets.QWidget):
         if self._near_existing_point(col, row):
             return
         self._mw._push_undo_snapshot()
-        self._mw._cleaning_points.append((col, row, "and", True))
+        # Bugreport: Standard war "and" -- bei mehreren Punkten muss dann
+        # JEDER einzelne gleichzeitig ausschlagen, damit ueberhaupt ein Bild
+        # als Ausreißer erkannt wird, was in der Praxis kaum je zutrifft.
+        # "or" (ein einzelner ausschlagender Punkt genuegt) ist die deutlich
+        # brauchbarere Vorgabe -- weiterhin pro Punkt frei auf "and"
+        # umstellbar (siehe data_cleaning.py:combo_logic).
+        self._mw._cleaning_points.append((col, row, "or", True))
         self.draw_points()
         self._on_points_changed()
         self._mw.statusBar().showMessage("Referenzpunkt hinzugefügt.", 3000)

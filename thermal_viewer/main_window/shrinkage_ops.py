@@ -384,7 +384,7 @@ def _track_sample_blob(
 
 def _track_sample_width_at_row(
     frames: np.ndarray, row: int, col0: int, col1: int, warmer: bool, seed_col: int,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Probenbreite an EINER festen Bildzeile ueber alle Bilder -- die
     "Probenhöhen"-Messung (Nutzerwunsch, siehe sample_height_ops.py):
     "ähnlich zur Querschnittsfunktion ... über eine Art Schwellenwert
@@ -402,13 +402,22 @@ def _track_sample_width_at_row(
     col0:col1 kommt vom Aufrufer (die bestehende Schwindungs-Box,
     roi_shrink_area) als Spalten-Suchbereich, seed_col von deren
     Boxmitte -- Otsu-Schwellenwert UND Polaritaet (warmer) werden PRO
-    Bild frisch bzw. einmalig wie bei der Box ermittelt. 0.0, wenn an
-    dieser Zeile/diesem Bild kein zusammenhaengender Run gefunden wird
-    (z.B. Zeile ausserhalb der Probe)."""
+    Bild frisch bzw. einmalig wie bei der Box ermittelt.
+
+    Gibt (widths_px, left_edges_px, right_edges_px) zurueck -- die beiden
+    Kantenspalten in ABSOLUTEN Bildkoordinaten (nicht lokal zur Box), damit
+    der Aufrufer daraus kleine Kanten-Markierungen auf der Probenhöhen-
+    Linie zeichnen kann (Nutzerwunsch: "kleine vertikale Linien ... die mir
+    signalisieren, wo/welche Breite bzw. Kante gerade vermutet/detektiert
+    wird", siehe sample_height_ops.py:_rebuild_sample_height_edge_ticks).
+    Breite 0.0 und Kanten NaN, wenn an dieser Zeile/diesem Bild kein
+    zusammenhaengender Run gefunden wird (z.B. Zeile ausserhalb der Probe)."""
     blur_kernel = _adaptive_blur_kernel(col1 - col0)
     seed_col_local = max(0, min(col1 - col0 - 1, seed_col - col0))
     n = len(frames)
     widths = np.zeros(n, dtype=float)
+    lefts = np.full(n, np.nan, dtype=float)
+    rights = np.full(n, np.nan, dtype=float)
     for idx in range(n):
         row_region = frames[idx][row:row + 1, col0:col1]
         blurred = _horizontal_blur_region(row_region, blur_kernel)
@@ -416,7 +425,9 @@ def _track_sample_width_at_row(
         run = _run_containing_or_largest(_row_runs(mask), seed_col_local)
         if run is not None:
             widths[idx] = float(run[1] - run[0])
-    return widths
+            lefts[idx] = float(run[0] + col0)
+            rights[idx] = float(run[1] + col0)
+    return widths, lefts, rights
 
 
 class _ShrinkageMixin:

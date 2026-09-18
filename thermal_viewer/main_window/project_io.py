@@ -946,6 +946,9 @@ class _ProjectMixin:
             self._recompute_all_sample_heights()
         else:
             self._update_all_sample_height_curves()
+            self._rebuild_all_sample_height_edge_ticks()
+            for entry in self._sample_height_entries:
+                self._update_sample_height_label_pos(entry)
         self._apply_sample_height_visibility()
 
     def _load_paths(

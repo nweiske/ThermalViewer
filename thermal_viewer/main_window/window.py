@@ -133,12 +133,13 @@ class MainWindow(
         # Ansichts-Manager (Punkt 5) unabhaengig waehlbare Hell/Dunkel-
         # Farbgebung -- getrennt vom App-Design (Hell-/Dunkelmodus-Schalter,
         # betrifft nur die UI-Oberflaeche) UND voneinander. Platzhalter hier
-        # (Graph hell/Thermobild dunkel, das bisherige feste Verhalten) --
-        # die tatsaechlich geltenden, ggf. aus QSettings wiederhergestellten
-        # Werte setzen _apply_image_theme/_apply_graph_theme etwas weiter
-        # unten in __init__ (nach _build_control_panel, da deren Comboboxen
-        # existieren muessen).
-        self._image_theme = "dark"
+        # (Graph UND Thermobild hell, Bugreport: "Beim Start ist das
+        # Thermobild als Default im Dunkel-Modus -- bitte standardmäßig im
+        # Hell-Modus/so wie den Rest der UI") -- die tatsaechlich geltenden,
+        # ggf. aus QSettings wiederhergestellten Werte setzen _apply_image_
+        # theme/_apply_graph_theme etwas weiter unten in __init__ (nach
+        # _build_control_panel, da deren Comboboxen existieren muessen).
+        self._image_theme = "light"
         self._graph_theme = "light"
         self._graph_bg = THEMES["light"]["pg_background"]
         self._graph_fg = THEMES["light"]["pg_foreground"]
@@ -362,16 +363,19 @@ class MainWindow(
 
         saved_window_theme = self._settings.value("window_theme", DEFAULT_THEME)
         self._apply_window_theme(saved_window_theme if saved_window_theme in THEMES else DEFAULT_THEME)
-        # Graphen-/Thermobild-Farben sind seit dem Nutzerwunsch "Graph immer
-        # hell, Thermobild immer dunkel" NICHT mehr Teil von _apply_window_theme,
-        # sondern seit dem Ansichts-Manager (Punkt 5) je eigenstaendig per
-        # QSettings gemerkt -- Vorgabewerte (Graph hell/Thermobild dunkel)
-        # entsprechen dem bisherigen festen Verhalten, bleiben also fuer
-        # bestehende Nutzer unveraendert, sind aber jetzt umschaltbar (siehe
-        # "Ansicht"-Menue in _build_menu, _apply_image_theme/_apply_graph_theme).
-        saved_image_theme = self._settings.value("image_theme", "dark")
+        # Graphen-/Thermobild-Farben sind NICHT mehr Teil von
+        # _apply_window_theme, sondern seit dem Ansichts-Manager (Punkt 5)
+        # je eigenstaendig per QSettings gemerkt -- Vorgabewert fuer BEIDE
+        # ist Hell (Bugreport: Thermobild startete bisher standardmaessig
+        # im Dunkel-Modus, obwohl der Rest der UI hell ist), bleiben aber
+        # jederzeit umschaltbar (siehe "Ansicht"-Menue in _build_menu,
+        # _apply_image_theme/_apply_graph_theme). Ein Nutzer, der das
+        # Thermobild zuvor bewusst auf Dunkel gestellt hatte, behaelt diese
+        # Wahl trotzdem -- der neue Vorgabewert greift nur, wenn QSettings
+        # (noch) keinen eigenen Wert enthaelt.
+        saved_image_theme = self._settings.value("image_theme", "light")
         saved_graph_theme = self._settings.value("graph_theme", "light")
-        self._apply_image_theme(saved_image_theme if saved_image_theme in THEMES else "dark")
+        self._apply_image_theme(saved_image_theme if saved_image_theme in THEMES else "light")
         self._apply_graph_theme(saved_graph_theme if saved_graph_theme in THEMES else "light")
 
         saved_runtime_unit = self._settings.value("runtime_unit", "hhmmss")

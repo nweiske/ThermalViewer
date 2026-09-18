@@ -563,6 +563,7 @@ class _FrameNavMixin:
         self._update_interpolated_rois(idx)
         self._update_roi_temperature_labels(idx)
         self._rebuild_shrinkage_contour_overlay()
+        self._rebuild_all_sample_height_edge_ticks()
 
         self._update_status_bar()
 

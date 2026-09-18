@@ -738,6 +738,12 @@ class _RoiPanelBuildMixin:
         entry.chk_circular = chk_circular
         side_col.addWidget(chk_circular)
 
+        # Reihenfolge (Nutzerwunsch): "Quadrieren" VOR der Kennzahl-Auswahl.
+        btn_square = QtWidgets.QPushButton("Quadrieren")
+        btn_square.setToolTip("Höhe = Breite (Quadrat);\nMittelpunkt bleibt gleich.")
+        btn_square.clicked.connect(partial(self._on_roi_square_reset_clicked, entry))
+        side_col.addWidget(btn_square)
+
         # Kennzahl-Auswahl (Nutzerwunsch): statt immer des Mittelwerts kann
         # je Messbereich auch der Hoechst- oder Tiefstwert angezeigt/in die
         # Kurve uebernommen werden -- siehe RoiEntry.stat_mode/average().
@@ -755,11 +761,6 @@ class _RoiPanelBuildMixin:
         entry.combo_stat_mode = combo_stat_mode
         stat_row.addWidget(combo_stat_mode, 1)
         side_col.addLayout(stat_row)
-
-        btn_square = QtWidgets.QPushButton("Quadrieren")
-        btn_square.setToolTip("Höhe = Breite (Quadrat);\nMittelpunkt bleibt gleich.")
-        btn_square.clicked.connect(partial(self._on_roi_square_reset_clicked, entry))
-        side_col.addWidget(btn_square)
 
         side_col.addStretch(1)
         outer.addLayout(side_col)

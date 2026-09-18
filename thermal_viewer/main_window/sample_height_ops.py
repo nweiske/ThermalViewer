@@ -69,6 +69,13 @@ class SampleHeightEntry:
         self.row = 0
         self.enabled = True
         self.widths_px: np.ndarray | None = None
+        # Absolute Bildspalten der zuletzt erkannten linken/rechten Kante,
+        # EIN Wert je Bild (NaN, wo keine Kante gefunden wurde) -- Grundlage
+        # der kleinen Kanten-Markierungen (siehe _rebuild_sample_height_
+        # edge_ticks), separat von widths_px, da die Ticks die ABSOLUTE
+        # Position brauchen, nicht nur die Differenz.
+        self.left_edges_px: np.ndarray | None = None
+        self.right_edges_px: np.ndarray | None = None
         self.curve = curve
         self.curve.opts["name"] = self.name
 
@@ -80,6 +87,28 @@ class SampleHeightEntry:
         self.line.setVisible(False)
         view_box.addItem(self.line)
 
+        # Name DIREKT AN der Linie im Thermobild (Nutzerwunsch: "bitte den
+        # Namen mit zur jeweiligen Linie schreiben") -- analog zu
+        # RoiEntry.label, an der linken Kante des Spaltenbereichs verankert
+        # (siehe _update_sample_height_line_pos), damit er nicht mit den
+        # Kanten-Markierungen ueberlappt, die je nach erkannter Breite an
+        # wechselnder Stelle sitzen.
+        self.name_label = pg.TextItem(text=self.name, color=color, anchor=(0, 1), fill=(0, 0, 0, 140))
+        self.name_label.setVisible(False)
+        view_box.addItem(self.name_label)
+
+        # Kleine Kanten-Markierungen (Nutzerwunsch: "kleine vertikale
+        # Linien ... die mir signalisieren, wo/welche Breite bzw. Kante
+        # gerade vermutet/detektiert wird ... wirklich nur kleine Striche,
+        # nicht wesentlich größer als die Start/Stop-Marker") -- EIN
+        # PlotDataItem fuer BEIDE Kanten (links+rechts), per NaN-Trennung
+        # und connect="finite" als zwei getrennte kurze Striche gezeichnet
+        # (siehe _rebuild_sample_height_edge_ticks), statt zwei eigener
+        # Items -- ein Item weniger pro Probenhöhe.
+        self.edge_ticks = pg.PlotDataItem(pen=pg.mkPen(color, width=2))
+        self.edge_ticks.setVisible(False)
+        view_box.addItem(self.edge_ticks)
+
         # Von MainWindow gesetzt, hier nur Platzhalter fuer Typklarheit.
         self.spin_row: QtWidgets.QSpinBox | None = None
         self.edit_name: QtWidgets.QLineEdit | None = None
@@ -89,12 +118,15 @@ class SampleHeightEntry:
     def set_name(self, name: str) -> None:
         self.name = name
         self.curve.opts["name"] = name
+        self.name_label.setText(name)
 
     def set_color(self, color: str) -> None:
         self.color = color
         self.line.setPen(pg.mkPen(color, width=1.5, style=QtCore.Qt.DashLine))
         self.line.hoverPen = pg.mkPen(color, width=2.5, style=QtCore.Qt.DashLine)
         self.curve.setPen(pg.mkPen(color, width=2))
+        self.name_label.setColor(color)
+        self.edge_ticks.setPen(pg.mkPen(color, width=2))
         if self.btn_color is not None:
             self.btn_color.setStyleSheet(
                 f"background-color:{color}; border:1px solid #333; border-radius:4px;"
@@ -102,6 +134,8 @@ class SampleHeightEntry:
 
     def remove_from_view(self, view_box: pg.ViewBox, plot: pg.PlotWidget) -> None:
         view_box.removeItem(self.line)
+        view_box.removeItem(self.name_label)
+        view_box.removeItem(self.edge_ticks)
         plot.removeItem(self.curve)
 
 
@@ -151,7 +185,10 @@ class _SampleHeightMixin:
     def _recompute_sample_height_entry(self, entry: SampleHeightEntry) -> None:
         if self.recording is None or self.recording.n_frames == 0:
             entry.widths_px = None
+            entry.left_edges_px = None
+            entry.right_edges_px = None
             self._update_sample_height_curve(entry)
+            self._rebuild_sample_height_edge_ticks(entry)
             return
         rows, _cols = self.recording.shape
         row = max(0, min(rows - 1, entry.row))
@@ -165,10 +202,12 @@ class _SampleHeightMixin:
         band1 = min(rows, row + 6)
         frame_idx = min(self.current_index, self.recording.n_frames - 1)
         warmer = _detect_polarity_area(self.recording.frames[frame_idx], band0, band1, col0, col1)
-        entry.widths_px = _track_sample_width_at_row(
+        entry.widths_px, entry.left_edges_px, entry.right_edges_px = _track_sample_width_at_row(
             self.recording.frames, row, col0, col1, warmer, seed_col,
         )
         self._update_sample_height_curve(entry)
+        self._update_sample_height_label_pos(entry)
+        self._rebuild_sample_height_edge_ticks(entry)
 
     def _recompute_all_sample_heights(self) -> None:
         for entry in self._sample_height_entries:
@@ -204,14 +243,63 @@ class _SampleHeightMixin:
         entry.line.blockSignals(True)
         entry.line.setPos(entry.row + 0.5)
         entry.line.blockSignals(False)
+        self._update_sample_height_label_pos(entry)
+
+    def _update_sample_height_label_pos(self, entry: SampleHeightEntry) -> None:
+        """Haelt den Namen DIREKT AN der Linie im Bild (Nutzerwunsch, siehe
+        SampleHeightEntry.name_label) -- an der linken Kante des aktuellen
+        Spaltenbereichs verankert (_sample_height_col_range), damit er
+        nicht mit den Kanten-Markierungen ueberlappt (siehe
+        _rebuild_sample_height_edge_ticks)."""
+        if self.recording is None:
+            return
+        col0, _col1, _seed_col = self._sample_height_col_range()
+        entry.name_label.setPos(col0, entry.row + 0.5)
+
+    def _rebuild_sample_height_edge_ticks(self, entry: SampleHeightEntry) -> None:
+        """Kleine Kanten-Markierungen an der zuletzt erkannten linken/
+        rechten Kante DES AKTUELL ANGEZEIGTEN Bildes (Nutzerwunsch: "kleine
+        vertikale Linien ... die mir signalisieren, wo/welche Breite bzw.
+        Kante gerade vermutet/detektiert wird") -- analog zum "clear-and-
+        redraw"-Muster der Schwindungs-Kontur-Ueberlagerung
+        (shrinkage_ops.py:_rebuild_shrinkage_contour_overlay), aber pro
+        Bild nur zwei kurze Striche statt einer ganzen Kontur. Bewusst
+        KLEIN gehalten (2% der Bildhoehe, auf [1.5, 8] Bildpixel begrenzt)
+        -- "wirklich nur kleine Striche, nicht wesentlich größer als die
+        Start/Stop-Marker" (siehe plot_items.py:_EvalRangeSlider.paintEvent,
+        dort 5 Bildschirm-Pixel als Referenzgroesse)."""
+        if (
+            entry.left_edges_px is None or self.recording is None
+            or not (0 <= self.current_index < len(entry.left_edges_px))
+        ):
+            entry.edge_ticks.setData([], [])
+            return
+        left = entry.left_edges_px[self.current_index]
+        right = entry.right_edges_px[self.current_index]
+        if np.isnan(left) or np.isnan(right):
+            entry.edge_ticks.setData([], [])
+            return
+        rows, _cols = self.recording.shape
+        half = max(1.5, min(8.0, rows * 0.02))
+        y_center = entry.row + 0.5
+        xs = [left, left, np.nan, right, right]
+        ys = [y_center - half, y_center + half, np.nan, y_center - half, y_center + half]
+        entry.edge_ticks.setData(xs, ys, connect="finite")
+
+    def _rebuild_all_sample_height_edge_ticks(self) -> None:
+        for entry in self._sample_height_entries:
+            self._rebuild_sample_height_edge_ticks(entry)
 
     def _apply_sample_height_visibility(self) -> None:
         """Analog zu shrinkage_ops.py:_apply_shrinkage_roi_visibility --
         folgt demselben "Schwindungsmessung"-Ebenen-Tab wie die Box."""
         tab_active = self._is_layer_tab_active("shrinkage") and self.recording is not None
         for entry in self._sample_height_entries:
-            entry.line.setVisible(tab_active and entry.enabled)
-            entry.curve.setVisible(tab_active and entry.enabled and entry.widths_px is not None)
+            visible = tab_active and entry.enabled
+            entry.line.setVisible(visible)
+            entry.name_label.setVisible(visible)
+            entry.curve.setVisible(visible and entry.widths_px is not None)
+            entry.edge_ticks.setVisible(visible and entry.widths_px is not None)
 
     def _on_shrink_box_changed_for_sample_heights(self, *_args) -> None:
         """An roi_shrink_area.sigRegionChangeFinished angeschlossen (siehe

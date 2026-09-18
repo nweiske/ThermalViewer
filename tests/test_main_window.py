@@ -32,21 +32,23 @@ def test_dark_palette_sets_all_fusion_shading_roles():
 
 
 def test_window_theme_switch_leaves_graph_and_image_colors_fixed(main_window):
-    # Nutzerwunsch: Graphen bleiben IMMER hell (wissenschaftlicher Standard),
-    # das Thermobild bleibt IMMER dunkel (Kontrast zu Hotspots) --
-    # unabhaengig vom Fenster-Farbschema, das nur die uebrige App-Oberflaeche
-    # betrifft (siehe _window_theme_actions).
+    # Graph- UND Thermobild-Farbschema sind unabhaengig vom Fenster-
+    # Farbschema (das nur die uebrige App-Oberflaeche betrifft, siehe
+    # _window_theme_actions) -- ein Wechsel des Fenster-Farbschemas darf
+    # beide unveraendert lassen. Standardwert fuer BEIDE ist seit dem
+    # Bugfix ("Beim Start ist das Thermobild als Default im Dunkel-Modus --
+    # bitte standardmäßig im Hell-Modus/so wie den Rest der UI") Hell.
     mw = main_window
     mw._apply_window_theme("light")
     assert mw._window_theme == "light"
     assert mw._graph_bg == "#ffffff"
-    assert mw._image_bg == "#1e1e1e"
+    assert mw._image_bg == "#ffffff"
 
     mw._window_theme_actions["dark"].trigger()
     assert mw._window_theme == "dark"
     assert mw._window_theme_actions["dark"].isChecked()
     assert mw._graph_bg == "#ffffff"
-    assert mw._image_bg == "#1e1e1e"
+    assert mw._image_bg == "#ffffff"
 
     mw._window_theme_actions["light"].trigger()
     assert mw._window_theme == "light"
@@ -788,6 +790,10 @@ def test_cleaning_viewer_point_actions_are_logged_in_status_bar(loaded_main_wind
 
     viewer._on_scene_clicked(FakeEvent())
     assert mw.statusBar().currentMessage() == "Referenzpunkt hinzugefügt."
+    # Bugfix-Regression: Standard-Logik eines neu gesetzten Punkts ist "or"
+    # (nicht mehr "and") -- bei "and" muessten bei mehreren Punkten ALLE
+    # gleichzeitig ausschlagen, damit ueberhaupt ein Bild erkannt wird.
+    assert mw._cleaning_points[0][2] == "or"
 
     class FakeTarget:
         def pos(self):
@@ -1793,10 +1799,13 @@ def test_track_sample_width_at_row_recovers_shrinking_width_independently_per_fr
     frames = np.full((n, rows, cols), 10.0, dtype=np.float32)
     for i in range(n):
         frames[i, 5:15, 10 + i:40 - i] = 50.0
-    widths = _track_sample_width_at_row(frames, row=10, col0=3, col1=57, warmer=True, seed_col=30)
+    widths, lefts, rights = _track_sample_width_at_row(frames, row=10, col0=3, col1=57, warmer=True, seed_col=30)
     # Zeile 10 liegt innerhalb des heissen Bereichs (5:15) jedes Bilds --
-    # Breite = (40 - i) - (10 + i) = 30 - 2*i.
+    # Breite = (40 - i) - (10 + i) = 30 - 2*i, Kanten bei absoluten Spalten
+    # 10+i (links) und 40-i (rechts).
     assert list(widths) == [30.0, 28.0, 26.0, 24.0, 22.0]
+    assert list(lefts) == [10.0, 11.0, 12.0, 13.0, 14.0]
+    assert list(rights) == [40.0, 39.0, 38.0, 37.0, 36.0]
 
 
 def test_track_sample_width_at_row_returns_zero_outside_sample_row():
@@ -1806,8 +1815,10 @@ def test_track_sample_width_at_row_returns_zero_outside_sample_row():
     frames = np.full((n, rows, cols), 10.0, dtype=np.float32)
     frames[:, 5:15, 10:40] = 50.0
     # Zeile 0 liegt AUSSERHALB des heissen Bereichs (5:15) -- kein Run.
-    widths = _track_sample_width_at_row(frames, row=0, col0=3, col1=57, warmer=True, seed_col=30)
+    widths, lefts, rights = _track_sample_width_at_row(frames, row=0, col0=3, col1=57, warmer=True, seed_col=30)
     assert list(widths) == [0.0, 0.0, 0.0]
+    assert all(np.isnan(v) for v in lefts)
+    assert all(np.isnan(v) for v in rights)
 
 
 def test_shrinkage_metric_switch_updates_curve_without_clearing_result(loaded_main_window):
@@ -1900,6 +1911,30 @@ def test_add_sample_height_creates_entry_with_default_row_and_computes_width(loa
     assert entry.line.isVisible()
     x, y = entry.curve.getData()
     assert len(x) == 5
+
+    # Name direkt an der Linie (Bugreport: "bitte den Namen mit zur
+    # jeweiligen Linie schreiben") -- verankert an der linken Kante des
+    # Box-Spaltenbereichs (col0=3, siehe _sample_height_col_range).
+    assert entry.name_label.isVisible()
+    assert entry.name_label.toPlainText() == "Probenhöhe 1"
+    label_x, label_y = entry.name_label.pos().x(), entry.name_label.pos().y()
+    assert label_x == pytest.approx(3.0)
+    assert label_y == pytest.approx(entry.row + 0.5)
+
+    # Kanten-Markierungen fuer das aktuell angezeigte Bild (Frame 0, Kanten
+    # bei Spalte 10/40, siehe test_track_sample_width_at_row_recovers_...).
+    xs, ys = entry.edge_ticks.getData()
+    assert sorted(set(xs[~np.isnan(xs)])) == [10.0, 40.0]
+
+
+def test_sample_height_edge_ticks_follow_current_frame(loaded_main_window):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw._on_add_sample_height_clicked()
+    entry = mw._sample_height_entries[0]
+
+    mw._show_frame(2)  # Kanten bei Spalte 12/38 (siehe pure-function-Test)
+    xs, _ys = entry.edge_ticks.getData()
+    assert sorted(set(xs[~np.isnan(xs)])) == [12.0, 38.0]
 
 
 def test_sample_height_row_spin_change_recomputes_width(loaded_main_window):

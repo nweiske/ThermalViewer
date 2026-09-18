@@ -249,6 +249,14 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._preview_panel = ExportPreviewPanel()
         self._preview_panel.group_box.setVisible(False)
         layout.addWidget(self._preview_panel.group_box)
+        # Bugfix: der Aufrufer (export_image.py) stoppte den debounced
+        # Vorschau-Timer bisher nur im ACCEPT-Zweig -- bei "Abbrechen"/ESC/
+        # Schliessen-Knopf blieb ein evtl. noch ausstehender Timer im
+        # Event-Loop haengen, dessen verbundene Lambda auf dieses (dann
+        # verwaiste) Dialog-Objekt zeigt. self.finished feuert GARANTIERT bei
+        # JEDEM Dialog-Ende (accept/reject/schliessen), also hier direkt am
+        # Ursprung verankert statt sich auf jede Aufrufstelle zu verlassen.
+        self.finished.connect(self._preview_panel.stop)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
@@ -821,6 +829,10 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._preview_panel = ExportPreviewPanel()
         self._preview_panel.group_box.setVisible(False)
         layout.addWidget(self._preview_panel.group_box)
+        # Bugfix: siehe GraphicExportDialog.__init__ -- self.finished deckt
+        # ALLE Schliesswege ab (Accept/Abbrechen/ESC/X), nicht nur den vom
+        # Aufrufer (export_video.py) geprueften Accept-Fall.
+        self.finished.connect(self._preview_panel.stop)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel

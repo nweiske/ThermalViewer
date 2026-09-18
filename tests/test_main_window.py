@@ -2649,6 +2649,47 @@ def test_undo_redo_roundtrips_roi_removal(loaded_main_window):
     assert restored.center() == pytest.approx((4.0, 4.0))
 
 
+def test_undo_redo_of_unrelated_action_preserves_shrinkage_and_sample_height_results(loaded_main_window):
+    # Bugfix (siehe project_io.py::_load_project_shrinkage/
+    # _load_project_sample_heights): Rueckgaengig/Wiederholen eines VOELLIG
+    # UNABHAENGIGEN Schritts (hier: ein neues ROI) hat bisher trotzdem ein
+    # bereits berechnetes Schwindungs-/Probenhöhen-Ergebnis verworfen, weil
+    # das Wiederherstellen mit recompute=False keine Neuberechnung ausloest
+    # -- Kurve/Kontur/Kanten-Markierungen verschwanden dadurch kommentarlos.
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw.chk_shrinkage_enabled.setChecked(True)
+    mw.roi_shrink_area.setPos((5, 5), update=False)
+    mw.roi_shrink_area.setSize((50, 10))
+    mw._compute_shrinkage()
+    shrinkage_result_before = mw._shrinkage_result
+    assert shrinkage_result_before is not None
+
+    _place_sample_height(mw)
+    entry = mw._sample_height_entries[0]
+    widths_before = entry.widths_px
+    assert widths_before is not None
+
+    n_rois_before = len(mw.roi_entries)
+    mw._push_undo_snapshot()
+    mw._add_roi_entry()
+    assert len(mw.roi_entries) == n_rois_before + 1
+
+    mw._on_undo()
+    assert len(mw.roi_entries) == n_rois_before
+    # "is" statt nur Werte-Gleichheit: bestaetigt, dass das Ergebnis/der
+    # Eintrag unangetastet blieb (Kurzschluss), statt bloss zufaellig auf
+    # denselben Wert zurueckgerechnet worden zu sein.
+    assert mw._shrinkage_result is shrinkage_result_before
+    assert mw._sample_height_entries[0] is entry
+    assert entry.widths_px is widths_before
+
+    mw._on_redo()
+    assert len(mw.roi_entries) == n_rois_before + 1
+    assert mw._shrinkage_result is shrinkage_result_before
+    assert mw._sample_height_entries[0] is entry
+    assert entry.widths_px is widths_before
+
+
 def test_normal_project_load_does_not_remove_unreferenced_rois(loaded_main_window, tmp_path, monkeypatch):
     # Ergaenzung zum full_replace-Parameter (project_io.py::
     # _load_project_rois): NUR der Undo/Redo-Pfad (siehe undo_ops.py) darf

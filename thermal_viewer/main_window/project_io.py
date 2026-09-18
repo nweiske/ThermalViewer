@@ -217,31 +217,47 @@ class _ProjectMixin:
             # "box_flaeche_farbe" tragen bewusst denselben Schluesselnamen
             # wie vor diesem Umbau -- alte Projektdateien laden ihre
             # Boxposition/-farbe dadurch weiterhin korrekt.
-            "schwindung": {
-                "aktiviert": self._shrinkage_enabled,
-                "kenngroesse": self._shrinkage_metric,
-                "box_flaeche": _shrink_box_data(self.roi_shrink_area),
-                "box_flaeche_farbe": self._shrinkage_color_area,
-                # Neu (Nutzerwunsch: Kontur-Farbe waehlbar statt fest Rot) --
-                # fehlt bei alten Projektdateien, _load_project_shrinkage
-                # behaelt dann den aktuellen/Standard-Wert.
-                "kontur_farbe": self._shrinkage_color_contour,
-            },
+            "schwindung": self._shrinkage_state_dict(),
             # Probenhöhen (siehe sample_height_ops.py) -- zweite,
             # unabhaengige Schwindungsmessung-Art, GENAUSO vollstaendig
             # gespeichert wie die Box oben. Das Ergebnis (widths_px) wird
             # wie beim Box-Ergebnis bewusst NICHT gespeichert (abgeleitete
             # Daten), sondern beim Laden aus Zeile+Box-Spaltenbereich neu
             # berechnet (siehe _load_project_sample_heights).
-            "probenhoehen": [
-                {
-                    "nummer": entry.number, "name": entry.name, "farbe": entry.color,
-                    "zeile": entry.row, "aktiv": entry.enabled,
-                }
-                for entry in self._sample_height_entries
-            ],
+            "probenhoehen": self._sample_heights_state_list(),
         }
         return data
+
+    def _shrinkage_state_dict(self) -> dict:
+        """Baut das "schwindung"-Teil-dict aus dem AKTUELLEN Live-Zustand --
+        von _build_project_state_dict() (siehe dort) UND von
+        _load_project_shrinkage() (Undo/Redo-Kurzschluss, siehe dort)
+        gemeinsam genutzt, damit beide Stellen exakt dieselbe Form erzeugen
+        und ein Vergleich zwischen "geladenen Daten" und "aktuellem
+        Zustand" moeglich ist. KEIN Schwellenwert/keine "wärmer/kälter"-
+        Auswahl/kein Messart-Modus (siehe shrinkage_ops.py-Moduldocstring).
+        "box_flaeche"/"box_flaeche_farbe" tragen bewusst denselben
+        Schluesselnamen wie vor der Vereinheitlichung auf EINE Box -- alte
+        Projektdateien laden ihre Boxposition/-farbe dadurch weiterhin
+        korrekt."""
+        return {
+            "aktiviert": self._shrinkage_enabled,
+            "kenngroesse": self._shrinkage_metric,
+            "box_flaeche": _shrink_box_data(self.roi_shrink_area),
+            "box_flaeche_farbe": self._shrinkage_color_area,
+            "kontur_farbe": self._shrinkage_color_contour,
+        }
+
+    def _sample_heights_state_list(self) -> list:
+        """Baut die "probenhoehen"-Liste aus dem AKTUELLEN Live-Zustand --
+        siehe _shrinkage_state_dict()."""
+        return [
+            {
+                "nummer": entry.number, "name": entry.name, "farbe": entry.color,
+                "zeile": entry.row, "aktiv": entry.enabled,
+            }
+            for entry in self._sample_height_entries
+        ]
 
     @staticmethod
     def _parse_interp_point(
@@ -839,8 +855,18 @@ class _ProjectMixin:
         erkannt. recompute=False (Undo/Redo, siehe undo_ops.py) ueberspringt
         die Neuberechnung am Ende -- die kann bei aktivierter Messung laut
         shrinkage_ops.py-Moduldocstring mehrere SEKUNDEN dauern, waere also
-        bei jedem einzelnen Rueckgaengig/Wiederholen voellig unangemessen."""
+        bei jedem einzelnen Rueckgaengig/Wiederholen voellig unangemessen.
+
+        Bugfix: bei recompute=False (Undo/Redo) NICHTS tun, wenn sich die
+        Schwindungs-Eingaben durch diesen Schritt gar nicht aendern (Vergleich
+        gegen den AKTUELLEN Live-Zustand, siehe _shrinkage_state_dict) --
+        sonst wuerde JEDES Undo/Redo, auch eines voellig unabhaengigen
+        Schritts (z.B. ein ROI verschoben), das bereits berechnete Ergebnis/
+        die Kurve/Kontur verwerfen und (wegen recompute=False) NICHT neu
+        berechnen, sodass sie kommentarlos verschwinden."""
         shrink_data = data.get("schwindung")
+        if not recompute and self.recording is not None and shrink_data == self._shrinkage_state_dict():
+            return
         if isinstance(shrink_data, dict) and self.recording is not None:
             self._shrinkage_result = None
             self.lbl_shrinkage_result.setText("Noch nicht berechnet.")
@@ -907,12 +933,21 @@ class _ProjectMixin:
         Probenhöhe zwar schnell (anders als die Box, siehe shrinkage_ops.py-
         Moduldocstring), bei vielen Probenhöhen UND häufigem Rückgängig/
         Wiederholen aber unnötiger Mehraufwand, wenn ohnehin sofort wieder
-        neu gerechnet werden könnte."""
+        neu gerechnet werden könnte.
+
+        Bugfix: bei recompute=False (Undo/Redo) NICHTS tun, wenn sich die
+        Probenhöhen durch diesen Schritt gar nicht ändern (Vergleich gegen
+        den AKTUELLEN Live-Zustand, siehe _sample_heights_state_list) --
+        siehe _load_project_shrinkage für die ausführliche Begründung
+        (sonst würden alle Kurven/Kantenmarkierungen bei JEDEM Undo/Redo
+        verschwinden, auch bei einem völlig unabhängigen Schritt)."""
+        heights_data = data.get("probenhoehen")
+        if not recompute and self.recording is not None and heights_data == self._sample_heights_state_list():
+            return
         for entry in self._sample_height_entries:
             entry.remove_from_view(self.view_box, self.shrinkage_plot)
         self._sample_height_entries = []
 
-        heights_data = data.get("probenhoehen")
         if isinstance(heights_data, list) and self.recording is not None:
             rows, _cols = self.recording.shape
             max_number = 0

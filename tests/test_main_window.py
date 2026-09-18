@@ -1896,9 +1896,23 @@ def test_csv_export_includes_shrinkage_area_column(loaded_main_window, tmp_path,
 
 # ------------------------------------------------------------ Probenhöhen
 
+def _place_sample_height(mw, row=None):
+    """Ersetzt den frueheren Einmal-Klick-Knopf (jetzt ein Klick-
+    Platzieren-Dauermodus analog zur "Größen-Messung", siehe
+    sample_height_ops.py:_add_sample_height/_handle_sample_height_click)
+    fuer Tests, die nur schnell eine Probenhöhe an einer bestimmten (oder
+    per Default der Bildmitte, dem frueheren festen Standard) Zeile
+    brauchen, ohne den Maus-Klick selbst zu simulieren -- siehe
+    test_sample_height_click_to_place_mode_matches_measurement_mode_pattern
+    fuer einen Test des tatsaechlichen Klick-Mechanismus."""
+    if row is None:
+        row = mw.recording.shape[0] // 2
+    return mw._add_sample_height(row)
+
+
 def test_add_sample_height_creates_entry_with_default_row_and_computes_width(loaded_main_window):
     mw = _make_shrinking_recording_window(loaded_main_window)
-    mw._on_add_sample_height_clicked()
+    _place_sample_height(mw)
 
     assert len(mw._sample_height_entries) == 1
     entry = mw._sample_height_entries[0]
@@ -1929,7 +1943,7 @@ def test_add_sample_height_creates_entry_with_default_row_and_computes_width(loa
 
 def test_sample_height_edge_ticks_follow_current_frame(loaded_main_window):
     mw = _make_shrinking_recording_window(loaded_main_window)
-    mw._on_add_sample_height_clicked()
+    _place_sample_height(mw)
     entry = mw._sample_height_entries[0]
 
     mw._show_frame(2)  # Kanten bei Spalte 12/38 (siehe pure-function-Test)
@@ -1939,7 +1953,7 @@ def test_sample_height_edge_ticks_follow_current_frame(loaded_main_window):
 
 def test_sample_height_row_spin_change_recomputes_width(loaded_main_window):
     mw = _make_shrinking_recording_window(loaded_main_window)
-    mw._on_add_sample_height_clicked()
+    _place_sample_height(mw)
     entry = mw._sample_height_entries[0]
 
     mw._on_sample_height_row_spin_changed(0, 0)  # ausserhalb des Probenbereichs (5:15)
@@ -1949,7 +1963,7 @@ def test_sample_height_row_spin_change_recomputes_width(loaded_main_window):
 
 def test_sample_height_line_drag_updates_row_and_recomputes(loaded_main_window):
     mw = _make_shrinking_recording_window(loaded_main_window)
-    mw._on_add_sample_height_clicked()
+    _place_sample_height(mw)
     entry = mw._sample_height_entries[0]
 
     entry.line.setPos(3.5)  # Zeile 3 -- ausserhalb des Probenbereichs
@@ -1961,7 +1975,7 @@ def test_sample_height_line_drag_updates_row_and_recomputes(loaded_main_window):
 
 def test_sample_height_enabled_toggle_hides_curve_and_line(loaded_main_window):
     mw = _make_shrinking_recording_window(loaded_main_window)
-    mw._on_add_sample_height_clicked()
+    _place_sample_height(mw)
     entry = mw._sample_height_entries[0]
     assert entry.line.isVisible() and entry.curve.isVisible()
 
@@ -1976,7 +1990,7 @@ def test_sample_height_enabled_toggle_hides_curve_and_line(loaded_main_window):
 
 def test_sample_height_rename(loaded_main_window):
     mw = _make_shrinking_recording_window(loaded_main_window)
-    mw._on_add_sample_height_clicked()
+    _place_sample_height(mw)
     entry = mw._sample_height_entries[0]
 
     entry.edit_name.setText("Oberkante")
@@ -1987,8 +2001,8 @@ def test_sample_height_rename(loaded_main_window):
 
 def test_sample_height_remove(loaded_main_window):
     mw = _make_shrinking_recording_window(loaded_main_window)
-    mw._on_add_sample_height_clicked()
-    mw._on_add_sample_height_clicked()
+    _place_sample_height(mw)
+    _place_sample_height(mw)
     assert len(mw._sample_height_entries) == 2
 
     mw._on_sample_height_remove_clicked(0)
@@ -1996,17 +2010,104 @@ def test_sample_height_remove(loaded_main_window):
     assert mw._sample_height_entries[0].name == "Probenhöhe 2"
 
 
-def test_sample_height_max_count_enforced(loaded_main_window):
+def _click_sample_height(mw, row: int, col: int = 5) -> None:
+    mw._handle_sample_height_click(_FakeSceneClickEvent(col, row))
+
+
+def test_sample_height_click_to_place_mode_matches_measurement_mode_pattern(loaded_main_window):
+    # Bugreport/Nutzerwunsch: "Der Button ... soll analog funktionieren, wie
+    # bei der 'Größen-Messung'" -- ein Dauer-Modus (Klick-Knopf bleibt
+    # eingeschaltet, JEDER Linksklick ins Bild platziert eine WEITERE
+    # Probenhöhe an der angeklickten Zeile), analog zu btn_add_measurement/
+    # "Messmodus" (siehe test_measurement_mode_toggle_allows_unlimited_
+    # measurements_while_on), statt eines Einmal-Klick-Knopfs mit fester
+    # Standardposition.
     mw = _make_shrinking_recording_window(loaded_main_window)
-    for _ in range(mwmod.sample_height_ops.MAX_SAMPLE_HEIGHT_COUNT + 3):
-        mw._on_add_sample_height_clicked()
+    mw.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+    mw.view_box.mapSceneToView = lambda pos: pos
+
+    mw.btn_add_sample_height.setChecked(True)
+    assert mw._sample_height_armed is True
+
+    _click_sample_height(mw, row=3)
+    assert len(mw._sample_height_entries) == 1
+    assert mw._sample_height_entries[0].row == 3
+    assert mw._sample_height_armed is True  # Modus bleibt an
+    assert mw.btn_add_sample_height.isChecked()
+
+    _click_sample_height(mw, row=8)
+    assert len(mw._sample_height_entries) == 2
+    assert mw._sample_height_entries[1].row == 8
+
+    mw.btn_add_sample_height.setChecked(False)
+    assert mw._sample_height_armed is False
+
+
+def test_sample_height_right_click_cancels_placement_mode(loaded_main_window):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+    mw.view_box.mapSceneToView = lambda pos: pos
+
+    mw.btn_add_sample_height.setChecked(True)
+    mw._handle_sample_height_click(_FakeSceneClickEvent(5, 3, button=QtCore.Qt.RightButton))
+    assert mw._sample_height_armed is False
+    assert not mw.btn_add_sample_height.isChecked()
+    assert len(mw._sample_height_entries) == 0
+
+
+def test_sample_height_placement_mode_excludes_other_placement_tools(loaded_main_window):
+    mw = loaded_main_window
+    mw._px_to_mm = 0.5  # _start_measurement_tool verlangt einen gesetzten Maßstab
+
+    mw.btn_add_sample_height.setChecked(True)
+    assert mw._sample_height_armed is True
+
+    mw._start_ruler_tool()
+    assert mw._sample_height_armed is False
+    assert not mw.btn_add_sample_height.isChecked()
+
+    mw.btn_add_sample_height.setChecked(True)
+    mw._start_measurement_tool()
+    assert mw._sample_height_armed is False
+
+    mw.btn_add_sample_height.setChecked(True)
+    mw._add_roi_entry()
+    mw.roi_entries[-1].btn_place.setChecked(True)
+    assert mw._sample_height_armed is False
+
+
+def test_sample_height_max_count_enforced(loaded_main_window, monkeypatch):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+    mw.view_box.mapSceneToView = lambda pos: pos
+
+    mw.btn_add_sample_height.setChecked(True)
+    for i in range(mwmod.sample_height_ops.MAX_SAMPLE_HEIGHT_COUNT):
+        _click_sample_height(mw, row=i)
     assert len(mw._sample_height_entries) == mwmod.sample_height_ops.MAX_SAMPLE_HEIGHT_COUNT
     assert not mw.btn_add_sample_height.isEnabled()
+    # Proaktiv beendet (siehe _handle_sample_height_click), sobald das
+    # Maximum GENAU mit diesem Klick erreicht wird -- sonst bliebe der
+    # Knopf deaktiviert UND angehakt haengen, ohne dass der Nutzer den
+    # Modus ueber die UI wieder ausschalten koennte.
+    assert not mw.btn_add_sample_height.isChecked()
+
+    # Der deaktivierte Knopf verhindert normalerweise ein erneutes Armieren
+    # -- direkt geprueft, dass ein (z.B. noch waehrend des Dauer-Modus
+    # eingegangener) weiterer Klick ebenfalls keine 11. Probenhöhe anlegt.
+    # QMessageBox.information() gemockt, da diese Fehlermeldung sonst einen
+    # echten (im Test blockierenden) modalen Dialog oeffnen wuerde (Muster
+    # aus test_measurement_mode_respects_max_measurement_count).
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    mw._sample_height_armed = True
+    _click_sample_height(mw, row=15)
+    assert len(mw._sample_height_entries) == mwmod.sample_height_ops.MAX_SAMPLE_HEIGHT_COUNT
+    assert mw._sample_height_armed is False
 
 
 def test_sample_height_undo_redo(loaded_main_window):
     mw = _make_shrinking_recording_window(loaded_main_window)
-    mw._on_add_sample_height_clicked()
+    _place_sample_height(mw)
     assert len(mw._sample_height_entries) == 1
 
     mw._on_undo()
@@ -2019,7 +2120,7 @@ def test_sample_height_undo_redo(loaded_main_window):
 
 def test_csv_export_includes_sample_height_column_default_percent(loaded_main_window, tmp_path, monkeypatch):
     mw = _make_shrinking_recording_window(loaded_main_window)
-    mw._on_add_sample_height_clicked()
+    _place_sample_height(mw)
     entry = mw._sample_height_entries[0]
     widths = entry.widths_px
     first = float(widths[0])
@@ -2051,7 +2152,7 @@ def test_csv_export_includes_sample_height_column_default_percent(loaded_main_wi
 
 def test_csv_export_sample_height_column_px_and_mm_selectable(loaded_main_window, tmp_path, monkeypatch):
     mw = _make_shrinking_recording_window(loaded_main_window)
-    mw._on_add_sample_height_clicked()
+    _place_sample_height(mw)
     entry = mw._sample_height_entries[0]
     widths = entry.widths_px
     mw._px_to_mm = 0.5
@@ -2082,7 +2183,7 @@ def test_csv_export_sample_height_column_px_and_mm_selectable(loaded_main_window
 
 def test_project_save_load_roundtrip_preserves_sample_heights(loaded_main_window, tmp_path):
     mw = _make_shrinking_recording_window(loaded_main_window)
-    mw._on_add_sample_height_clicked()
+    _place_sample_height(mw)
     entry = mw._sample_height_entries[0]
     entry.edit_name.setText("Oberkante")
     mw._on_sample_height_name_edited(0)

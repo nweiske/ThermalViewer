@@ -18,6 +18,10 @@ class _MouseMixin:
             self._handle_measurement_click(event)
             return
 
+        if self._sample_height_armed:
+            self._handle_sample_height_click(event)
+            return
+
         if event.double() and self._ruler_hit_test(event.scenePos()):
             self._edit_ruler_length()
             return

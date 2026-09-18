@@ -96,6 +96,7 @@ class _FrameNavMixin:
         self._hide_ruler_visuals()
         self._cancel_measurement_tool()
         self._hide_measurement_visuals()
+        self._cancel_sample_height_tool()
 
         for action in self._requires_recording_actions:
             action.setEnabled(True)

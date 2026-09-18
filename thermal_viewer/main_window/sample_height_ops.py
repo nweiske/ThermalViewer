@@ -149,8 +149,10 @@ class _SampleHeightMixin:
             "Zusätzliche Methode neben der Box oben: beliebig viele (max. 10) benannte, "
             "horizontale Linien im Bild -- die Probenbreite wird per automatischem "
             "Schwellenwert an jeder einzelnen Zeile bestimmt (nutzt denselben Spaltenbereich "
-            "wie die Box oben, unabhängig davon ob diese aktiviert ist). Ergebnis erscheint "
-            "sofort als eigene Kurve im Schwindungs-Graphen, live bei jeder Verschiebung."
+            "wie die Box oben, unabhängig davon ob diese aktiviert ist). „+ Probenhöhe“ "
+            "einschalten und dann beliebig oft ins Bild klicken, um weitere Zeilen zu platzieren "
+            "(wie beim Messmodus). Ergebnis erscheint sofort als eigene Kurve im Schwindungs-"
+            "Graphen, live bei jeder Verschiebung."
         )
         info.setWordWrap(True)
         info.setAlignment(QtCore.Qt.AlignJustify)
@@ -161,11 +163,21 @@ class _SampleHeightMixin:
         self.sample_height_list.setMaximumHeight(180)
         layout.addWidget(self.sample_height_list)
 
+        # Checkbarer Dauer-Schalter (Nutzerwunsch: "soll analog funktionieren
+        # wie bei der 'Größen-Messung'") statt eines Einmal-Klick-Knopfs mit
+        # fester Standardposition -- eingeschaltet bleibt er armiert, jeder
+        # Linksklick ins Bild platziert eine weitere Probenhöhe auf der
+        # angeklickten Zeile, bis er wieder ausgeschaltet wird (siehe
+        # measurement_ops.py:btn_add_measurement/"Messmodus" fuer dasselbe
+        # Muster).
         self.btn_add_sample_height = QtWidgets.QPushButton("+ Probenhöhe")
+        self.btn_add_sample_height.setCheckable(True)
         self.btn_add_sample_height.setToolTip(
-            f"Weitere Probenhöhe hinzufügen (bis zu {MAX_SAMPLE_HEIGHT_COUNT})."
+            f"Platzieren-Modus: Klick ins Bild platziert eine neue Probenhöhe auf der "
+            f"angeklickten Zeile (bis zu {MAX_SAMPLE_HEIGHT_COUNT}, beliebig oft hintereinander, "
+            f"bis der Knopf erneut geklickt wird)."
         )
-        self.btn_add_sample_height.clicked.connect(self._on_add_sample_height_clicked)
+        self.btn_add_sample_height.toggled.connect(self._on_sample_height_mode_toggled)
         layout.addWidget(self.btn_add_sample_height)
 
     def _sample_height_col_range(self) -> tuple[int, int, int]:
@@ -379,25 +391,110 @@ class _SampleHeightMixin:
         entry.line.sigPositionChangeFinished.connect(partial(self._on_sample_height_line_dragged, entry))
         return entry
 
-    def _on_add_sample_height_clicked(self) -> None:
-        if self.recording is None:
-            QtWidgets.QMessageBox.information(self, "Keine Daten", "Bitte zuerst eine Messreihe laden.")
-            return
-        if len(self._sample_height_entries) >= MAX_SAMPLE_HEIGHT_COUNT:
-            return
+    def _add_sample_height(self, row: int) -> SampleHeightEntry:
+        """Erzeugt EINE neue, platzierte Probenhöhe an Zeile `row` -- vom
+        Klick-Platzieren-Modus (siehe _handle_sample_height_click) fuer
+        JEDEN Linksklick ins Bild aufgerufen."""
         self._push_undo_snapshot()
         number = self._sample_height_next_number
         self._sample_height_next_number += 1
         entry = self._create_sample_height_entry(number, _sample_height_color(number))
-        rows, _cols = self.recording.shape
-        entry.row = rows // 2
+        entry.row = row
         self._update_sample_height_line_pos(entry)
         self._sample_height_entries.append(entry)
-        self._set_active_layer_tab("shrinkage")
         self._refresh_sample_height_rows()
         self._recompute_sample_height_entry(entry)
         self._apply_sample_height_visibility()
-        self.statusBar().showMessage(f"Probenhöhe „{entry.name}“ hinzugefügt.", 3000)
+        return entry
+
+    def _on_sample_height_mode_toggled(self, checked: bool) -> None:
+        """Nutzerwunsch: "analog wie bei der 'Größen-Messung'" -- ein echter
+        Ein/Aus-Schalter (Dauer-Modus, siehe measurement_ops.py:
+        _on_measurement_mode_toggled) statt eines Einmal-Klick-Knopfs mit
+        fester Standardposition: eingeschaltet bleibt er armiert, JEDER
+        Linksklick ins Bild platziert eine WEITERE Probenhöhe auf der
+        angeklickten Zeile, bis der Knopf wieder ausgeschaltet wird."""
+        if not checked:
+            self._cancel_sample_height_tool()
+            return
+        if not self._start_sample_height_tool():
+            # Guard in _start_sample_height_tool (keine Aufnahme/Maximum
+            # erreicht) hat bereits einen Hinweisdialog gezeigt -- Knopf
+            # wieder zuruecknehmen, ohne dessen eigenen toggled(False)-Zweig
+            # erneut zu durchlaufen.
+            self.btn_add_sample_height.blockSignals(True)
+            self.btn_add_sample_height.setChecked(False)
+            self.btn_add_sample_height.blockSignals(False)
+
+    def _start_sample_height_tool(self) -> bool:
+        if self.recording is None:
+            QtWidgets.QMessageBox.information(self, "Keine Daten", "Bitte zuerst eine Messreihe laden.")
+            return False
+        if len(self._sample_height_entries) >= MAX_SAMPLE_HEIGHT_COUNT:
+            QtWidgets.QMessageBox.information(
+                self, "Maximum erreicht",
+                f"Maximal {MAX_SAMPLE_HEIGHT_COUNT} Probenhöhen gleichzeitig möglich.",
+            )
+            return False
+        # Dieselbe Mutual-Exclusion wie Maßstab/Messmodus/ROI-Platzieren --
+        # ein Bildklick darf immer nur genau EINEM Modus zugeordnet sein
+        # (siehe mouse_ops.py:_on_scene_mouse_clicked).
+        if self._armed_entry is not None:
+            self._armed_entry.btn_place.blockSignals(True)
+            self._armed_entry.btn_place.setChecked(False)
+            self._armed_entry.btn_place.blockSignals(False)
+            self._armed_entry = None
+        if self._ruler_armed:
+            self._cancel_ruler_tool()
+        if self._measurement_armed:
+            self._cancel_measurement_tool()
+        self._set_active_layer_tab("shrinkage")
+        self._sample_height_armed = True
+        self.statusBar().showMessage(
+            "Probenhöhen-Modus aktiv: Klick ins Bild platziert eine neue Probenhöhe auf der "
+            "angeklickten Zeile (beliebig oft, zum Beenden den Knopf erneut klicken)."
+        )
+        return True
+
+    def _cancel_sample_height_tool(self) -> None:
+        """Analog zu measurement_ops.py:_cancel_measurement_tool -- haelt
+        btn_add_sample_height IMMER konsistent mit _sample_height_armed,
+        unabhaengig davon, welcher Aufrufer (Knopf selbst, ROI-Armieren,
+        Maßstab-/Messmodus-Start) den Modus beendet. Bereits platzierte
+        Probenhöhen bleiben unberuehrt."""
+        self._sample_height_armed = False
+        if self.btn_add_sample_height.isChecked():
+            self.btn_add_sample_height.blockSignals(True)
+            self.btn_add_sample_height.setChecked(False)
+            self.btn_add_sample_height.blockSignals(False)
+
+    def _handle_sample_height_click(self, event) -> None:
+        if event.button() != QtCore.Qt.LeftButton:
+            self._cancel_sample_height_tool()
+            self.statusBar().showMessage("Probenhöhen-Modus abgebrochen.", 3000)
+            return
+        row_col = self._pixel_at_scene_pos(event.scenePos())
+        if row_col is None:
+            return
+        row, _col = row_col
+        if len(self._sample_height_entries) >= MAX_SAMPLE_HEIGHT_COUNT:
+            # Waehrend des Dauer-Modus zwischenzeitlich erreicht (z.B. durch
+            # sehr viele schnelle Klicks) -- Modus beenden statt den Klick
+            # stillschweigend zu ignorieren.
+            self._cancel_sample_height_tool()
+            QtWidgets.QMessageBox.information(
+                self, "Maximum erreicht",
+                f"Maximal {MAX_SAMPLE_HEIGHT_COUNT} Probenhöhen gleichzeitig möglich.",
+            )
+            return
+        entry = self._add_sample_height(row)
+        if len(self._sample_height_entries) >= MAX_SAMPLE_HEIGHT_COUNT:
+            # Maximum GENAU mit diesem Klick erreicht: Modus proaktiv
+            # beenden statt ihn armiert (aber am -- jetzt deaktivierten,
+            # siehe _refresh_sample_height_rows -- Knopf nicht mehr
+            # abschaltbaren) Zustand haengen zu lassen.
+            self._cancel_sample_height_tool()
+        self.statusBar().showMessage(f"„{entry.name}“ auf Zeile {row} platziert.", 3000)
 
     def _on_sample_height_enabled_toggled(self, index: int, checked: bool) -> None:
         if not (0 <= index < len(self._sample_height_entries)):
@@ -431,7 +528,7 @@ class _SampleHeightMixin:
 
     def _on_sample_height_line_dragged(self, entry: SampleHeightEntry, line: pg.InfiniteLine) -> None:
         # Ueber die ENTRY-Referenz (nicht einen Listen-Index) gebunden,
-        # einmalig bei der Erzeugung (siehe _on_add_sample_height_clicked)
+        # einmalig bei der Erzeugung (siehe _create_sample_height_entry)
         # -- anders als die uebrigen Zeilen-Widgets (siehe
         # _refresh_sample_height_rows) wird diese Verbindung NICHT bei jedem
         # Hinzufuegen/Entfernen neu aufgebaut, ein index-basierter partial()

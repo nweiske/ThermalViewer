@@ -36,6 +36,8 @@ class _MeasurementMixin:
             self._armed_entry = None
         if self._measurement_armed:
             self._cancel_measurement_tool()
+        if self._sample_height_armed:
+            self._cancel_sample_height_tool()
         self._set_active_layer_tab("scale")
         self._ruler_armed = True
         self._ruler_start = None
@@ -343,6 +345,8 @@ class _MeasurementMixin:
             self._armed_entry = None
         if self._ruler_armed:
             self._cancel_ruler_tool()
+        if self._sample_height_armed:
+            self._cancel_sample_height_tool()
         self._set_active_layer_tab("scale")
         self._measurement_armed = True
         self._measurement_start = None

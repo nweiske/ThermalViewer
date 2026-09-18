@@ -114,6 +114,8 @@ class _RoiMixin:
                 self._cancel_ruler_tool()
             if self._measurement_armed:
                 self._cancel_measurement_tool()
+            if self._sample_height_armed:
+                self._cancel_sample_height_tool()
             self._armed_entry = entry
             self.statusBar().showMessage(f"{entry.name}: Klick ins Bild zum Platzieren.")
         elif self._armed_entry is entry:

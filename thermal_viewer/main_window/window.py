@@ -261,6 +261,11 @@ class MainWindow(
         # Messung oben.
         self._sample_height_entries: list = []
         self._sample_height_next_number = 1
+        # Klick-Platzieren-Modus (Nutzerwunsch: "analog wie bei der
+        # 'Größen-Messung'", siehe measurement_ops.py:_measurement_armed
+        # fuer dasselbe Muster) -- True, waehrend der naechste Linksklick
+        # ins Bild eine neue Probenhöhe auf der angeklickten Zeile anlegt.
+        self._sample_height_armed = False
         # Zeitachsen-Anzeige beider Kurven-Graphen: "clock" (echte Uhrzeit,
         # Standard) oder "runtime" (relative Laufzeit ab Aufnahmebeginn) --
         # ueber je einen Umschalter unten rechts an beiden Graphen wählbar,

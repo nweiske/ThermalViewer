@@ -70,8 +70,26 @@ def isolated_qsettings(tmp_path):
         QtCore.QSettings = real_qsettings
 
 
-@pytest.hookimpl(trylast=True)
+# Testergebnis, zwischengespeichert von pytest_sessionfinish fuer
+# pytest_unconfigure (siehe dort fuer den Grund der Aufteilung auf zwei
+# Hooks statt eines einzelnen).
+_exit_status: int | None = None
+
+
 def pytest_sessionfinish(session, exitstatus):
+    """Merkt sich nur das Testergebnis -- das eigentliche Notbremsen
+    passiert bewusst ERST in pytest_unconfigure() weiter unten, nicht hier
+    (siehe dort). trylast=True half NICHT zuverlaessig: lokal reproduziert
+    (mit einem absichtlich fehlschlagenden Test), dass dieser Hook trotz
+    trylast=True vor dem eingebauten Terminal-Reporter-Hook lief und dessen
+    "FAILURES"-Abschnitt/Kurzzusammenfassung dadurch NIE gedruckt wurden --
+    pluggys trylast ordnet nur INNERHALB gleich priorisierter Hooks,
+    offenbar reicht das hier nicht gegen den eingebauten Reporter."""
+    global _exit_status
+    _exit_status = int(exitstatus)
+
+
+def pytest_unconfigure(config) -> None:
     """Umgeht Pythons normale Interpreter-Aufraeumroutine am Ende der
     kompletten Test-Session -- gezielte Notbremse gegen ein bekanntes
     PySide6/shiboken-Problem (Absturz erst NACH bereits vollstaendig
@@ -84,13 +102,23 @@ def pytest_sessionfinish(session, exitstatus):
     Linux bleibt ein Rest-Absturz bestehen, der unabhaengig von den in
     dieser Suite selbst erzeugten Qt-Objekten zu sein scheint (bekannte
     Klasse von Abstuerzen im QT_QPA_PLATFORM=offscreen-Pfad beim regulaeren
-    Python-/Qt-Shutdown). Da zu DIESEM Zeitpunkt (trylast=True, laeuft also
-    NACH dem Terminal-Reporter, der die Zusammenfassungszeile "N passed in
-    Xs" bereits gedruckt hat) das tatsaechliche Testergebnis (exitstatus)
-    bereits vollstaendig feststeht, beendet dieser Hook den Prozess SOFORT
-    mit genau diesem Ergebnis als Exit-Code -- ohne atexit-Handler, Modul-
-    oder GC-Teardown, also ohne die Codepfade zu durchlaufen, in denen der
-    eigentliche (hier nicht weiter beeinflussbare) Absturz stattfindet.
+    Python-/Qt-Shutdown).
+
+    pytest_unconfigure() statt pytest_sessionfinish(): laeuft im
+    aeussersten finally von wrap_session() (_pytest/main.py), GARANTIERT
+    NACH jedem sessionfinish-Hookimpl (inkl. des eingebauten Terminal-
+    Reporters, der dort "N passed/failed in Xs" UND bei einem
+    Fehlschlag den kompletten "FAILURES"-Abschnitt druckt) -- pytest_
+    sessionfinish selbst reichte dafuer NICHT zuverlaessig aus (siehe
+    dortiger Docstring). Zu DIESEM Zeitpunkt steht das Testergebnis
+    (_exit_status, siehe pytest_sessionfinish oben) bereits vollstaendig
+    fest UND wurde bereits vollstaendig ausgegeben -- dieser Hook beendet
+    den Prozess daher SOFORT mit genau diesem Ergebnis als Exit-Code, ohne
+    atexit-Handler, Modul- oder GC-Teardown, also ohne die Codepfade zu
+    durchlaufen, in denen der eigentliche (hier nicht weiter
+    beeinflussbare) Absturz stattfindet. None-Check: ohne die beiden Hooks
+    hier oben (z.B. bei einem sehr fruehen Abbruch vor jeder Test-Sammlung)
+    _exit_status noch nicht gesetzt -- dann normal weiterlaufen lassen.
 
     Lokal reproduziert (bewusst NICHT ungetestet gepusht): os._exit() allein
     reicht unter Windows NICHT aus -- os._exit() ruft dort intern
@@ -103,6 +131,8 @@ def pytest_sessionfinish(session, exitstatus):
     Wurzel. Unter Linux/macOS ist os._exit() (der rohe _exit()-Syscall)
     bereits ausreichend, da dort kein DLL_PROCESS_DETACH-Aequivalent
     existiert."""
+    if _exit_status is None:
+        return
     sys.stdout.flush()
     sys.stderr.flush()
     if sys.platform == "win32":
@@ -115,9 +145,9 @@ def pytest_sessionfinish(session, exitstatus):
         kernel32 = ctypes.windll.kernel32
         PROCESS_TERMINATE = 0x0001
         handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, os.getpid())
-        kernel32.TerminateProcess(handle, int(exitstatus))
+        kernel32.TerminateProcess(handle, _exit_status)
     else:
-        os._exit(int(exitstatus))
+        os._exit(_exit_status)
 
 
 @pytest.fixture(autouse=True)

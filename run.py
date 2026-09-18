@@ -4,6 +4,7 @@ import sys
 from qtpy import QtCore, QtGui, QtWidgets
 
 from thermal_viewer.assets import ICON_PATH
+from thermal_viewer.error_handling import install_global_excepthook
 from thermal_viewer.main_window import MainWindow
 
 
@@ -35,6 +36,7 @@ def _install_german_translations(app: QtWidgets.QApplication) -> None:
 
 def main() -> None:
     app = QtWidgets.QApplication(sys.argv)
+    install_global_excepthook()
     _install_german_translations(app)
     app.setWindowIcon(QtGui.QIcon(str(ICON_PATH)))
     window = MainWindow()

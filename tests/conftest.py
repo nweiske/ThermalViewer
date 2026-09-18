@@ -8,8 +8,10 @@ Build-Schritt ab (pytest liefert einen Exit-Code != 0 zurueck).
 """
 from __future__ import annotations
 
+import ctypes
 import gc
 import os
+import sys
 
 # MUSS passieren, BEVOR irgendein Testmodul qtpy/Qt importiert -- sonst
 # wuerde die App versuchen, ein echtes (in CI nicht vorhandenes) Fenster zu
@@ -66,6 +68,56 @@ def isolated_qsettings(tmp_path):
         yield
     finally:
         QtCore.QSettings = real_qsettings
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    """Umgeht Pythons normale Interpreter-Aufraeumroutine am Ende der
+    kompletten Test-Session -- gezielte Notbremse gegen ein bekanntes
+    PySide6/shiboken-Problem (Absturz erst NACH bereits vollstaendig
+    gelaufener UND ausgewerteter Test-Session, siehe CI-Logs "188 passed"
+    gefolgt von exit code 1/139 auf Windows10/11- bzw. Linux-Build).
+
+    _collect_qt_garbage_after_test (unten) beseitigt den GROSSTEIL der
+    Ursache (Referenzzyklen, die sich sonst bis zum Interpreter-Ende
+    aufstauen und dann in falscher Reihenfolge zerstoert werden), aber auf
+    Linux bleibt ein Rest-Absturz bestehen, der unabhaengig von den in
+    dieser Suite selbst erzeugten Qt-Objekten zu sein scheint (bekannte
+    Klasse von Abstuerzen im QT_QPA_PLATFORM=offscreen-Pfad beim regulaeren
+    Python-/Qt-Shutdown). Da zu DIESEM Zeitpunkt (trylast=True, laeuft also
+    NACH dem Terminal-Reporter, der die Zusammenfassungszeile "N passed in
+    Xs" bereits gedruckt hat) das tatsaechliche Testergebnis (exitstatus)
+    bereits vollstaendig feststeht, beendet dieser Hook den Prozess SOFORT
+    mit genau diesem Ergebnis als Exit-Code -- ohne atexit-Handler, Modul-
+    oder GC-Teardown, also ohne die Codepfade zu durchlaufen, in denen der
+    eigentliche (hier nicht weiter beeinflussbare) Absturz stattfindet.
+
+    Lokal reproduziert (bewusst NICHT ungetestet gepusht): os._exit() allein
+    reicht unter Windows NICHT aus -- os._exit() ruft dort intern
+    ExitProcess() auf, und DAS loest weiterhin DLL_PROCESS_DETACH fuer jede
+    geladene DLL aus, inklusive der nativen Qt/shiboken-Destruktoren, in
+    denen der eigentliche Absturz sitzt (siehe reproduzierter Traceback:
+    "Windows fatal exception: access violation" GENAU in der Zeile des
+    os._exit()-Aufrufs). TerminateProcess() dagegen beendet den Prozess
+    ohne jede DLL-Unload-Benachrichtigung und umgeht das Problem an der
+    Wurzel. Unter Linux/macOS ist os._exit() (der rohe _exit()-Syscall)
+    bereits ausreichend, da dort kein DLL_PROCESS_DETACH-Aequivalent
+    existiert."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    if sys.platform == "win32":
+        # Lokal verifiziert: GetCurrentProcess() liefert nur ein Pseudo-
+        # Handle (-1) -- TerminateProcess() DAMIT beendet den Prozess zwar,
+        # aber der uebergebene Exit-Code kommt beim aufrufenden Prozess (der
+        # CI-Step) unzuverlaessig als 0 an, egal welcher Wert gesetzt wurde.
+        # Ein ECHTES Handle ueber OpenProcess() auf die eigene PID behebt
+        # das -- damit kam der Exit-Code in Tests zuverlaessig korrekt an.
+        kernel32 = ctypes.windll.kernel32
+        PROCESS_TERMINATE = 0x0001
+        handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, os.getpid())
+        kernel32.TerminateProcess(handle, int(exitstatus))
+    else:
+        os._exit(int(exitstatus))
 
 
 @pytest.fixture(autouse=True)

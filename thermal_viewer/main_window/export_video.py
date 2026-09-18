@@ -90,6 +90,7 @@ class _VideoExportMixin:
             freeze_excluded_pixels = dialog.freeze_excluded_frame_pixels()
             include_scale_ruler = dialog.include_scale_ruler()
             selected_scale_numbers = dialog.included_scale_measurement_numbers()
+            layer_categories = dialog.export_layer_categories()
             # Nutzerwunsch: beliebig viele Graphen gleichzeitig statt bisher
             # nur GENAU EINEM (fest Zeitverlauf) -- ROI-/Live-Kurven-Auswahl,
             # Achsen-Overrides und die Dual-Zeitachse bleiben dabei ein
@@ -319,6 +320,7 @@ class _VideoExportMixin:
             with self._frozen_ui_during_export(), \
                     self._maybe_hidden_live_cursor(include_cursor), \
                     self._temporary_scale_visuals(include_scale_ruler, selected_scale_numbers), \
+                    self._temporary_export_layers(layer_categories), \
                     self._temporary_graph_content(selected_roi_numbers, include_live_curve), \
                     (self._temporary_axis_override(self.timeseries_plot, axis_overrides)
                      if "zeitverlauf" in selected_keys else contextlib.nullcontext()), \

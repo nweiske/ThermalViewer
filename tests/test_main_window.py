@@ -1160,6 +1160,46 @@ def test_graphic_export_dialog_graph_checkboxes_default_and_order(loaded_main_wi
         dlg.close()
 
 
+def test_graphic_export_dialog_layer_checkboxes_default_on_and_toggle(loaded_main_window):
+    # Nutzerwunsch: "Ebenen im Bild" (ROI-Messbereiche/Schwindungsmessung)
+    # per Ankreuzliste waehlbar, unabhaengig vom aktuell im Hauptfenster
+    # aktiven Ebenen-Tab -- Standard: beide AN (entspricht "Alle").
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    dlg = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=False, roi_entries=[(1, "ROI 1")],
+        show_scale_choice=True,
+    )
+    try:
+        assert dlg.export_layer_categories() == {"roi", "shrinkage"}
+        dlg.chk_layer_shrinkage.setChecked(False)
+        assert dlg.export_layer_categories() == {"roi"}
+        dlg.chk_layer_roi.setChecked(False)
+        assert dlg.export_layer_categories() == set()
+    finally:
+        dlg.close()
+
+
+def test_graphic_export_dialog_without_scale_choice_has_no_layer_checkboxes(loaded_main_window):
+    # show_scale_choice=False (z.B. reiner Kurven-Einzelexport ohne
+    # Thermobild, siehe MainWindow._export_single_graph) -- keine Ebenen-
+    # Auswahl, export_layer_categories() bleibt leer statt AttributeError.
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    dlg = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        show_mode_choice=False, show_time_axis_choice=False,
+    )
+    try:
+        assert dlg.chk_layer_roi is None
+        assert dlg.export_layer_categories() == set()
+    finally:
+        dlg.close()
+
+
 def test_graphic_export_dialog_requires_at_least_one_graph_selected(loaded_main_window, monkeypatch):
     from thermal_viewer.dialogs import GraphicExportDialog
 
@@ -1262,6 +1302,25 @@ def test_video_export_dialog_graph_checkboxes_default_to_none_selected(qapp):
     try:
         assert dlg.selected_graph_keys() == []
         assert dlg.show_graph() is False
+    finally:
+        dlg.close()
+
+
+def test_video_export_dialog_layer_checkboxes_default_on_and_toggle(qapp):
+    # Analog zu GraphicExportDialog -- hier immer vorhanden (das Thermobild
+    # ist bei diesem Dialog immer Teil des Exports), Standard ebenfalls
+    # beide AN.
+    from thermal_viewer.dialogs import VideoExportDialog
+
+    dlg = VideoExportDialog(
+        None, n_frames=5, colormaps=[("Grau", "grey")], current_colormap_index=0,
+        current_invert=False, current_level_mode="global", current_min=0.0, current_max=100.0,
+        current_fps=5.0,
+    )
+    try:
+        assert dlg.export_layer_categories() == {"roi", "shrinkage"}
+        dlg.chk_layer_roi.setChecked(False)
+        assert dlg.export_layer_categories() == {"shrinkage"}
     finally:
         dlg.close()
 
@@ -2845,6 +2904,48 @@ def test_layer_tab_gates_roi_image_items(roi_and_live_window):
     mw._set_active_layer_tab("all")
     assert entry.roi.isVisible()
     assert entry.label.isVisible()
+
+
+def test_temporary_export_layers_overrides_active_layer_tab_and_restores_it(roi_and_live_window):
+    # Nutzerwunsch: Grafik-/Video-/Bildstapel-Export sollen per Ankreuzliste
+    # waehlen koennen, welche Ebenen (ROI-Messbereiche/Schwindungsmessung)
+    # im exportierten Thermobild erscheinen -- UNABHAENGIG davon, welcher
+    # Ebenen-Tab GERADE im Hauptfenster aktiv ist (siehe export_visuals.py:
+    # _temporary_export_layers).
+    mw = roi_and_live_window
+    entry = mw.roi_entries[-1]
+    mw.chk_shrinkage_enabled.setChecked(True)
+    assert mw._active_layer_tab == "shrinkage"
+    assert not entry.roi.isVisible(), "Ebenen-Tab 'shrinkage' blendet ROI normalerweise aus"
+    assert mw.roi_shrink_area.isVisible()
+
+    with mw._temporary_export_layers({"roi"}):
+        assert entry.roi.isVisible(), "Override {'roi'} soll ROI unabhaengig vom Tab zeigen"
+        assert not mw.roi_shrink_area.isVisible(), "Override {'roi'} soll Schwindung ausblenden"
+
+    # Nach Verlassen: exakt der Ausgangszustand, Ebenen-Tab selbst unveraendert.
+    assert mw._active_layer_tab == "shrinkage"
+    assert not entry.roi.isVisible()
+    assert mw.roi_shrink_area.isVisible()
+
+    # Umgekehrter Fall: Tab "roi" aktiv, Override waehlt nur "shrinkage".
+    mw._set_active_layer_tab("roi")
+    assert entry.roi.isVisible()
+    assert not mw.roi_shrink_area.isVisible()
+    with mw._temporary_export_layers({"shrinkage"}):
+        assert not entry.roi.isVisible()
+        assert mw.roi_shrink_area.isVisible()
+    assert entry.roi.isVisible()
+    assert not mw.roi_shrink_area.isVisible()
+
+    # "scale" ist NIE Teil des Overrides -- Maßstab/Messungen behalten ihre
+    # eigene, feinere Export-Auswahl (_temporary_scale_visuals), die vom
+    # Ebenen-Override unbeeinflusst bleiben muss.
+    with mw._temporary_export_layers(set()):
+        assert mw._is_layer_tab_active("scale") == (mw._active_layer_tab in ("all", "scale"))
+    mw._set_active_layer_tab("all")
+    with mw._temporary_export_layers(set()):
+        assert mw._is_layer_tab_active("scale")
 
 
 def test_layer_tab_never_reveals_unplaced_or_user_hidden_roi(loaded_main_window):

@@ -228,6 +228,14 @@ class MainWindow(
         # "das Thermobild wird recht voll") -- siehe layer_tabs_ops.py. "all"
         # entspricht dem bisherigen, ungefilterten Verhalten (alles sichtbar).
         self._active_layer_tab = "all"
+        # Export-Override (Nutzerwunsch: "Ebenen" -- ob ROI-Messbereiche/
+        # Schwindungsmessung im exportierten Bild erscheinen -- per
+        # Ankreuzliste UNABHAENGIG vom aktuell im Hauptfenster gewaehlten
+        # Ebenen-Tab waehlbar): None = normales Verhalten (richtet sich nach
+        # _active_layer_tab), sonst die waehrend eines Exports erlaubten
+        # Kategorien (siehe layer_tabs_ops.py:_is_layer_tab_active,
+        # export_visuals.py:_temporary_export_layers).
+        self._export_layer_categories: set[str] | None = None
         # Schwindungsmessung (Punkt 9, Nutzerwunsch, experimentell -- siehe
         # shrinkage_ops.py): EINE aktive Messung (wie das Maßstab-Werkzeug),
         # standardmaessig deaktiviert/ausgeblendet, um Nutzer, die sie nicht

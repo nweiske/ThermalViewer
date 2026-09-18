@@ -20,6 +20,19 @@ from .scale_selector import ScaleContentSelector
 # gehalten, da dialogs/ bewusst KEINE Abhaengigkeit von main_window/ hat.
 _GRAPH_CHECKBOX_KEYS = ["zeitverlauf", "schwindung", "querschnitt"]
 
+# Reihenfolge/Anzeigenamen der "Ebenen im Bild"-Checkboxen (Nutzerwunsch:
+# ob ROI-Messbereiche/Schwindungsmessung im exportierten THERMOBILD
+# erscheinen, unabhaengig vom aktuell im Hauptfenster gewaehlten Ebenen-Tab
+# -- siehe layer_tabs_ops.py:_LAYER_TAB_ORDER fuer dieselben zwei
+# Kategorien/Anzeigenamen). "scale" (Maßstab) ist bewusst NICHT Teil davon --
+# Maßstab/Messungen haben bereits ihre eigene, feinere Export-Auswahl
+# (siehe ScaleContentSelector weiter unten).
+_IMAGE_LAYER_KEYS = ["roi", "shrinkage"]
+_IMAGE_LAYER_LABELS = {
+    "roi": "Temperatur-Messung (ROI-Messbereiche)",
+    "shrinkage": "Schwindungsmessung (Box, Kontur, Probenhöhen)",
+}
+
 
 class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     """Fragt DPI ab und (falls show_mode_choice) ob Bild + Kurve kombiniert
@@ -139,6 +152,30 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 "ungewollt eine Maus-/Debug-Markierung enthält."
             )
             left_col.addWidget(self.chk_cursor_position)
+
+        # Nutzerwunsch: "Ebenen" (ROI-Messbereiche/Schwindungsmessung) im
+        # exportierten THERMOBILD per Ankreuzliste waehlbar, unabhaengig vom
+        # aktuell im Hauptfenster gewaehlten Ebenen-Tab -- nur relevant,
+        # wenn dieser Dialog ueberhaupt ein Thermobild exportiert (dieselbe
+        # Bedingung wie show_scale_choice unten, siehe dort). Beide Standard
+        # AN (entspricht dem Programmstart-Verhalten "Alle" -- geringste
+        # Ueberraschung).
+        self.chk_layer_roi: QtWidgets.QCheckBox | None = None
+        self.chk_layer_shrinkage: QtWidgets.QCheckBox | None = None
+        if show_scale_choice:
+            layers_box = QtWidgets.QGroupBox("Ebenen im Bild")
+            layers_layout = QtWidgets.QVBoxLayout(layers_box)
+            self.chk_layer_roi = QtWidgets.QCheckBox(_IMAGE_LAYER_LABELS["roi"])
+            self.chk_layer_roi.setChecked(True)
+            self.chk_layer_shrinkage = QtWidgets.QCheckBox(_IMAGE_LAYER_LABELS["shrinkage"])
+            self.chk_layer_shrinkage.setChecked(True)
+            for chk in (self.chk_layer_roi, self.chk_layer_shrinkage):
+                layers_layout.addWidget(chk)
+            layers_box.setToolTip(
+                "Steuert, welche Bild-Overlays im exportierten Thermobild erscheinen -- "
+                "unabhängig davon, welche Ebene gerade im Hauptfenster aktiv ist."
+            )
+            left_col.addWidget(layers_box)
 
         # Punkt 12 (Nutzerwunsch): Maßstab-Linie und einzelne Messungen
         # optional mit ins exportierte Thermobild aufnehmen -- nur relevant,
@@ -293,6 +330,9 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             self.combo_graph_position.currentIndexChanged.connect(refresh)
         if self.chk_cursor_position is not None:
             self.chk_cursor_position.toggled.connect(refresh)
+        if self.chk_layer_roi is not None:
+            self.chk_layer_roi.toggled.connect(refresh)
+            self.chk_layer_shrinkage.toggled.connect(refresh)
         refresh()
 
     def selected_graph_keys(self) -> list[str]:
@@ -308,6 +348,16 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             "querschnitt": self.chk_graph_querschnitt,
         }
         return [key for key in _GRAPH_CHECKBOX_KEYS if checks[key].isChecked()]
+
+    def export_layer_categories(self) -> set[str]:
+        """Ausgewaehlte Bild-Ebenen ("roi"/"shrinkage", siehe
+        _IMAGE_LAYER_KEYS) -- leere Menge, falls der Dialog gar keine
+        Ebenen-Auswahl anbietet (show_scale_choice=False, kein Thermobild in
+        diesem Export)."""
+        if self.chk_layer_roi is None:
+            return set()
+        checks = {"roi": self.chk_layer_roi, "shrinkage": self.chk_layer_shrinkage}
+        return {key for key in _IMAGE_LAYER_KEYS if checks[key].isChecked()}
 
     def _update_graph_position_enabled(self) -> None:
         self.combo_graph_position.setEnabled(self.chk_combined.isChecked())
@@ -765,6 +815,26 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         row2.addWidget(graph_box, 1)
         layout.addLayout(row2)
 
+        # Nutzerwunsch: "Ebenen" (ROI-Messbereiche/Schwindungsmessung) im
+        # exportierten THERMOBILD per Ankreuzliste waehlbar, unabhaengig vom
+        # aktuell im Hauptfenster gewaehlten Ebenen-Tab -- eigene Box statt
+        # in cursor_box verschachtelt, um dessen bestehende Struktur (siehe
+        # ScaleContentSelector host_box) nicht anzufassen. Beide Standard AN
+        # (entspricht dem Programmstart-Verhalten "Alle" -- geringste
+        # Ueberraschung).
+        layers_box = QtWidgets.QGroupBox("Ebenen im Bild")
+        layers_layout = QtWidgets.QVBoxLayout(layers_box)
+        self.chk_layer_roi = QtWidgets.QCheckBox(_IMAGE_LAYER_LABELS["roi"])
+        self.chk_layer_roi.setChecked(True)
+        self.chk_layer_shrinkage = QtWidgets.QCheckBox(_IMAGE_LAYER_LABELS["shrinkage"])
+        self.chk_layer_shrinkage.setChecked(True)
+        for chk in (self.chk_layer_roi, self.chk_layer_shrinkage):
+            layers_layout.addWidget(chk)
+        layers_box.setToolTip(
+            "Steuert, welche Bild-Overlays im exportierten Thermobild erscheinen -- "
+            "unabhängig davon, welche Ebene gerade im Hauptfenster aktiv ist."
+        )
+
         # Eigener, vom Graphen UNABHAENGIGER Kasten fuer alles, was zusaetzlich
         # DIREKT AUF DEM THERMOBILD selbst eingeblendet wird -- Cursor
         # (Fadenkreuz + Live-Temperatur-Text) UND Maßstab/Messungen
@@ -832,11 +902,12 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         overlay_grid.addWidget(self.radio_overlay_timestamp, 1, 0)
         overlay_grid.addWidget(self.radio_overlay_both, 1, 1)
 
-        # Cursor-im-Bild und Zeitanzeige-im-Bild nebeneinander -- beides sind
+        # Ebenen-/Cursor-/Zeitanzeige-im-Bild nebeneinander -- alle drei sind
         # zusaetzliche Einblendungen direkt auf dem Bild/Video (im Unterschied
-        # zum Graphen-Kasten oben), daher hier bewusst als eigenes Zeilenpaar
+        # zum Graphen-Kasten oben), daher hier bewusst als eigene Zeile
         # gruppiert statt einzeln untereinander.
         overlay_row = QtWidgets.QHBoxLayout()
+        overlay_row.addWidget(layers_box, 1)
         overlay_row.addWidget(cursor_box, 1)
         overlay_row.addWidget(overlay_box, 1)
         layout.addLayout(overlay_row)
@@ -955,7 +1026,16 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             chk.toggled.connect(refresh)
         self.combo_graph_position.currentIndexChanged.connect(refresh)
         self.chk_cursor_position.toggled.connect(refresh)
+        self.chk_layer_roi.toggled.connect(refresh)
+        self.chk_layer_shrinkage.toggled.connect(refresh)
         refresh()
+
+    def export_layer_categories(self) -> set[str]:
+        """Ausgewaehlte Bild-Ebenen ("roi"/"shrinkage", siehe
+        _IMAGE_LAYER_KEYS) -- hier immer vorhanden (das Thermobild ist bei
+        diesem Dialog immer Teil des Exports)."""
+        checks = {"roi": self.chk_layer_roi, "shrinkage": self.chk_layer_shrinkage}
+        return {key for key in _IMAGE_LAYER_KEYS if checks[key].isChecked()}
 
     def _on_accept(self) -> None:
         if self.spin_end.value() < self.spin_start.value():

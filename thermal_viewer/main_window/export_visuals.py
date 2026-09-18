@@ -79,6 +79,7 @@ class _ExportVisualsMixin:
         selected_keys = export_dialog.selected_graph_keys()
         graph_position = export_dialog.graph_position()
         include_cursor = export_dialog.export_cursor_position()
+        layer_categories = export_dialog.export_layer_categories()
         preview_scale = 0.5
         image_bg = QtGui.QColor(self._image_bg)
         bg = QtGui.QColor(self._graph_bg)
@@ -92,7 +93,9 @@ class _ExportVisualsMixin:
             # aufgefallen (derselbe Bugreport wie bei _frozen_ui_during_export
             # selbst, hier nur ueber die Vorschau statt den echten Export
             # ausgeloest).
-            with self._frozen_ui_during_export(), self._maybe_hidden_live_cursor(include_cursor):
+            with self._frozen_ui_during_export(), \
+                    self._maybe_hidden_live_cursor(include_cursor), \
+                    self._temporary_export_layers(layer_categories):
                 for key in selected_keys:
                     with self._widget_raised_for_export(self._export_graph_widget(key)):
                         QtWidgets.QApplication.processEvents()
@@ -269,6 +272,34 @@ class _ExportVisualsMixin:
                     visible = prev_measurement_visible[entry.number]
                     entry.line.setVisible(visible)
                     entry.text.setVisible(visible)
+
+    @contextlib.contextmanager
+    def _temporary_export_layers(self, categories: set[str]):
+        """Blendet waehrend eines Thermobild-Exports GENAU die vom Nutzer im
+        Export-Dialog ausgewaehlten Bild-Ebenen ein (Nutzerwunsch: "die
+        verschiedenen Ebenen ... als Ankreuzliste") -- unabhaengig davon,
+        welcher Ebenen-Tab GERADE im Hauptfenster aktiv ist (siehe
+        layer_tabs_ops.py:_is_layer_tab_active, das waehrend dieses Context-
+        Managers `categories` statt _active_layer_tab befragt). `categories`
+        ist eine Teilmenge von {"roi", "shrinkage"} -- "scale" ist bewusst
+        NIE Teil davon: Maßstab/Messungen haben bereits ihre eigene, feinere
+        Export-Auswahl (siehe _temporary_scale_visuals oben), die hier nicht
+        durch die groebere Ebenen-Logik ueberschrieben werden soll (siehe
+        layer_tabs_ops.py:_is_layer_tab_active).
+
+        Ruft bewusst NUR _apply_roi_and_shrinkage_visibility() auf (nicht
+        das umfassendere _apply_layer_tab_visibility()), damit die bereits
+        von _temporary_scale_visuals gesetzte Maßstab-/Messungs-Sichtbarkeit
+        unberuehrt bleibt, egal in welcher Reihenfolge beide Context-Manager
+        verschachtelt sind."""
+        previous = self._export_layer_categories
+        self._export_layer_categories = categories
+        self._apply_roi_and_shrinkage_visibility()
+        try:
+            yield
+        finally:
+            self._export_layer_categories = previous
+            self._apply_roi_and_shrinkage_visibility()
 
     @contextlib.contextmanager
     def _maybe_hidden_live_cursor(self, include_cursor: bool):

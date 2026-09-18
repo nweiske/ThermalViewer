@@ -84,6 +84,14 @@ class _LayerTabsMixin:
             self._set_active_layer_tab(tab)
 
     def _is_layer_tab_active(self, category: str) -> bool:
+        # Export-Override (siehe window.py:_export_layer_categories,
+        # export_visuals.py:_temporary_export_layers): waehrend eines
+        # Exports mit gewaehlter Ebenen-Auswahl entscheidet NUR noch diese
+        # Menge, unabhaengig vom aktuell im Hauptfenster angezeigten Tab --
+        # deckt bewusst NIE "scale" ab (siehe dort), fuer diese Kategorie
+        # bleibt _active_layer_tab also weiterhin massgeblich.
+        if self._export_layer_categories is not None and category != "scale":
+            return category in self._export_layer_categories
         return self._active_layer_tab in ("all", category)
 
     def _apply_layer_tab_visibility(self) -> None:
@@ -93,6 +101,14 @@ class _LayerTabsMixin:
         Gating mehr -- ihre Sichtbarkeit ergibt sich daraus, ob sie gerade
         die aktive Seite von self.panel_tab_widget sind (siehe
         _set_active_layer_tab/_on_panel_tab_widget_changed)."""
+        self._apply_roi_and_shrinkage_visibility()
+        self._apply_scale_visuals_visibility()
+
+    def _apply_roi_and_shrinkage_visibility(self) -> None:
+        """Der ROI-/Schwindungs-Teil von _apply_layer_tab_visibility() --
+        eigene Methode, damit export_visuals.py:_temporary_export_layers
+        NUR diesen Teil (nicht _apply_scale_visuals_visibility(), siehe
+        dort) fuer den Export-Ebenen-Override neu anwenden kann."""
         # entry.roi/entry.label existieren fuer JEDEN Eintrag ab dessen
         # Erzeugung (auch vor dem eigentlichen Platzieren, siehe
         # roi_panel_build.py:_add_roi_entry), STARTEN dort aber bewusst
@@ -110,13 +126,11 @@ class _LayerTabsMixin:
             entry.roi.setVisible(should_show)
             entry.label.setVisible(should_show)
 
-        # Schwindung/Maßstab haben jeweils eine EIGENE Sichtbarkeits-
-        # Bedingung (Aktivieren-Checkbox bzw. "Anzeigen"-Checkbox) -- deren
-        # Anwendungs-Methoden UND-verknüpfen das bereits mit
-        # _is_layer_tab_active, hier nur neu auswerten.
+        # Schwindung hat eine EIGENE Sichtbarkeits-Bedingung (Aktivieren-
+        # Checkbox) -- deren Anwendungs-Methoden UND-verknüpfen das bereits
+        # mit _is_layer_tab_active, hier nur neu auswerten.
         self._apply_shrinkage_roi_visibility()
         self._apply_sample_height_visibility()
-        self._apply_scale_visuals_visibility()
         # Querschnitt-Graph (siehe crosssection_ops.py): dessen ROI-/Kontur-
         # Markierungen sollen genau denselben Ebenen-Tabs folgen wie die
         # Bild-Overlays selbst (Nutzerwunsch: bei "Temperatur-Messung" nur

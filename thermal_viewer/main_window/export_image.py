@@ -208,6 +208,7 @@ class _ImageExportMixin:
         scale = dpi / 96.0
         pen_scale = scale * self._SVG_PEN_SCALE_FACTOR if is_svg else scale
 
+        layer_categories = export_dialog.export_layer_categories()
         prev_level_state = self._capture_level_widgets_state() if use_custom_colors else None
         try:
             # Das Anwenden der Eigene-Einstellungen-Farbskala INNERHALB des
@@ -227,6 +228,7 @@ class _ImageExportMixin:
                     self._widget_raised_for_export(widget), \
                     self._maybe_hidden_live_cursor(include_cursor), \
                     self._temporary_scale_visuals(include_scale_ruler, selected_scale_numbers), \
+                    self._temporary_export_layers(layer_categories), \
                     (self._rebased_time_axis(widget) if is_svg else contextlib.nullcontext()), \
                     self._scaled_export_visuals(scale, pen_scale):
                 width, height = self._save_single_part(widget, path_obj, scale, bg, is_svg)
@@ -283,6 +285,7 @@ class _ImageExportMixin:
         include_cursor = export_dialog.export_cursor_position()
         include_scale_ruler = export_dialog.include_scale_ruler()
         selected_scale_numbers = export_dialog.included_scale_measurement_numbers()
+        layer_categories = export_dialog.export_layer_categories()
         use_custom_colors = export_dialog.use_custom_colors()
         time_axis_mode = export_dialog.time_axis_mode()
         # Dual-Zeitachse/Rebasing (siehe Scope-Entscheidung im Plan) bleibt
@@ -342,6 +345,7 @@ class _ImageExportMixin:
             with self._frozen_ui_during_export(), \
                     self._maybe_hidden_live_cursor(include_cursor), \
                     self._temporary_scale_visuals(include_scale_ruler, selected_scale_numbers), \
+                    self._temporary_export_layers(layer_categories), \
                     time_axis_ctx, \
                     self._paused_background_timers(), \
                     self._scaled_export_visuals(scale, pen_scale):

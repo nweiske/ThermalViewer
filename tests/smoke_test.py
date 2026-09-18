@@ -3732,12 +3732,14 @@ def test_window_theme_persists_across_restart_graph_and_image_colors_stay_fixed(
     win2 = MainWindow()
     try:
         assert win2._window_theme == "dark"
-        # Standard (kein image_theme/graph_theme in QSettings gesetzt):
-        # entspricht dem bisherigen festen Verhalten, unabhaengig vom Fenster-Farbschema.
+        # Standard (kein image_theme/graph_theme in QSettings gesetzt): Hell
+        # fuer BEIDE, unabhaengig vom Fenster-Farbschema (siehe window.py:
+        # __init__ -- Bugreport "Thermobild startete bisher standardmaessig
+        # im Dunkel-Modus, obwohl der Rest der UI hell ist").
         assert win2._graph_bg == _THEMES["light"]["pg_background"]
         assert win2._graph_fg == _THEMES["light"]["pg_foreground"]
-        assert win2._image_bg == _THEMES["dark"]["pg_background"]
-        assert win2._image_fg == _THEMES["dark"]["pg_foreground"]
+        assert win2._image_bg == _THEMES["light"]["pg_background"]
+        assert win2._image_fg == _THEMES["light"]["pg_foreground"]
     finally:
         win2.close()
         win._settings.setValue("window_theme", "light")
@@ -3745,7 +3747,7 @@ def test_window_theme_persists_across_restart_graph_and_image_colors_stay_fixed(
     try:
         assert win3._window_theme == "light"
         assert win3._graph_bg == _THEMES["light"]["pg_background"]
-        assert win3._image_bg == _THEMES["dark"]["pg_background"]
+        assert win3._image_bg == _THEMES["light"]["pg_background"]
         # Bugfix (siehe _light_palette): der Hell-Modus muss explizit hell
         # sein, unabhaengig vom OS-Design, nicht ueber
         # app.style().standardPalette() (das unter Windows dem System-
@@ -7042,13 +7044,17 @@ def test_end_to_end_cleaning_dialog_and_panel_tabs():
         # Punkt hinzu -- kein Arm/Disarm-Knopf mehr noetig.
         scene_pos = dlg.preview.view_box.mapViewToScene(QtCore.QPointF(3.5, 4.5))
         dlg.preview._on_scene_clicked(FakeEvent(QtCore.Qt.LeftButton, scene_pos))
-        assert win._cleaning_points == [(3, 4, "and", True)]
+        # Standard-Logik ist "or" (siehe data_cleaning_viewer.py:_on_scene_clicked --
+        # Bugfix: "and" zwang bei mehreren Punkten dazu, dass ALLE zutreffen
+        # muessen, "or" -- ein einzelner ausschlagender Punkt genuegt -- ist
+        # die brauchbarere Vorgabe).
+        assert win._cleaning_points == [(3, 4, "or", True)]
         assert dlg.points_list.count() == 1
 
         # Checkbox deaktiviert den Punkt (bleibt gespeichert, zaehlt nicht
         # mehr bei der Ausreißer-Erkennung mit).
         dlg._point_row_widgets[0]["checkbox"].setChecked(False)
-        assert win._cleaning_points == [(3, 4, "and", False)]
+        assert win._cleaning_points == [(3, 4, "or", False)]
 
         # Der kleine "×"-Knopf entfernt ihn endgueltig.
         dlg._point_row_widgets[0]["remove_button"].click()

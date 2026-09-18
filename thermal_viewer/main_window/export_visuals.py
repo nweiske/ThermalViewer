@@ -84,7 +84,15 @@ class _ExportVisualsMixin:
         bg = QtGui.QColor(self._graph_bg)
         fg = QtGui.QColor(self._graph_fg)
         try:
-            with self._maybe_hidden_live_cursor(include_cursor):
+            # Bugfix: OHNE _frozen_ui_during_export() holt _widget_raised_for_
+            # export fuer jeden ausgewaehlten, tabifizierten Graphen (Zeitverlauf/
+            # Live) dessen Dock-Registerkarte kurz sichtbar in den Vordergrund --
+            # bei JEDER Vorschau-Aktualisierung waere das im Hauptfenster (hinter
+            # dem nicht-modalen Dialog sichtbar) als kurzes Tab-Flackern
+            # aufgefallen (derselbe Bugreport wie bei _frozen_ui_during_export
+            # selbst, hier nur ueber die Vorschau statt den echten Export
+            # ausgeloest).
+            with self._frozen_ui_during_export(), self._maybe_hidden_live_cursor(include_cursor):
                 for key in selected_keys:
                     with self._widget_raised_for_export(self._export_graph_widget(key)):
                         QtWidgets.QApplication.processEvents()

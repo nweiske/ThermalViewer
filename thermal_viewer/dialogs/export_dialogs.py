@@ -210,6 +210,17 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         if current_axis_state is not None:
             self._axis_panel = AxisOverridePanel(self, current_axis_state)
             right_col.addWidget(self._axis_panel.group_box)
+            # Bugfix: Achsen-/Zeitachsen-Overrides betreffen (siehe Scope-
+            # Entscheidung im Plan) AUSSCHLIESSLICH den Zeitverlauf-Graphen
+            # (_export_combined_image wendet sie nur an, wenn "zeitverlauf" in
+            # selected_graph_keys() ist) -- ohne diese Kopplung blieb die Box
+            # auch dann bedienbar, wenn NUR "Schwindung"/"Querschnitt"
+            # angehakt waren, und _on_accept() konnte den Export dann wegen
+            # eines fuer den tatsaechlichen Export voellig wirkungslosen
+            # "noch nicht konfiguriert"-Zustands blockieren.
+            if self.chk_graph_zeitverlauf is not None:
+                self.chk_graph_zeitverlauf.toggled.connect(self._axis_panel.group_box.setEnabled)
+                self._axis_panel.group_box.setEnabled(self.chk_graph_zeitverlauf.isChecked())
 
         # Punkt (Folgeanfrage): "Zeitachse" stand bisher als eigene, lose
         # Zeile UNTERHALB der "Achsen"-Box statt sichtbar dazuzugehoeren,
@@ -329,7 +340,15 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 self, "Ungültiger Bereich", "Bei der Farbskala muss „Max“ größer als „Min“ sein."
             )
             return
-        if self._axis_panel is not None and self._axis_panel.incomplete():
+        # Nur relevant, wenn "Zeitverlauf" ueberhaupt exportiert wird (siehe
+        # Bugfix-Kommentar bei der Erzeugung von self._axis_panel oben) --
+        # sonst wuerde eine fuer Schwindung/Querschnitt voellig wirkungslose
+        # Achsen-Einstellung den Export blockieren.
+        if (
+            self._axis_panel is not None
+            and (self.chk_graph_zeitverlauf is None or self.chk_graph_zeitverlauf.isChecked())
+            and self._axis_panel.incomplete()
+        ):
             QtWidgets.QMessageBox.information(
                 self, "Achsen nicht eingestellt",
                 "Bitte auf „Einstellen…“ klicken, um eigene Achsen-Einstellungen festzulegen -- "
@@ -919,8 +938,14 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         checked = bool(self.selected_graph_keys())
         self._content_selector.group_box.setEnabled(checked)
         self.combo_graph_position.setEnabled(checked)
+        # Bugfix: Achsen-Overrides betreffen (Scope-Entscheidung im Plan)
+        # AUSSCHLIESSLICH den Zeitverlauf-Graphen (_export_video wendet sie
+        # nur an, wenn "zeitverlauf" in selected_graph_keys() ist) -- vorher
+        # blieb die Box auch bei NUR "Schwindung"/"Querschnitt" bedienbar
+        # und konnte den Export ueber einen dafuer wirkungslosen "noch nicht
+        # konfiguriert"-Zustand blockieren (siehe _on_accept).
         if self._axis_panel is not None:
-            self._axis_panel.group_box.setEnabled(checked)
+            self._axis_panel.group_box.setEnabled("zeitverlauf" in self.selected_graph_keys())
 
     def enable_preview(self, provider) -> None:
         """Siehe GraphicExportDialog.enable_preview -- identisches Muster."""
@@ -951,8 +976,12 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 "Bitte mindestens einen Messbereich und/oder Live-Cursor für den Zeitverlauf auswählen."
             )
             return
+        # Nur relevant, wenn "Zeitverlauf" ueberhaupt exportiert wird (siehe
+        # Bugfix-Kommentar in _update_graph_export_enabled) -- sonst wuerde
+        # eine fuer Schwindung/Querschnitt voellig wirkungslose Achsen-
+        # Einstellung den Export blockieren.
         if (
-            self.selected_graph_keys()
+            "zeitverlauf" in self.selected_graph_keys()
             and self._axis_panel is not None
             and self._axis_panel.incomplete()
         ):

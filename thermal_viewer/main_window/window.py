@@ -33,6 +33,7 @@ from .frame_nav import _FrameNavMixin
 from .graph_cursor_ops import _GraphCursorMixin
 from .layer_tabs_ops import _LayerTabsMixin
 from .shrinkage_ops import _ShrinkageMixin
+from .sample_height_ops import _SampleHeightMixin
 from .import_ops import _ImportMixin
 from .measurement_ops import _MeasurementMixin
 from .mouse_ops import _MouseMixin
@@ -64,6 +65,7 @@ class MainWindow(
     _GraphCursorMixin,
     _LayerTabsMixin,
     _ShrinkageMixin,
+    _SampleHeightMixin,
     _CrossSectionMixin,
     _MouseMixin,
     _UndoMixin,
@@ -248,6 +250,16 @@ class MainWindow(
         # Rot kann im aktuell gewaehlten Farbverlauf ebenfalls kaum zu
         # erkennen sein.
         self._shrinkage_color_contour = "#ef4444"
+        # Probenhöhen (Nutzerwunsch: "Schwindungsmessung ähnlich zur
+        # Querschnittsfunktion ... drei/beliebig viele mit Namen (max. 10
+        # Linien), benennen können wie ROIs" -- siehe sample_height_ops.py)
+        # -- eine ZWEITE, unabhaengige Art, Schwindung zu messen: statt
+        # EINER flaechigen Kontur-Box beliebig viele einzelne, benannte
+        # horizontale Zeilen, deren Probenbreite je per Schwellenwert
+        # bestimmt wird. Ergaenzt (ersetzt nicht) die bestehende Box-
+        # Messung oben.
+        self._sample_height_entries: list = []
+        self._sample_height_next_number = 1
         # Zeitachsen-Anzeige beider Kurven-Graphen: "clock" (echte Uhrzeit,
         # Standard) oder "runtime" (relative Laufzeit ab Aufnahmebeginn) --
         # ueber je einen Umschalter unten rechts an beiden Graphen wählbar,

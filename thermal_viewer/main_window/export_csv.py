@@ -5,6 +5,7 @@ import csv
 import json
 from pathlib import Path
 
+import numpy as np
 from qtpy import QtWidgets
 
 from ..data import zip_strict
@@ -21,13 +22,14 @@ class _CsvExportMixin:
         placed_entries = [e for e in self.roi_entries if e.placed]
         live_available = self._hover_row is not None and self._hover_col is not None
         shrinkage_available = self._shrinkage_result is not None
-        if not placed_entries and not live_available and not shrinkage_available:
+        sample_height_entries = [e for e in self._sample_height_entries if e.widths_px is not None]
+        if not placed_entries and not live_available and not shrinkage_available and not sample_height_entries:
             QtWidgets.QMessageBox.information(
                 self,
                 "Keine Daten",
                 "Es ist weder ein Messbereich platziert noch ein Live-Cursor-Pixel gewählt "
                 "(Maus über das Bild bewegen oder eine Stelle fixieren) noch eine "
-                "Schwindungsmessung berechnet.",
+                "Schwindungsmessung (Box oder Probenhöhe) berechnet.",
             )
             return
 
@@ -61,6 +63,7 @@ class _CsvExportMixin:
                 "height_mm": k_mm,
             })
         shrinkage_index = None
+        shrinkage_is_area = False
         if shrinkage_available:
             shrinkage_index = len(dialog_entries)
             # width_px/height_px sind hier nur der informative Referenzwert
@@ -68,27 +71,52 @@ class _CsvExportMixin:
             # ROIs/Live-Cursor -- der eigentliche Wert ist pro Bild
             # unterschiedlich (das ist ja gerade der Messwert). Name/Einheit
             # haengen von der aktuell gewaehlten Kenngroesse ab (siehe
-            # shrinkage_ops.py).
+            # shrinkage_ops.py). Der anfaengliche unit_suffix hier ist nur
+            # ein Platzhalter -- CsvColumnDialog aktualisiert ihn sofort auf
+            # den tatsaechlich gewaehlten Wert (Standard "%", siehe
+            # shrinkage_row_index/_on_shrinkage_unit_changed dort), da die
+            # Werteinheit (Nutzerwunsch: "%, mm, oder px exportieren
+            # können, analog zur Laufzeitskala") dort per Dropdown gewaehlt
+            # wird statt sich starr nach dem gesetzten Maßstab zu richten.
             is_area = self._shrinkage_metric_is_area()
+            shrinkage_is_area = is_area
             key = self._shrinkage_metric_key()
             ref_value_px = float(self._shrinkage_result[key][0])
             scale = (self._px_to_mm ** 2 if is_area else self._px_to_mm) if self._px_to_mm is not None else None
             ref_value_mm = ref_value_px * scale if scale is not None else None
-            unit_suffix = ("mm²" if is_area else "mm") if self._px_to_mm is not None else ("px²" if is_area else "px")
             dialog_entries.append({
                 # Nutzerwunsch: nur "Schwindung", ohne die Kenngroesse in
                 # Klammern (frueher z.B. "Schwindung (Breite (quaderförmig,
                 # Median))") -- gilt sowohl fuer den festen Anzeige-Text als
                 # auch fuer den editierbaren Spaltenname-Vorschlag, da
                 # CsvColumnDialog beide direkt aus "name" ableitet (siehe
-                # dort). Der Einheiten-Suffix (unit_suffix, "px"/"mm"/...)
-                # bleibt davon unabhaengig erhalten.
+                # dort).
                 "name": "Schwindung",
                 "width_px": ref_value_px,
                 "height_px": ref_value_px,
                 "width_mm": ref_value_mm,
                 "height_mm": ref_value_mm,
-                "unit_suffix": unit_suffix,
+                "unit_suffix": "%",
+            })
+        # Probenhöhen (siehe sample_height_ops.py) -- eine Zeile je
+        # berechneter Probenhöhe, GENAUSO %/mm/px-waehlbar wie die
+        # Schwindungsmessung-Zeile oben (siehe sample_height_row_indices/
+        # CsvColumnDialog.percent_unit), da beide dieselbe Art Messwert
+        # (Breite ueber die Zeit) liefern -- nur eben pro benannter Zeile
+        # statt einer einzigen Box.
+        sample_height_indices: dict[int, object] = {}
+        for entry in sample_height_entries:
+            idx = len(dialog_entries)
+            sample_height_indices[idx] = entry
+            ref_value_px = float(entry.widths_px[0])
+            ref_value_mm = ref_value_px * self._px_to_mm if self._px_to_mm is not None else None
+            dialog_entries.append({
+                "name": entry.name,
+                "width_px": ref_value_px,
+                "height_px": ref_value_px,
+                "width_mm": ref_value_mm,
+                "height_mm": ref_value_mm,
+                "unit_suffix": "%",
             })
         runtime_column_labels = {"hhmmss": "HH:MM:SS", "s": "s", "min": "min", "h": "h"}
         runtime_header = f"Laufzeit ({runtime_column_labels[self._runtime_unit]})"
@@ -99,7 +127,11 @@ class _CsvExportMixin:
         # AxisSettingsDialog.
         from . import CsvColumnDialog
 
-        column_dialog = CsvColumnDialog(self, dialog_entries, self._settings, reserved_names)
+        column_dialog = CsvColumnDialog(
+            self, dialog_entries, self._settings, reserved_names,
+            shrinkage_row_index=shrinkage_index, shrinkage_is_area=shrinkage_is_area,
+            sample_height_row_indices=list(sample_height_indices),
+        )
         if column_dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
         included = column_dialog.included()
@@ -108,6 +140,7 @@ class _CsvExportMixin:
         include_extra_runtime = column_dialog.include_extra_runtime()
         extra_runtime_unit = column_dialog.extra_runtime_unit()
         extra_runtime_header = column_dialog.extra_runtime_header()
+        shrinkage_value_unit = column_dialog.shrinkage_value_unit()
 
         # Format wird SCHON im Dialog gewaehlt (statt z.B. ueber den
         # Dateityp-Filter im Speichern-Dialog), damit Vorschlagsname/-endung
@@ -128,9 +161,11 @@ class _CsvExportMixin:
         t0 = self.recording.timestamps[0]
         # dialog_entries/names/included sind alle in derselben Reihenfolge
         # aufgebaut (echte Messbereiche zuerst, optional gefolgt von der
-        # synthetischen Live-Cursor-Zeile, optional gefolgt von der
-        # Schwindungsmessung) -- live_index/shrinkage_index identifizieren
-        # daher eindeutig, aus welcher der drei Quellen Spalte i stammt.
+        # synthetischen Live-Cursor-Zeile, optional gefolgt von der Box-
+        # Schwindungsmessung, optional gefolgt von je einer Zeile pro
+        # berechneter Probenhöhe) -- live_index/shrinkage_index/
+        # sample_height_indices identifizieren daher eindeutig, aus welcher
+        # der vier Quellen Spalte i stammt.
         # Fuer den Live-Cursor kommen zusaetzlich seine (ueber die gesamte
         # Aufnahme konstante) Pixel-Koordinaten als eigene Spalten dazu --
         # frueher nur im separaten "Live-Werte als CSV"-Export enthalten,
@@ -152,18 +187,41 @@ class _CsvExportMixin:
                 # areas_px/rect_widths_px/round_widths_px sind bereits ueber
                 # alle Frames (0..n-1) berechnet, das Ausblenden erledigt die
                 # Zeilen-Schleife unten selbst.
-                # Bugfix: der Spaltenname traegt bereits das echte Einheiten-
-                # Suffix ("mm"/"mm²", siehe unit_suffix oben und
-                # CsvColumnDialog) sobald ein Maßstab gesetzt ist -- ohne
-                # dieselbe Skalierung hier (wie in _update_shrinkage_curve)
-                # stuenden dort faelschlich rohe Pixelwerte unter einer
-                # "(mm)"-Beschriftung.
-                is_shrinkage_area = self._shrinkage_metric_is_area()
-                shrinkage_scale = (
-                    (self._px_to_mm ** 2 if is_shrinkage_area else self._px_to_mm)
-                    if self._px_to_mm is not None else 1.0
-                )
-                y = self._shrinkage_result[self._shrinkage_metric_key()] * shrinkage_scale
+                # Nutzerwunsch: Werteinheit im Export-Dialog waehlbar (%, mm,
+                # px, analog zur Laufzeitskala, siehe CsvColumnDialog.
+                # shrinkage_value_unit) statt starr an den gesetzten Maßstab
+                # gekoppelt -- "percent" bildet GENAU dieselbe Formel wie der
+                # Schwindungs-Graph selbst ab (siehe shrinkage_ops.py:
+                # _update_shrinkage_curve), "mm"/"px" exportieren die
+                # absoluten Werte der aktuell gewaehlten Kenngroesse.
+                raw = self._shrinkage_result[self._shrinkage_metric_key()]
+                if shrinkage_value_unit == "mm":
+                    is_shrinkage_area = self._shrinkage_metric_is_area()
+                    shrinkage_scale = (
+                        (self._px_to_mm ** 2 if is_shrinkage_area else self._px_to_mm)
+                        if self._px_to_mm is not None else 1.0
+                    )
+                    y = raw * shrinkage_scale
+                elif shrinkage_value_unit == "px":
+                    y = raw
+                else:
+                    first = float(raw[0])
+                    y = (first - raw) / first * 100.0 if first else np.zeros_like(raw)
+            elif i in sample_height_indices:
+                header.append(name)
+                # Dieselbe Werteinheit-Wahl wie bei der Schwindungsmessung-
+                # Zeile oben, aber PRO Probenhöhe unabhängig waehlbar (siehe
+                # CsvColumnDialog.percent_unit).
+                sh_entry = sample_height_indices[i]
+                raw = sh_entry.widths_px
+                sh_unit = column_dialog.percent_unit(i)
+                if sh_unit == "mm":
+                    y = raw * self._px_to_mm if self._px_to_mm is not None else raw
+                elif sh_unit == "px":
+                    y = raw
+                else:
+                    first = float(raw[0])
+                    y = (first - raw) / first * 100.0 if first else np.zeros_like(raw)
             else:
                 header.append(name)
                 # NICHT curve.getData(): die angezeigte Kurve laesst von der

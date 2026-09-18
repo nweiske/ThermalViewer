@@ -326,6 +326,15 @@ class _RoiPanelBuildMixin:
         # Jetzt Teil des "Ansicht"-Menues (siehe _build_menu), zusammen mit
         # dem allgemeinen Dunkelmodus-Schalter, an den sie inhaltlich gehoert.
         self._build_shrinkage_panel()
+        self._build_sample_height_panel()
+        # Der Spaltenbereich ALLER Probenhöhen haengt an dieser Box (siehe
+        # sample_height_ops.py:_sample_height_col_range) -- ein
+        # Verschieben/Groessenaendern derselben macht eine Neuberechnung
+        # ALLER Probenhöhen noetig. sigRegionChangeFinished (nicht
+        # sigRegionChanged): erst NACH Abschluss der Geste, nicht bei jedem
+        # Zwischenschritt waehrend des Ziehens -- Probenhöhen-Neuberechnung
+        # ist zwar schnell, aber unnoetig bei jedem einzelnen Mausereignis.
+        self.roi_shrink_area.sigRegionChangeFinished.connect(self._on_shrink_box_changed_for_sample_heights)
 
         # -- ROI-Auswahl als senkrechte Namensliste + Inhaltsflaeche (statt
         # fuenf untereinander gestapelter Boxen ODER eines QTabWidget mit
@@ -416,6 +425,7 @@ class _RoiPanelBuildMixin:
         shrinkage_page_layout.setContentsMargins(0, 0, 0, 0)
         shrinkage_page_layout.setAlignment(QtCore.Qt.AlignTop)
         shrinkage_page_layout.addWidget(self._shrinkage_groupbox)
+        shrinkage_page_layout.addWidget(self._sample_height_groupbox)
         shrinkage_page_layout.addStretch(1)
         self.panel_tab_widget.addTab(shrinkage_page, "Schwindungsmessung")
 

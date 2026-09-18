@@ -181,6 +181,7 @@ class _DataCleaningMixin:
         self._excluded_frame_indices = set(exclude)
         self._recompute_curves()
         self._update_shrinkage_curve()
+        self._update_all_sample_height_curves()
         # Steht die Anzeige gerade auf einem Bild, das JETZT (neu) ausgeblendet
         # wurde, muss sofort auf die naechste sichtbare Stelle gesprungen
         # werden -- sonst bliebe genau dieses eigentlich unerwuenschte Bild

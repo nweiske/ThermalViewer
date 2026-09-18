@@ -382,6 +382,43 @@ def _track_sample_blob(
     return result
 
 
+def _track_sample_width_at_row(
+    frames: np.ndarray, row: int, col0: int, col1: int, warmer: bool, seed_col: int,
+) -> np.ndarray:
+    """Probenbreite an EINER festen Bildzeile ueber alle Bilder -- die
+    "Probenhöhen"-Messung (Nutzerwunsch, siehe sample_height_ops.py):
+    "ähnlich zur Querschnittsfunktion ... über eine Art Schwellenwert
+    wieder die Kanten/Ränder der Probe finden und daraus dann pro Bild die
+    Probenbreite bestimmen" -- eine leichtgewichtige, unabhaengige
+    ERGAeNZUNG zur bestehenden Ein-Box-Kontur-Messung (_track_sample_blob):
+    statt der ganzen Kontur wird nur EINE Zeile ausgewertet, dafuer beliebig
+    viele davon (bis zu 10, siehe sample_height_ops.py:MAX_SAMPLE_HEIGHT_
+    COUNT) gleichzeitig und schnell genug fuer eine LIVE-Aktualisierung bei
+    jedem Ziehen der Linie (kein separater "Berechnen"-Knopf noetig, anders
+    als bei der flaechigen Box-Messung).
+
+    Nutzt dieselben Otsu-Schwellenwert-/Konnektivitaets-Bausteine wie die
+    Box-Messung (_candidate_mask/_row_runs/_run_containing_or_largest) --
+    col0:col1 kommt vom Aufrufer (die bestehende Schwindungs-Box,
+    roi_shrink_area) als Spalten-Suchbereich, seed_col von deren
+    Boxmitte -- Otsu-Schwellenwert UND Polaritaet (warmer) werden PRO
+    Bild frisch bzw. einmalig wie bei der Box ermittelt. 0.0, wenn an
+    dieser Zeile/diesem Bild kein zusammenhaengender Run gefunden wird
+    (z.B. Zeile ausserhalb der Probe)."""
+    blur_kernel = _adaptive_blur_kernel(col1 - col0)
+    seed_col_local = max(0, min(col1 - col0 - 1, seed_col - col0))
+    n = len(frames)
+    widths = np.zeros(n, dtype=float)
+    for idx in range(n):
+        row_region = frames[idx][row:row + 1, col0:col1]
+        blurred = _horizontal_blur_region(row_region, blur_kernel)
+        mask = _candidate_mask(blurred, warmer)[0]
+        run = _run_containing_or_largest(_row_runs(mask), seed_col_local)
+        if run is not None:
+            widths[idx] = float(run[1] - run[0])
+    return widths
+
+
 class _ShrinkageMixin:
     def _build_shrinkage_panel(self) -> None:
         # EINE Box im Bild (siehe roi.py:AdjustableROI) -- Standardgroesse/

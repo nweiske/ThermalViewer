@@ -115,6 +115,7 @@ class _LayerTabsMixin:
         # Anwendungs-Methoden UND-verknüpfen das bereits mit
         # _is_layer_tab_active, hier nur neu auswerten.
         self._apply_shrinkage_roi_visibility()
+        self._apply_sample_height_visibility()
         self._apply_scale_visuals_visibility()
         # Querschnitt-Graph (siehe crosssection_ops.py): dessen ROI-/Kontur-
         # Markierungen sollen genau denselben Ebenen-Tabs folgen wie die

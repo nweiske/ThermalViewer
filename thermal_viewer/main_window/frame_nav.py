@@ -162,6 +162,11 @@ class _FrameNavMixin:
         # bedeutungslos -- gleiche Invariante wie bei ROIs/Messungen/
         # Bereinigung oben.
         self._reset_shrinkage_state_for_recording()
+        # Probenhöhen (siehe sample_height_ops.py): dieselbe Invariante wie
+        # bei der Box oben, aber Liste/Namen/Farben bleiben (wie bei ROIs)
+        # ueber einen Reload hinweg erhalten -- nur Zeilen-Positionen werden
+        # auf die neue Bildhoehe geklemmt und das Ergebnis neu berechnet.
+        self._reset_sample_heights_for_recording()
 
         self._hover_row = None
         self._hover_col = None

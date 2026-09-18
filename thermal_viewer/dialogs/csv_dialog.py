@@ -21,6 +21,9 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         entries: list[dict],
         settings: QtCore.QSettings,
         reserved_names: list[str] | None = None,
+        shrinkage_row_index: int | None = None,
+        shrinkage_is_area: bool = False,
+        sample_height_row_indices: list[int] | None = None,
     ):
         # entries: [{"name": str, "width_px": float, "height_px": float,
         #            "width_mm": float | None, "height_mm": float | None,
@@ -38,10 +41,35 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # (z.B. "Zeitstempel", "Laufzeit (...)", "Live X-Achse"/"Live
         # Y-Achse") -- gegen diese wird zusaetzlich zur Eindeutigkeit unter
         # den frei editierbaren Namen selbst geprueft (siehe _on_accept).
+        # shrinkage_row_index: Index (in entries) der Schwindungsmessung-
+        # Zeile, falls vorhanden -- bekommt zusaetzlich zu den normalen px/
+        # mm-Namens-Haekchen eine eigene "Werteinheit"-Combobox (%/mm/px,
+        # Nutzerwunsch: "Beim Schwindungsexport einbauen, dass Werte als %,
+        # mm, oder px exportiert werden können, analog zur Laufzeitskala"),
+        # da bei der Schwindung -- anders als bei ROIs/Live-Cursor -- die
+        # EXPORTIERTEN WERTE selbst (nicht nur die Namens-Annotation) je
+        # nach Einheit unterschiedlich sind (siehe shrinkage_value_unit()/
+        # MainWindow._export_csv). shrinkage_is_area: ob die aktuell
+        # gewaehlte Kenngroesse eine Flaeche ist (mm² statt mm im
+        # Spaltennamen-Vorschlag). sample_height_row_indices: Indizes
+        # weiterer Zeilen (Probenhöhen-Breitenmessungen, siehe
+        # sample_height_ops.py), die DIESELBE %/mm/px-Werteinheit-Combobox
+        # bekommen wie die Schwindungsmessung-Zeile (immer Breite, nie
+        # Flaeche) -- eine Probenhöhe ist konzeptionell eine ZWEITE,
+        # unabhaengige Art, Schwindung zu messen (siehe shrinkage_ops.py-
+        # Moduldocstring), braucht also dieselbe Werteinheit-Wahl.
         super().__init__(parent)
         self.setWindowTitle("Werte exportieren")
         self._settings = settings
         self._reserved_names = set(reserved_names or [])
+        self._shrinkage_row_index = shrinkage_row_index
+        self._shrinkage_is_area = shrinkage_is_area
+        self._sample_height_row_indices = set(sample_height_row_indices or [])
+        # Row-Index -> Werteinheit-Combobox, gemeinsam fuer die Schwindungs-
+        # messung-Zeile UND jede Probenhöhen-Zeile (siehe _percent_unit_row
+        # unten) -- EINE Stelle statt zweier fast identischer Mechanismen.
+        self._percent_unit_combos: dict[int, QtWidgets.QComboBox] = {}
+        self.combo_shrinkage_unit: QtWidgets.QComboBox | None = None
 
         layout = QtWidgets.QVBoxLayout(self)
 
@@ -172,6 +200,37 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             unit_widget = QtWidgets.QWidget()
             unit_widget.setLayout(unit_row)
             grid.addWidget(unit_widget, row, 3)
+
+            is_percent_row = offset == self._shrinkage_row_index or offset in self._sample_height_row_indices
+            if is_percent_row:
+                is_area = offset == self._shrinkage_row_index and self._shrinkage_is_area
+                combo_unit = QtWidgets.QComboBox()
+                combo_unit.addItem("Prozent (%, ggü. erstem Bild)", "percent")
+                combo_unit.addItem("mm²" if is_area else "mm", "mm")
+                combo_unit.addItem("px²" if is_area else "px", "px")
+                combo_unit.model().item(1).setEnabled(has_mm)
+                combo_unit.setToolTip(
+                    "In welcher Einheit die Werte exportiert werden -- \"Prozent\" entspricht dem, "
+                    "was der Schwindungs-Graph anzeigt (relativ zum ersten Bild), \"mm\"/\"px\" den "
+                    "absoluten Werten."
+                )
+                combo_unit.currentIndexChanged.connect(
+                    partial(self._on_percent_unit_changed, combo_unit, edit, entry, chk_px, chk_mm, is_area)
+                )
+                self._percent_unit_combos[offset] = combo_unit
+                if offset == self._shrinkage_row_index:
+                    # Rueckwaertskompatibler Alias (bestehende Tests/Aufrufer,
+                    # siehe shrinkage_value_unit()) -- GENAU EINE Zeile kann
+                    # jemals die Schwindungsmessung-Zeile sein.
+                    self.combo_shrinkage_unit = combo_unit
+                unit_label_row = QtWidgets.QHBoxLayout()
+                unit_label_row.setContentsMargins(0, 0, 0, 0)
+                unit_label_row.addWidget(QtWidgets.QLabel("Werteinheit:"))
+                unit_label_row.addWidget(combo_unit)
+                unit_label_widget = QtWidgets.QWidget()
+                unit_label_widget.setLayout(unit_label_row)
+                grid.addWidget(unit_label_widget, row, 4)
+                self._on_percent_unit_changed(combo_unit, edit, entry, chk_px, chk_mm, is_area)
 
             # Ein-/Ausschluss der ganzen Zeile aendert, welche px/mm-
             # Checkboxen ueberhaupt "relevant" (aktiviert) sind -- NACH den
@@ -343,6 +402,49 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             parts.append(f"{w}x{h} mm")
         suffix = f" ({', '.join(parts)})" if parts else ""
         edit.setText(f'{entry["name"]}{suffix} ({entry.get("unit_suffix", "°C")})')
+
+    def _on_percent_unit_changed(
+        self,
+        combo_unit: QtWidgets.QComboBox,
+        edit: QtWidgets.QLineEdit,
+        entry: dict,
+        chk_px: QtWidgets.QCheckBox,
+        chk_mm: QtWidgets.QCheckBox,
+        is_area: bool,
+        *_args,
+    ) -> None:
+        # *_args faengt das von currentIndexChanged mitgesendete int-Argument
+        # ab (direkt per partial() an das Signal gehaengt, siehe __init__).
+        # Aktualisiert entry["unit_suffix"] passend zur gewaehlten Einheit
+        # und stoesst danach denselben Autofill wie px/mm-Haekchen an (siehe
+        # _apply_autofill), damit der Spaltenname-Vorschlag sofort den neuen
+        # Einheiten-Suffix traegt. combo_unit wird per partial() explizit
+        # mitgegeben (statt sender()), da diese Methode auch EINMALIG direkt
+        # (ausserhalb einer echten Signal-Emission, siehe __init__ unten)
+        # aufgerufen wird, um den anfaenglichen Spaltennamen zu setzen --
+        # zu diesem Zeitpunkt liefert self.sender() nichts Brauchbares.
+        unit = combo_unit.currentData()
+        if unit == "percent":
+            entry["unit_suffix"] = "%"
+        elif unit == "mm":
+            entry["unit_suffix"] = "mm²" if is_area else "mm"
+        else:
+            entry["unit_suffix"] = "px²" if is_area else "px"
+        self._apply_autofill(edit, entry, chk_px, chk_mm)
+
+    def percent_unit(self, row_index: int) -> str | None:
+        """"percent"/"mm"/"px" fuer die Zeile row_index (Index in `entries`,
+        siehe __init__), oder None ohne Werteinheit-Combobox an dieser
+        Stelle -- MainWindow._export_csv skaliert die exportierten Werte
+        danach entsprechend."""
+        combo = self._percent_unit_combos.get(row_index)
+        return combo.currentData() if combo is not None else None
+
+    def shrinkage_value_unit(self) -> str | None:
+        """Rueckwaertskompatibler Alias fuer percent_unit(shrinkage_row_index)."""
+        if self._shrinkage_row_index is None:
+            return None
+        return self.percent_unit(self._shrinkage_row_index)
 
     def included(self) -> list[bool]:
         return [chk.isChecked() for chk in self._checks]

@@ -1656,6 +1656,10 @@ def test_csv_export_includes_shrinkage_width_column(loaded_main_window, tmp_path
     class AutoAcceptDialog(orig_dialog):
         def exec(self):
             self.combo_format.setCurrentIndex(self.combo_format.findData("json"))
+            # Werteinheit explizit auf "px" -- Standard ist seit der
+            # Werteinheit-Auswahl (Nutzerwunsch) "Prozent", siehe
+            # test_csv_export_defaults_shrinkage_column_to_percent.
+            self.combo_shrinkage_unit.setCurrentIndex(self.combo_shrinkage_unit.findData("px"))
             return QtWidgets.QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(mwmod, "CsvColumnDialog", AutoAcceptDialog)
@@ -1678,6 +1682,45 @@ def test_csv_export_includes_shrinkage_width_column(loaded_main_window, tmp_path
         assert rec[col_key] == pytest.approx(round(float(widths[i]), 3))
 
 
+def test_csv_export_defaults_shrinkage_column_to_percent(loaded_main_window, tmp_path, monkeypatch):
+    # Nutzerwunsch: Werteinheit beim Schwindungsexport waehlbar (%, mm, px,
+    # analog zur Laufzeitskala) -- Standardauswahl ist "%", passend zum
+    # Schwindungs-Graphen selbst (siehe shrinkage_ops.py:
+    # _update_shrinkage_curve, dieselbe Formel).
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw.roi_shrink_area.setPos((5, 5), update=False)
+    mw.roi_shrink_area.setSize((50, 10))
+    mw.combo_shrinkage_metric.setCurrentIndex(mw.combo_shrinkage_metric.findData("breite_rechteckig"))
+    mw._on_shrinkage_compute_clicked()
+    assert mw._shrinkage_result is not None
+    widths = mw._shrinkage_result["rect_widths_px"]
+    first = float(widths[0])
+    expected_pct = [(first - w) / first * 100.0 for w in widths]
+
+    out_path = tmp_path / "Werte.json"
+    orig_dialog = mwmod.CsvColumnDialog
+
+    class AutoAcceptDialog(orig_dialog):
+        def exec(self):
+            self.combo_format.setCurrentIndex(self.combo_format.findData("json"))
+            assert self.combo_shrinkage_unit.currentData() == "percent"
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(mwmod, "CsvColumnDialog", AutoAcceptDialog)
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(out_path), "")),
+    )
+
+    mw._export_csv()
+
+    records = json.loads(out_path.read_text(encoding="utf-8"))
+    col_key = next(k for k in records[0] if k.startswith("Schwindung ("))
+    assert "%" in col_key
+    for i, rec in enumerate(records):
+        assert rec[col_key] == pytest.approx(round(expected_pct[i], 3))
+
+
 def test_csv_export_scales_shrinkage_width_column_to_mm_when_scale_is_set(loaded_main_window, tmp_path, monkeypatch):
     # Bugfix-Regression: der Spaltenname zeigte bei gesetztem Maßstab bereits
     # "(mm)" an (siehe unit_suffix in export_csv.py/CsvColumnDialog), die
@@ -1698,6 +1741,7 @@ def test_csv_export_scales_shrinkage_width_column_to_mm_when_scale_is_set(loaded
     class AutoAcceptDialog(orig_dialog):
         def exec(self):
             self.combo_format.setCurrentIndex(self.combo_format.findData("json"))
+            self.combo_shrinkage_unit.setCurrentIndex(self.combo_shrinkage_unit.findData("mm"))
             return QtWidgets.QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(mwmod, "CsvColumnDialog", AutoAcceptDialog)
@@ -1740,6 +1784,30 @@ def test_track_sample_blob_recovers_shrinking_area_independently_per_frame():
     )
     areas = [_spans_metrics(spans_by_frame[i])[0] for i in range(n)]
     assert areas == [300.0, 280.0, 260.0, 240.0, 220.0]
+
+
+def test_track_sample_width_at_row_recovers_shrinking_width_independently_per_frame():
+    from thermal_viewer.main_window.shrinkage_ops import _track_sample_width_at_row
+
+    rows, cols, n = 20, 60, 5
+    frames = np.full((n, rows, cols), 10.0, dtype=np.float32)
+    for i in range(n):
+        frames[i, 5:15, 10 + i:40 - i] = 50.0
+    widths = _track_sample_width_at_row(frames, row=10, col0=3, col1=57, warmer=True, seed_col=30)
+    # Zeile 10 liegt innerhalb des heissen Bereichs (5:15) jedes Bilds --
+    # Breite = (40 - i) - (10 + i) = 30 - 2*i.
+    assert list(widths) == [30.0, 28.0, 26.0, 24.0, 22.0]
+
+
+def test_track_sample_width_at_row_returns_zero_outside_sample_row():
+    from thermal_viewer.main_window.shrinkage_ops import _track_sample_width_at_row
+
+    rows, cols, n = 20, 60, 3
+    frames = np.full((n, rows, cols), 10.0, dtype=np.float32)
+    frames[:, 5:15, 10:40] = 50.0
+    # Zeile 0 liegt AUSSERHALB des heissen Bereichs (5:15) -- kein Run.
+    widths = _track_sample_width_at_row(frames, row=0, col0=3, col1=57, warmer=True, seed_col=30)
+    assert list(widths) == [0.0, 0.0, 0.0]
 
 
 def test_shrinkage_metric_switch_updates_curve_without_clearing_result(loaded_main_window):
@@ -1796,6 +1864,7 @@ def test_csv_export_includes_shrinkage_area_column(loaded_main_window, tmp_path,
     class AutoAcceptDialog(orig_dialog):
         def exec(self):
             self.combo_format.setCurrentIndex(self.combo_format.findData("json"))
+            self.combo_shrinkage_unit.setCurrentIndex(self.combo_shrinkage_unit.findData("px"))
             return QtWidgets.QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(mwmod, "CsvColumnDialog", AutoAcceptDialog)
@@ -1812,6 +1881,191 @@ def test_csv_export_includes_shrinkage_area_column(loaded_main_window, tmp_path,
     assert "px²" in col_key
     for i, rec in enumerate(records):
         assert rec[col_key] == pytest.approx(round(float(areas[i]), 3))
+
+
+# ------------------------------------------------------------ Probenhöhen
+
+def test_add_sample_height_creates_entry_with_default_row_and_computes_width(loaded_main_window):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw._on_add_sample_height_clicked()
+
+    assert len(mw._sample_height_entries) == 1
+    entry = mw._sample_height_entries[0]
+    assert entry.name == "Probenhöhe 1"
+    assert entry.row == mw.recording.shape[0] // 2  # Bildmitte, 20 // 2 = 10
+    assert entry.widths_px is not None
+    # Zeile 10 liegt innerhalb des schrumpfenden Bereichs (5:15) --
+    # Breite pro Bild = (40 - i) - (10 + i) = 30 - 2*i.
+    assert list(entry.widths_px) == [30.0, 28.0, 26.0, 24.0, 22.0]
+    assert entry.line.isVisible()
+    x, y = entry.curve.getData()
+    assert len(x) == 5
+
+
+def test_sample_height_row_spin_change_recomputes_width(loaded_main_window):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw._on_add_sample_height_clicked()
+    entry = mw._sample_height_entries[0]
+
+    mw._on_sample_height_row_spin_changed(0, 0)  # ausserhalb des Probenbereichs (5:15)
+    assert entry.row == 0
+    assert list(entry.widths_px) == [0.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def test_sample_height_line_drag_updates_row_and_recomputes(loaded_main_window):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw._on_add_sample_height_clicked()
+    entry = mw._sample_height_entries[0]
+
+    entry.line.setPos(3.5)  # Zeile 3 -- ausserhalb des Probenbereichs
+    mw._on_sample_height_line_dragged(entry, entry.line)
+    assert entry.row == 3
+    assert entry.spin_row.value() == 3
+    assert list(entry.widths_px) == [0.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def test_sample_height_enabled_toggle_hides_curve_and_line(loaded_main_window):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw._on_add_sample_height_clicked()
+    entry = mw._sample_height_entries[0]
+    assert entry.line.isVisible() and entry.curve.isVisible()
+
+    mw._on_sample_height_enabled_toggled(0, False)
+    assert entry.enabled is False
+    assert not entry.line.isVisible()
+    assert not entry.curve.isVisible()
+
+    mw._on_sample_height_enabled_toggled(0, True)
+    assert entry.line.isVisible() and entry.curve.isVisible()
+
+
+def test_sample_height_rename(loaded_main_window):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw._on_add_sample_height_clicked()
+    entry = mw._sample_height_entries[0]
+
+    entry.edit_name.setText("Oberkante")
+    mw._on_sample_height_name_edited(0)
+    assert entry.name == "Oberkante"
+    assert entry.curve.opts["name"] == "Oberkante"
+
+
+def test_sample_height_remove(loaded_main_window):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw._on_add_sample_height_clicked()
+    mw._on_add_sample_height_clicked()
+    assert len(mw._sample_height_entries) == 2
+
+    mw._on_sample_height_remove_clicked(0)
+    assert len(mw._sample_height_entries) == 1
+    assert mw._sample_height_entries[0].name == "Probenhöhe 2"
+
+
+def test_sample_height_max_count_enforced(loaded_main_window):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    for _ in range(mwmod.sample_height_ops.MAX_SAMPLE_HEIGHT_COUNT + 3):
+        mw._on_add_sample_height_clicked()
+    assert len(mw._sample_height_entries) == mwmod.sample_height_ops.MAX_SAMPLE_HEIGHT_COUNT
+    assert not mw.btn_add_sample_height.isEnabled()
+
+
+def test_sample_height_undo_redo(loaded_main_window):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw._on_add_sample_height_clicked()
+    assert len(mw._sample_height_entries) == 1
+
+    mw._on_undo()
+    assert len(mw._sample_height_entries) == 0
+
+    mw._on_redo()
+    assert len(mw._sample_height_entries) == 1
+    assert mw._sample_height_entries[0].name == "Probenhöhe 1"
+
+
+def test_csv_export_includes_sample_height_column_default_percent(loaded_main_window, tmp_path, monkeypatch):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw._on_add_sample_height_clicked()
+    entry = mw._sample_height_entries[0]
+    widths = entry.widths_px
+    first = float(widths[0])
+    expected_pct = [(first - w) / first * 100.0 for w in widths]
+
+    out_path = tmp_path / "Werte.json"
+    orig_dialog = mwmod.CsvColumnDialog
+
+    class AutoAcceptDialog(orig_dialog):
+        def exec(self):
+            self.combo_format.setCurrentIndex(self.combo_format.findData("json"))
+            assert self.percent_unit(0) == "percent"
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(mwmod, "CsvColumnDialog", AutoAcceptDialog)
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(out_path), "")),
+    )
+
+    mw._export_csv()
+
+    records = json.loads(out_path.read_text(encoding="utf-8"))
+    col_key = next(k for k in records[0] if k.startswith("Probenhöhe 1 ("))
+    assert "%" in col_key
+    for i, rec in enumerate(records):
+        assert rec[col_key] == pytest.approx(round(expected_pct[i], 3))
+
+
+def test_csv_export_sample_height_column_px_and_mm_selectable(loaded_main_window, tmp_path, monkeypatch):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw._on_add_sample_height_clicked()
+    entry = mw._sample_height_entries[0]
+    widths = entry.widths_px
+    mw._px_to_mm = 0.5
+
+    out_path = tmp_path / "Werte.json"
+    orig_dialog = mwmod.CsvColumnDialog
+
+    class AutoAcceptDialog(orig_dialog):
+        def exec(self):
+            self.combo_format.setCurrentIndex(self.combo_format.findData("json"))
+            self._percent_unit_combos[0].setCurrentIndex(self._percent_unit_combos[0].findData("mm"))
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(mwmod, "CsvColumnDialog", AutoAcceptDialog)
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(out_path), "")),
+    )
+
+    mw._export_csv()
+
+    records = json.loads(out_path.read_text(encoding="utf-8"))
+    col_key = next(k for k in records[0] if k.startswith("Probenhöhe 1 ("))
+    assert "mm" in col_key and "px" not in col_key
+    for i, rec in enumerate(records):
+        assert rec[col_key] == pytest.approx(round(float(widths[i]) * 0.5, 3))
+
+
+def test_project_save_load_roundtrip_preserves_sample_heights(loaded_main_window, tmp_path):
+    mw = _make_shrinking_recording_window(loaded_main_window)
+    mw._on_add_sample_height_clicked()
+    entry = mw._sample_height_entries[0]
+    entry.edit_name.setText("Oberkante")
+    mw._on_sample_height_name_edited(0)
+    mw._on_sample_height_row_spin_changed(0, 7)
+    mw._on_sample_height_enabled_toggled(0, False)
+
+    data = mw._build_project_state_dict()
+    assert data["probenhoehen"] == [
+        {"nummer": 1, "name": "Oberkante", "farbe": entry.color, "zeile": 7, "aktiv": False},
+    ]
+
+    mw._load_project_sample_heights(data)
+    assert len(mw._sample_height_entries) == 1
+    restored = mw._sample_height_entries[0]
+    assert restored.name == "Oberkante"
+    assert restored.row == 7
+    assert restored.enabled is False
+    assert restored.color == entry.color
 
 
 # ------------------------------------------------------------ Projekt

@@ -23,6 +23,7 @@ from ..roi_entry import (
     MAX_ROI_COUNT,
     RoiEntry,
 )
+from .sample_height_ops import MAX_SAMPLE_HEIGHT_COUNT, _sample_height_color
 from .shrinkage_ops import _SHRINKAGE_METRIC_LABELS
 
 
@@ -226,6 +227,19 @@ class _ProjectMixin:
                 # behaelt dann den aktuellen/Standard-Wert.
                 "kontur_farbe": self._shrinkage_color_contour,
             },
+            # Probenhöhen (siehe sample_height_ops.py) -- zweite,
+            # unabhaengige Schwindungsmessung-Art, GENAUSO vollstaendig
+            # gespeichert wie die Box oben. Das Ergebnis (widths_px) wird
+            # wie beim Box-Ergebnis bewusst NICHT gespeichert (abgeleitete
+            # Daten), sondern beim Laden aus Zeile+Box-Spaltenbereich neu
+            # berechnet (siehe _load_project_sample_heights).
+            "probenhoehen": [
+                {
+                    "nummer": entry.number, "name": entry.name, "farbe": entry.color,
+                    "zeile": entry.row, "aktiv": entry.enabled,
+                }
+                for entry in self._sample_height_entries
+            ],
         }
         return data
 
@@ -279,6 +293,7 @@ class _ProjectMixin:
         measurement_errors = self._load_project_measurements(data)
         self._load_project_cleaning(data)
         self._load_project_shrinkage(data)
+        self._load_project_sample_heights(data)
         # Ebenen-Tabs (layer_tabs_ops.py): Messbereiche koennen waehrend des
         # Ladens neu platziert worden sein (entry.place() setzt dabei seine
         # eigene Sichtbarkeit OHNE Kenntnis der aktuell aktiven Ebene) --
@@ -323,6 +338,7 @@ class _ProjectMixin:
         self._load_project_measurements(data)
         self._load_project_cleaning(data)
         self._load_project_shrinkage(data, recompute=False)
+        self._load_project_sample_heights(data, recompute=False)
         self._apply_layer_tab_visibility()
 
     def _load_project_resolve_recording(self, data: dict) -> bool:
@@ -881,6 +897,56 @@ class _ProjectMixin:
 
         self._update_shrinkage_curve()
         self._update_status_bar()
+
+    def _load_project_sample_heights(self, data: dict, recompute: bool = True) -> None:
+        """Probenhöhen (siehe sample_height_ops.py) aus der Projektdatei
+        übernehmen -- verwirft ALLE bestehenden Einträge und baut sie
+        komplett neu auf (wie ROIs mit full_replace, siehe
+        _load_project_rois), konsistent für "Projekt laden" UND Undo/Redo.
+        recompute=False (Undo/Redo) überspringt die Neuberechnung -- pro
+        Probenhöhe zwar schnell (anders als die Box, siehe shrinkage_ops.py-
+        Moduldocstring), bei vielen Probenhöhen UND häufigem Rückgängig/
+        Wiederholen aber unnötiger Mehraufwand, wenn ohnehin sofort wieder
+        neu gerechnet werden könnte."""
+        for entry in self._sample_height_entries:
+            entry.remove_from_view(self.view_box, self.shrinkage_plot)
+        self._sample_height_entries = []
+
+        heights_data = data.get("probenhoehen")
+        if isinstance(heights_data, list) and self.recording is not None:
+            rows, _cols = self.recording.shape
+            max_number = 0
+            for item in heights_data[:MAX_SAMPLE_HEIGHT_COUNT]:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    number = int(item["nummer"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                color = item.get("farbe")
+                if not (isinstance(color, str) and QtGui.QColor(color).isValid()):
+                    color = _sample_height_color(number)
+                entry = self._create_sample_height_entry(number, color)
+                name = item.get("name")
+                entry.set_name(name if isinstance(name, str) and name.strip() else f"Probenhöhe {number}")
+                try:
+                    row_val = int(float(item.get("zeile", 0)))
+                except (TypeError, ValueError):
+                    row_val = 0
+                entry.row = max(0, min(rows - 1, row_val))
+                enabled = item.get("aktiv")
+                entry.enabled = enabled if isinstance(enabled, bool) else True
+                self._update_sample_height_line_pos(entry)
+                self._sample_height_entries.append(entry)
+                max_number = max(max_number, number)
+            self._sample_height_next_number = max_number + 1
+
+        self._refresh_sample_height_rows()
+        if recompute:
+            self._recompute_all_sample_heights()
+        else:
+            self._update_all_sample_height_curves()
+        self._apply_sample_height_visibility()
 
     def _load_paths(
         self, paths: list[Path], pattern: re.Pattern | None = None, strptime_fmt: str | None = None,

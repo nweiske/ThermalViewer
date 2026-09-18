@@ -8,6 +8,7 @@ Build-Schritt ab (pytest liefert einen Exit-Code != 0 zurueck).
 """
 from __future__ import annotations
 
+import gc
 import os
 
 # MUSS passieren, BEVOR irgendein Testmodul qtpy/Qt importiert -- sonst
@@ -65,6 +66,35 @@ def isolated_qsettings(tmp_path):
         yield
     finally:
         QtCore.QSettings = real_qsettings
+
+
+@pytest.fixture(autouse=True)
+def _collect_qt_garbage_after_test():
+    """Laesst Pythons zyklischen Garbage Collector nach JEDEM einzelnen Test
+    laufen, statt Qt-Objekte bis zum Interpreter-Ende anzusammeln.
+
+    Hintergrund (CI-Absturz "188 passed" gefolgt von exit 1/SIGSEGV auf
+    Windows10/11 und Linux, siehe Commit-Historie): Tests beenden Dialoge/
+    Fenster ueberwiegend nur ueber .close() (siehe z.B. test_main_window.py),
+    nie explizit ueber deleteLater(). Viele dieser Objekte verbinden Qt-
+    Signale ueber Lambdas, die sich selbst einfangen (z.B. dialogs/panels.py
+    ::schedule_refresh) -- das erzeugt Referenzzyklen, die Pythons normaler
+    Refcounting-Mechanismus NICHT sofort aufloest, sondern erst der
+    zyklische Collector. Ohne diesen Fixture sammeln sich ueber alle ~190
+    Tests hinweg hunderte solcher Zyklen an und werden alle GEMEINSAM erst
+    beim regulaeren Interpreter-Shutdown eingesammelt -- dabei zerstoert der
+    zyklische Collector die zugehoerigen C++/Qt-Objekte in einer Reihenfolge,
+    die NICHT der Qt-Eltern/Kind-Hierarchie folgt. Unter PySide6/shiboken
+    (Windows10/11-/Linux-Build) fuehrt das reproduzierbar zum Absturz;
+    PyQt5/sip (Win7-Legacy-Build) toleriert dieselbe Situation, weshalb genau
+    dieser Job gruen blieb. Fix: Zyklen in kleinen, stabilen Haeppchen
+    WAEHREND der laufenden Session abbauen statt sie bis zum Interpreter-Ende
+    aufzustauen."""
+    yield
+    gc.collect()
+    app = QtWidgets.QApplication.instance()
+    if app is not None:
+        app.processEvents()
 
 
 @pytest.fixture(scope="session")

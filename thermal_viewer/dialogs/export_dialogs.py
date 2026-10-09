@@ -8,7 +8,7 @@ from qtpy import QtCore, QtWidgets
 
 from ..data import render_filename_template
 from ..widgets import LocaleTolerantDoubleSpinBox
-from ._base import _disable_enter_auto_accept, _NoEnterAutoAccept
+from ._base import _cap_initial_dialog_height, _disable_enter_auto_accept, _NoEnterAutoAccept, _wrap_in_scroll_area
 from .filename_tokens import INDEX_TOKEN, render_export_filename, render_index_token, render_runtime_token, sanitize_filename_prefix
 from .graph_selector import GraphContentSelector, _CursorCurveLink
 from .panels import AxisOverridePanel, ColorScaleOverridePanel, ExportPreviewPanel, _color_scale_range_invalid
@@ -72,7 +72,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._settings = settings
         self._show_mode_choice = show_mode_choice
 
-        layout = QtWidgets.QVBoxLayout(self)
+        outer_layout, layout = _wrap_in_scroll_area(self)
         layout_top = QtWidgets.QHBoxLayout()
         left_col = QtWidgets.QVBoxLayout()
         right_col = QtWidgets.QVBoxLayout()
@@ -285,18 +285,23 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 self._axis_panel.group_box.layout().addLayout(time_form)
             else:
                 right_col.addLayout(time_form)
+        # Vorschau (Nutzerwunsch) -- bewusst IN die rechte Spalte gehaengt statt
+        # als eigene volle Zeile unter den beiden Spalten: eine zusaetzliche
+        # Zeile liess den ganzen Dialog so weit nach unten wachsen, dass er
+        # ueber den Bildschirmrand hinausragte (Bugreport: "macht den
+        # Exportmanager nach unten aber so groß/lang, dass das Fenster aus
+        # dem Bildschirm hinausragt"). In der Spalte nutzt sie stattdessen
+        # den ohnehin vorhandenen Platz neben der linken Spalte. Nur
+        # sichtbar/aktiv, wenn der Aufrufer per enable_preview(...)
+        # tatsaechlich einen Renderer bereitstellt (siehe dort) -- ohne
+        # Aufruf bleibt die Box unsichtbar.
+        self._preview_panel = ExportPreviewPanel(max_width=260, max_height=160)
+        self._preview_panel.group_box.setVisible(False)
+        right_col.addWidget(self._preview_panel.group_box)
         right_col.addStretch(1)
         layout_top.addLayout(right_col, 1)
         layout.addLayout(layout_top)
 
-        # Vorschau (Nutzerwunsch) -- volle Zeile UNTER den beiden Spalten
-        # (die 2-spaltige layout_top ist oben bereits voll), vor den
-        # Dialog-Buttons. Nur sichtbar/aktiv, wenn der Aufrufer per
-        # enable_preview(...) tatsaechlich einen Renderer bereitstellt
-        # (siehe dort) -- ohne Aufruf bleibt die Box unsichtbar.
-        self._preview_panel = ExportPreviewPanel()
-        self._preview_panel.group_box.setVisible(False)
-        layout.addWidget(self._preview_panel.group_box)
         # Bugfix: der Aufrufer (export_image.py) stoppte den debounced
         # Vorschau-Timer bisher nur im ACCEPT-Zweig -- bei "Abbrechen"/ESC/
         # Schliessen-Knopf blieb ein evtl. noch ausstehender Timer im
@@ -312,7 +317,11 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         _disable_enter_auto_accept(buttons)
-        layout.addWidget(buttons)
+        # Bewusst an outer_layout (ausserhalb der Scroll-Area) gehaengt, nicht
+        # an layout -- die Buttons sollen unabhaengig vom Scroll-Zustand des
+        # Inhalts IMMER sichtbar am unteren Fensterrand bleiben.
+        outer_layout.addWidget(buttons)
+        _cap_initial_dialog_height(self)
 
     def enable_preview(self, provider) -> None:
         """Blendet die Vorschau-Box ein und haengt provider (liefert ein
@@ -545,7 +554,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # dort nochmal.
         self._timestamps = timestamps
 
-        layout = QtWidgets.QVBoxLayout(self)
+        outer_layout, layout = _wrap_in_scroll_area(self)
 
         # Bildstapel (Punkt: "neben einem Video auch einen Bilderstapel
         # exportieren") nutzt exakt dieselbe Frame-Bereich-/Farbskalen-/
@@ -902,23 +911,29 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         overlay_grid.addWidget(self.radio_overlay_timestamp, 1, 0)
         overlay_grid.addWidget(self.radio_overlay_both, 1, 1)
 
-        # Ebenen-/Cursor-/Zeitanzeige-im-Bild nebeneinander -- alle drei sind
-        # zusaetzliche Einblendungen direkt auf dem Bild/Video (im Unterschied
-        # zum Graphen-Kasten oben), daher hier bewusst als eigene Zeile
-        # gruppiert statt einzeln untereinander.
+        # Vorschau (Nutzerwunsch) -- bewusst als VIERTE Spalte in derselben
+        # Zeile wie Ebenen/Cursor & Maßstab/Zeitanzeige statt als eigene
+        # volle Zeile darunter: eine zusaetzliche Zeile liess den ganzen
+        # Dialog so weit nach unten wachsen, dass er ueber den
+        # Bildschirmrand hinausragte (Bugreport: "macht den Exportmanager
+        # nach unten aber so groß/lang, dass das Fenster aus dem Bildschirm
+        # hinausragt"). Nur sichtbar/aktiv, wenn der Aufrufer per
+        # enable_preview(...) tatsaechlich einen Renderer bereitstellt.
+        self._preview_panel = ExportPreviewPanel(max_width=220, max_height=140)
+        self._preview_panel.group_box.setVisible(False)
+
+        # Ebenen-/Cursor-/Zeitanzeige-im-Bild/Vorschau nebeneinander -- alle
+        # sind zusaetzliche Einblendungen direkt auf dem Bild/Video (im
+        # Unterschied zum Graphen-Kasten oben) bzw. deren Ergebnisvorschau,
+        # daher hier bewusst als eigene Zeile gruppiert statt einzeln
+        # untereinander.
         overlay_row = QtWidgets.QHBoxLayout()
         overlay_row.addWidget(layers_box, 1)
         overlay_row.addWidget(cursor_box, 1)
         overlay_row.addWidget(overlay_box, 1)
+        overlay_row.addWidget(self._preview_panel.group_box, 1)
         layout.addLayout(overlay_row)
 
-        # Vorschau (Nutzerwunsch) -- als letzte volle Zeile vor den Dialog-
-        # Buttons, analog zu GraphicExportDialog. Nur sichtbar/aktiv, wenn
-        # der Aufrufer per enable_preview(...) tatsaechlich einen Renderer
-        # bereitstellt.
-        self._preview_panel = ExportPreviewPanel()
-        self._preview_panel.group_box.setVisible(False)
-        layout.addWidget(self._preview_panel.group_box)
         # Bugfix: siehe GraphicExportDialog.__init__ -- self.finished deckt
         # ALLE Schliesswege ab (Accept/Abbrechen/ESC/X), nicht nur den vom
         # Aufrufer (export_video.py) geprueften Accept-Fall.
@@ -930,7 +945,11 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         _disable_enter_auto_accept(buttons)
-        layout.addWidget(buttons)
+        # Bewusst an outer_layout (ausserhalb der Scroll-Area) gehaengt, nicht
+        # an layout -- die Buttons sollen unabhaengig vom Scroll-Zustand des
+        # Inhalts IMMER sichtbar am unteren Fensterrand bleiben.
+        outer_layout.addWidget(buttons)
+        _cap_initial_dialog_height(self)
 
     def _update_output_mode_enabled(self) -> None:
         is_video = self.radio_output_video.isChecked()

@@ -55,6 +55,28 @@ class _LayerTabsMixin:
         self._set_active_layer_tab(tab)
 
     def _set_active_layer_tab(self, tab: str) -> None:
+        # Ein gerade scharf gestelltes Platzier-/Mess-Werkzeug gehoert fest zu
+        # EINER Ebene (ROI-Platzieren -> "roi", Maßstab/Messmodus -> "scale",
+        # Probenhoehen-Platzieren -> "shrinkage") -- wechselt der Nutzer die
+        # Ebene, OHNE das Werkzeug vorher selbst zu beenden, muss es hier
+        # abgebrochen werden. Sonst bliebe es im Hintergrund scharf und ein
+        # Klick ins Bild wuerde auf der NEUEN (falschen) Ebene unbemerkt noch
+        # das alte Werkzeug ausloesen (Nutzer-Bugreport: ROI liess sich auf
+        # dem Schwindungsmessung-Tab setzen). "all" deckt weiterhin jede
+        # Ebene ab, dort bleibt jedes Werkzeug unangetastet scharf.
+        if tab != "all":
+            if tab != "roi" and self._armed_entry is not None:
+                entry = self._armed_entry
+                entry.btn_place.blockSignals(True)
+                entry.btn_place.setChecked(False)
+                entry.btn_place.blockSignals(False)
+                self._armed_entry = None
+            if tab != "scale" and self._ruler_armed:
+                self._cancel_ruler_tool()
+            if tab != "scale" and self._measurement_armed:
+                self._cancel_measurement_tool()
+            if tab != "shrinkage" and self._sample_height_armed:
+                self._cancel_sample_height_tool()
         self._active_layer_tab = tab
         self.layer_tab_bar.blockSignals(True)
         self.layer_tab_bar.setCurrentIndex(_LAYER_TAB_ORDER.index(tab))

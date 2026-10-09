@@ -236,7 +236,14 @@ class _MeasurementMixin:
         pos = mid if self._ruler_label_offset is None else mid + self._ruler_label_offset
         self._ruler_text.setText(f"{self._format_de(self._ruler_mm_value, 1)} mm")
         self._ruler_text.setPos(pos.x(), pos.y())
-        self._ruler_text.setVisible(self._scale_visuals_visible)
+        # NICHT nur die "Anzeigen"-Checkbox -- auch mit dem aktiven Ebenen-
+        # Tab UND-verknuepfen, sonst wuerde dieser aus mehreren Stellen (u.a.
+        # _apply_scale_visuals_visibility() selbst) aufgerufene Re-Positions-
+        # Code die dort bereits korrekt berechnete, tab-abhaengige
+        # Sichtbarkeit sofort wieder ueberschreiben und die Maßstab-
+        # Beschriftung faelschlich auch auf anderen Ebenen-Tabs anzeigen
+        # (Nutzer-Bugreport).
+        self._ruler_text.setVisible(self._scale_visuals_visible and self._is_layer_tab_active("scale"))
 
     def _clamp_ruler_label_pos(self, raw_pos: QtCore.QPointF) -> QtCore.QPointF:
         """clamp_fn fuer self._ruler_text (siehe DraggableTextItem.

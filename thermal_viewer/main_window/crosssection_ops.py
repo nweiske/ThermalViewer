@@ -243,14 +243,14 @@ class _CrossSectionMixin:
             row = self._crosssection_row
             values = frame[row, :]
             xs = np.arange(cols)
-            self.crosssection_plot.setLabel("bottom", "Spalte")
+            self.crosssection_plot.setLabel("bottom", "Bildbreite bzw. Höhe (px)")
             self.lbl_crosssection_position.setText(f"Horizontaler Schnitt durch Zeile {row}.")
             cursor_pos = self._crosssection_col
         else:
             col = self._crosssection_col
             values = frame[:, col]
             xs = np.arange(rows)
-            self.crosssection_plot.setLabel("bottom", "Zeile")
+            self.crosssection_plot.setLabel("bottom", "Bildbreite bzw. Höhe (px)")
             self.lbl_crosssection_position.setText(f"Vertikaler Schnitt durch Spalte {col}.")
             cursor_pos = self._crosssection_row
         self.crosssection_curve.setData(xs, values)

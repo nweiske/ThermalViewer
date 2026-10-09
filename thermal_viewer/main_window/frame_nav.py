@@ -41,6 +41,13 @@ class _FrameNavMixin:
         for entry in list(self.roi_entries):
             self._remove_roi_entry(entry)
         self._clear_ruler_scale()
+        # Bugfix (Nutzerwunsch): Probenhöhen (siehe sample_height_ops.py)
+        # bezogen sich bislang abweichend von Messbereichen/Messungen/
+        # Maßstab oben weiterhin auf Zeilen-Positionen/Namen der ALTEN
+        # Aufnahme und blieben faelschlich ueber einen echten Neu-
+        # Ladevorgang hinweg erhalten, statt (wie hier fuer alles andere)
+        # vollstaendig verworfen zu werden.
+        self._clear_all_sample_heights_for_new_recording()
         self._armed_entry = None
         self._roi_next_number = 1
         self._measurement_next_number = 1
@@ -163,11 +170,6 @@ class _FrameNavMixin:
         # bedeutungslos -- gleiche Invariante wie bei ROIs/Messungen/
         # Bereinigung oben.
         self._reset_shrinkage_state_for_recording()
-        # Probenhöhen (siehe sample_height_ops.py): dieselbe Invariante wie
-        # bei der Box oben, aber Liste/Namen/Farben bleiben (wie bei ROIs)
-        # ueber einen Reload hinweg erhalten -- nur Zeilen-Positionen werden
-        # auf die neue Bildhoehe geklemmt und das Ergebnis neu berechnet.
-        self._reset_sample_heights_for_recording()
 
         self._hover_row = None
         self._hover_col = None
@@ -192,6 +194,22 @@ class _FrameNavMixin:
         # bezieht sich ebenso auf Pixel-Koordinaten der ALTEN Aufnahme und
         # wird daher auf die Mitte der NEUEN Aufnahme zurueckgesetzt.
         self._reset_crosssection_state_for_recording()
+        # Probenhöhen (siehe sample_height_ops.py): _set_recording() wird
+        # IMMER entweder beim allerersten Laden (noch keine Probenhöhen
+        # vorhanden) oder NACH _reset_state_for_new_recording() oben
+        # aufgerufen (das _sample_height_entries bereits vollstaendig
+        # geleert hat) -- dieser Aufruf laeuft an dieser Stelle also stets
+        # ueber eine LEERE Liste (reiner No-Op, bewusst trotzdem belassen,
+        # analog zu den Box-/Querschnitt-Resets oben, falls sich das
+        # kuenftig aendert). Die Live-Ordner-Ueberwachung (siehe
+        # import_ops.py:_apply_appended_recording) laeuft NICHT ueber
+        # _set_recording, sondern ruft fuer bestehende Probenhöhen direkt
+        # _recompute_all_sample_heights() auf.
+        # Bugfix: muss NACH "self.current_index = 0" stehen -- dieselbe
+        # Begruendung wie beim Querschnitt-Reset oben: die sofortige
+        # Neuberechnung liest sonst noch den (evtl. zu grossen) current_index
+        # der VORHERIGEN Aufnahme fuer die Polaritaets-Erkennung.
+        self._reset_sample_heights_for_recording()
 
         self.view_box.setRange(xRange=(0, cols), yRange=(0, rows), padding=0.02)
         # defer_display=True (Nutzerwunsch): nach "Ordner öffnen…" MUSS die

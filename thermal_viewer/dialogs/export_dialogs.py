@@ -102,9 +102,8 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
                 graphs_layout.addWidget(chk)
             graphs_box.setToolTip(
-                "Beliebig viele gleichzeitig einbetten (auch alle) -- \"Schwindung\"/\"Querschnitt\" "
-                "werden dabei immer mit ihren AKTUELL im Hauptfenster gezeigten Einstellungen "
-                "(Kenngröße bzw. Richtung) exportiert."
+                "Beliebig viele gleichzeitig einbettbar.\n"
+                "\"Schwindung\"/\"Querschnitt\" exportieren die aktuellen Hauptfenster-Einstellungen."
             )
             left_col.addWidget(graphs_box)
 
@@ -131,10 +130,8 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             self.chk_cursor_position = QtWidgets.QCheckBox("Cursor-Position im Bild anzeigen")
             self.chk_cursor_position.setChecked(False)
             self.chk_cursor_position.setToolTip(
-                "Blendet das Fadenkreuz samt Temperaturanzeige am (fixierten oder\n"
-                "zuletzt mit der Maus angezeigten) Cursor-Pixel im exportierten\n"
-                "Thermobild mit ein. Unabhängig von der Live-Cursor-KURVE oben\n"
-                "einzeln steuerbar -- die Kurve setzt diese Option aber voraus."
+                "Zeigt Fadenkreuz + Temperatur am Cursor-Pixel im exportierten Thermobild.\n"
+                "Unabhängig von der Live-Cursor-Kurve steuerbar -- die Kurve setzt dies aber voraus."
             )
             content_box_layout.addWidget(self.chk_cursor_position)
             self._cursor_curve_link = _CursorCurveLink(self.chk_cursor_position, self._content_selector.chk_live)
@@ -146,10 +143,8 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             self.chk_cursor_position = QtWidgets.QCheckBox("Cursor-Position im Bild anzeigen")
             self.chk_cursor_position.setChecked(False)
             self.chk_cursor_position.setToolTip(
-                "Blendet das Fadenkreuz samt Temperaturanzeige am (fixierten oder\n"
-                "zuletzt mit der Maus angezeigten) Cursor-Pixel im exportierten\n"
-                "Thermobild mit ein. Standardmäßig aus, damit die Grafik nicht\n"
-                "ungewollt eine Maus-/Debug-Markierung enthält."
+                "Zeigt Fadenkreuz + Temperatur am Cursor-Pixel im exportierten Thermobild.\n"
+                "Standardmäßig aus, damit keine ungewollte Maus-/Debug-Markierung erscheint."
             )
             left_col.addWidget(self.chk_cursor_position)
 
@@ -172,8 +167,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             for chk in (self.chk_layer_roi, self.chk_layer_shrinkage):
                 layers_layout.addWidget(chk)
             layers_box.setToolTip(
-                "Steuert, welche Bild-Overlays im exportierten Thermobild erscheinen -- "
-                "unabhängig davon, welche Ebene gerade im Hauptfenster aktiv ist."
+                "Steuert die Bild-Overlays im Export -- unabhängig von der im Hauptfenster aktiven Ebene."
             )
             left_col.addWidget(layers_box)
 
@@ -275,9 +269,8 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             self.combo_time_axis.addItem("Laufzeit", "runtime")
             self.combo_time_axis.addItem("Beide", "both")
             self.combo_time_axis.setToolTip(
-                "Zeigt die x-Achse des Kurven-Graphen als echte Uhrzeit, als Laufzeit seit "
-                "Aufnahmebeginn, oder BEIDE gleichzeitig (zusätzliche zweite Achse oben am "
-                "Graphen)."
+                "x-Achse als Uhrzeit, Laufzeit seit Aufnahmebeginn, oder BEIDE gleichzeitig\n"
+                "(zweite Achse oben am Graphen)."
             )
             self.combo_time_axis.setCurrentIndex(self.combo_time_axis.findData("both"))
             time_form.addRow("Zeitachse:", self.combo_time_axis)
@@ -295,10 +288,16 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # sichtbar/aktiv, wenn der Aufrufer per enable_preview(...)
         # tatsaechlich einen Renderer bereitstellt (siehe dort) -- ohne
         # Aufruf bleibt die Box unsichtbar.
-        self._preview_panel = ExportPreviewPanel(max_width=260, max_height=160)
+        self._preview_panel = ExportPreviewPanel(min_width=260, min_height=160)
         self._preview_panel.group_box.setVisible(False)
-        right_col.addWidget(self._preview_panel.group_box)
-        right_col.addStretch(1)
+        # Stretch-Faktor 1 (statt eines zusaetzlichen, konkurrierenden
+        # addStretch(1) danach): die Vorschau soll den gesamten Platz-
+        # ueberschuss bekommen, wenn der Nutzer den Dialog groesser zieht
+        # (Nutzerwunsch: "soll auch die Vorschau etwas größer werden"),
+        # waehrend output_box/axis_panel/time_form (Stretch 0) auf ihrer
+        # sizeHint-Groesse bleiben -- ein zusaetzlicher reiner Platzhalter
+        # wuerde sich den Zuwachs sonst mit der Vorschau-Box teilen.
+        right_col.addWidget(self._preview_panel.group_box, 1)
         layout_top.addLayout(right_col, 1)
         layout.addLayout(layout_top)
 
@@ -342,7 +341,23 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         if self.chk_layer_roi is not None:
             self.chk_layer_roi.toggled.connect(refresh)
             self.chk_layer_shrinkage.toggled.connect(refresh)
+        # Bugfix (Nutzerwunsch: "eine (Live-)Vorschau ... Änderungen wie
+        # 'ich nehme zwei Kurven aus dem Graphen raus/rein' bitte direkt mit
+        # anzeigen"): einzelne Messbereichs-/Live-Cursor-Checkboxen INNERHALB
+        # von "Graph-Inhalt" loesten bisher KEINE Vorschau-Aktualisierung
+        # aus, obwohl sie das exportierte Ergebnis sichtbar veraendern.
+        if self._content_selector is not None:
+            for chk in self._content_selector.checks.values():
+                chk.toggled.connect(refresh)
+            self._content_selector.chk_live.toggled.connect(refresh)
         refresh()
+        # Bugfix: _cap_initial_dialog_height() lief am Ende von __init__
+        # bereits, DA war die (hier erst sichtbar gemachte) Vorschau-Box
+        # noch unsichtbar und ging daher nicht in deren Breiten-Berechnung
+        # ein -- ohne diesen erneuten Aufruf konnte der Dialog dadurch
+        # serienmaessig zu schmal fuer die jetzt tatsaechlich sichtbare
+        # Vorschau-Spalte oeffnen (unnoetige Horizontal-Scrollbar).
+        _cap_initial_dialog_height(self)
 
     def selected_graph_keys(self) -> list[str]:
         """Ausgewaehlte Graphen in fester Reihenfolge (Zeitverlauf/
@@ -590,19 +605,11 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # jede Anpassung bereits eindeutige Dateinamen ergeben.
         self.edit_image_prefix = QtWidgets.QLineEdit(f"Frame_{INDEX_TOKEN}_")
         self.edit_image_prefix.setToolTip(
-            "Voller Dateiname (ohne Endung) für jedes exportierte Bild -- volle Kontrolle, es wird "
-            "NICHTS automatisch angehängt. Unterstützt dieselben Zeitstempel-Platzhalter wie das "
-            "Namensschema beim Laden (YYYY/MM/DD/hh/mm/ss), die mit dem echten Zeitstempel jedes "
-            "Frames gefüllt werden, sowie „IDX“ für die fortlaufende, nullgefüllte Frame-Nummer -- "
-            "GENAU an der Stelle, wo „IDX“ im Muster steht, z.B. „Frame_IDX_YYYY-MM-DD_hh-mm-ss“ -> "
-            "Frame_1_2026-01-01_12-00-00.png. Zusätzlich „LAUFs“/„LAUFm“/„LAUFh“ für die verstrichene "
-            "Aufnahmezeit in Sekunden/Minuten/Stunden (der Buchstabe nach „LAUF“ wählt die Einheit), "
-            "z.B. „Frame_IDX_LAUFm“ -> Frame_1_000min.png -- praktisch, um Frames anhand der Laufzeit "
-            "statt der Bildnummer zu benennen. Ergibt das Muster (z.B. weil es weder „IDX“ noch einen "
-            "vollen Zeitstempel enthält) für mehrere Frames denselben Namen, erscheint beim Export "
-            "eine Warnung -- spätere Frames würden sonst frühere überschreiben („LAUF...“ allein "
-            "reicht dafür NICHT aus, da mehrere Frames dieselbe gerundete Sekunde/Minute/Stunde "
-            "teilen können)."
+            "Voller Dateiname (ohne Endung) -- nichts wird automatisch angehängt.\n"
+            "Platzhalter: YYYY/MM/DD/hh/mm/ss (Zeitstempel), IDX (laufende Nummer),\n"
+            "LAUFs/LAUFm/LAUFh (Laufzeit in s/min/h).\n"
+            "Beispiel: „Frame_IDX_LAUFm“ → Frame_1_000min.png\n"
+            "Ergibt das Muster für mehrere Frames denselben Namen, warnt der Export."
         )
         image_form.addRow("Bildformat:", self.combo_image_format)
         image_form.addRow("Dateiname-Muster:", self.edit_image_prefix)
@@ -667,12 +674,9 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         )
         self.chk_freeze_excluded_pixels.setChecked(False)
         self.chk_freeze_excluded_pixels.setToolTip(
-            "Nur für den Video-Export: von der Rohdaten-Bereinigung ausgeblendete Bilder (siehe "
-            "„Daten > Rohdaten säubern…“) werden NICHT weggelassen, sondern zeigen den "
-            "Bildinhalt des vorherigen, sichtbaren Bildes -- Frame-Anzahl und Zeitstempel im "
-            "Video bleiben dadurch unverändert. Ohne Haken werden sie wie bisher komplett "
-            "ausgelassen (kürzeres Video). Der Bildstapel-Export lässt ausgeblendete Bilder "
-            "immer aus."
+            "Nur für Video-Export. Angehakt: ausgeblendete Bilder zeigen das vorherige Bild\n"
+            "(Frame-Anzahl/Zeitstempel bleiben unverändert) statt ausgelassen zu werden.\n"
+            "Bildstapel-Export lässt ausgeblendete Bilder immer aus."
         )
         self.chk_freeze_excluded_pixels.setVisible(has_excluded_frames)
         range_outer.addWidget(self.chk_freeze_excluded_pixels)
@@ -769,10 +773,8 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
             graph_layout.addWidget(chk)
         graph_box.setToolTip(
-            "Beliebig viele gleichzeitig exportieren (auch alle), mit der wandernden Zeit-"
-            "Markierung genau wie im Hauptfenster -- \"Schwindung\"/\"Querschnitt\" werden dabei "
-            "immer mit ihren AKTUELL im Hauptfenster gezeigten Einstellungen (Kenngröße bzw. "
-            "Richtung) exportiert."
+            "Beliebig viele gleichzeitig exportierbar, mit wandernder Zeit-Markierung.\n"
+            "\"Schwindung\"/\"Querschnitt\" exportieren die aktuellen Hauptfenster-Einstellungen."
         )
 
         # Eingerueckt unter "Graph mit exportieren" -- Inhalt/Position sind
@@ -833,6 +835,12 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # Ueberraschung).
         layers_box = QtWidgets.QGroupBox("Ebenen im Bild")
         layers_layout = QtWidgets.QVBoxLayout(layers_box)
+        # Bugreport: ohne AlignTop verteilt Qt den durch die gleich hohe
+        # overlay_row (siehe dort) erzwungenen Platzueberschuss auf die
+        # Checkboxen, die dadurch "komisch in der Luft haengen" statt oben
+        # buendig zu bleiben -- AlignTop haelt den Inhalt oben, der
+        # ungenutzte Rest bleibt als Leerraum unten in der Box.
+        layers_layout.setAlignment(QtCore.Qt.AlignTop)
         self.chk_layer_roi = QtWidgets.QCheckBox(_IMAGE_LAYER_LABELS["roi"])
         self.chk_layer_roi.setChecked(True)
         self.chk_layer_shrinkage = QtWidgets.QCheckBox(_IMAGE_LAYER_LABELS["shrinkage"])
@@ -840,8 +848,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         for chk in (self.chk_layer_roi, self.chk_layer_shrinkage):
             layers_layout.addWidget(chk)
         layers_box.setToolTip(
-            "Steuert, welche Bild-Overlays im exportierten Thermobild erscheinen -- "
-            "unabhängig davon, welche Ebene gerade im Hauptfenster aktiv ist."
+            "Steuert die Bild-Overlays im Export -- unabhängig von der im Hauptfenster aktiven Ebene."
         )
 
         # Eigener, vom Graphen UNABHAENGIGER Kasten fuer alles, was zusaetzlich
@@ -857,14 +864,17 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # Graphen-Inhalt/-Position oben).
         cursor_box = QtWidgets.QGroupBox("Cursor & Maßstab im Bild")
         cursor_layout = QtWidgets.QVBoxLayout(cursor_box)
+        # Siehe layers_layout oben -- dieselbe Begruendung, hier besonders
+        # auffaellig, da ScaleContentSelector ohne Maßstab/Messungen nur
+        # einen einzelnen Hinweis-Label anhaengt (siehe scale_selector.py),
+        # das sonst mittig in der leeren Box "schwebt".
+        cursor_layout.setAlignment(QtCore.Qt.AlignTop)
         self.chk_cursor_position = QtWidgets.QCheckBox("Cursor-Position im Bild anzeigen")
         self.chk_cursor_position.setChecked(False)
         self.chk_cursor_position.setToolTip(
-            "Blendet das Fadenkreuz samt Temperaturanzeige am (fixierten oder\n"
-            "zuletzt mit der Maus angezeigten) Cursor-Pixel im exportierten\n"
-            "Video/Bildstapel mit ein. Unabhängig von „Graph mit exportieren“\n"
-            "und der Live-Cursor-KURVE im Graphen einzeln steuerbar -- die\n"
-            "Kurve setzt diese Option aber voraus."
+            "Zeigt Fadenkreuz + Temperatur am Cursor-Pixel im exportierten Video/Bildstapel.\n"
+            "Unabhängig von „Graph mit exportieren“ und der Live-Cursor-Kurve steuerbar\n"
+            "-- die Kurve setzt dies aber voraus."
         )
         cursor_layout.addWidget(self.chk_cursor_position)
         self._cursor_curve_link = _CursorCurveLink(self.chk_cursor_position, self._content_selector.chk_live)
@@ -891,17 +901,18 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # Anzeige am Ende aussieht).
         overlay_box = QtWidgets.QGroupBox("Zeitanzeige im Bild")
         overlay_grid = QtWidgets.QGridLayout(overlay_box)
+        # Siehe layers_layout oben -- dieselbe Begruendung.
+        overlay_grid.setAlignment(QtCore.Qt.AlignTop)
         self.radio_overlay_timeline = QtWidgets.QRadioButton("Laufzeit")
         self.radio_overlay_timeline.setToolTip(
-            "Fortschrittsbalken unten im Bild mit der seit Aufnahmebeginn "
-            "verstrichenen Zeit (HH:MM:SS) -- wie der Frame-Regler im Hauptfenster."
+            "Fortschrittsbalken mit verstrichener Zeit (HH:MM:SS).\n"
+            "Wie der Frame-Regler im Hauptfenster."
         )
         self.radio_overlay_none = QtWidgets.QRadioButton("Keine")
         self.radio_overlay_none.setToolTip("Kein zusätzlicher Zeit-Balken im Export.")
         self.radio_overlay_timestamp = QtWidgets.QRadioButton("Zeitstempel")
         self.radio_overlay_timestamp.setToolTip(
-            "Reales Aufnahmedatum/-uhrzeit (JJJJ-MM-TT HH:MM:SS) des jeweiligen Frames "
-            "als Text unten im Bild."
+            "Reales Aufnahmedatum/-uhrzeit (JJJJ-MM-TT HH:MM:SS) als Text unten im Bild."
         )
         self.radio_overlay_both = QtWidgets.QRadioButton("Beides")
         self.radio_overlay_both.setToolTip("Laufzeit UND Zeitstempel gemeinsam unten im Bild.")
@@ -919,7 +930,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # nach unten aber so groß/lang, dass das Fenster aus dem Bildschirm
         # hinausragt"). Nur sichtbar/aktiv, wenn der Aufrufer per
         # enable_preview(...) tatsaechlich einen Renderer bereitstellt.
-        self._preview_panel = ExportPreviewPanel(max_width=220, max_height=140)
+        self._preview_panel = ExportPreviewPanel(min_width=220, min_height=140)
         self._preview_panel.group_box.setVisible(False)
 
         # Ebenen-/Cursor-/Zeitanzeige-im-Bild/Vorschau nebeneinander -- alle
@@ -1047,7 +1058,18 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.chk_cursor_position.toggled.connect(refresh)
         self.chk_layer_roi.toggled.connect(refresh)
         self.chk_layer_shrinkage.toggled.connect(refresh)
+        # Bugfix: siehe GraphicExportDialog.enable_preview -- dieselbe
+        # fehlende Live-Aktualisierung bei einzelnen Messbereichs-/Live-
+        # Cursor-Checkboxen innerhalb von "Graph-Inhalt".
+        for chk in self._content_selector.checks.values():
+            chk.toggled.connect(refresh)
+        self._content_selector.chk_live.toggled.connect(refresh)
         refresh()
+        # Bugfix: siehe GraphicExportDialog.enable_preview -- dieselbe
+        # verspaetete Breiten-Neuberechnung, hier besonders relevant, da
+        # die Vorschau-Box in VideoExportDialog eine VIERTE Spalte in
+        # derselben Zeile wie Ebenen/Cursor & Maßstab/Zeitanzeige ist.
+        _cap_initial_dialog_height(self)
 
     def export_layer_categories(self) -> set[str]:
         """Ausgewaehlte Bild-Ebenen ("roi"/"shrinkage", siehe

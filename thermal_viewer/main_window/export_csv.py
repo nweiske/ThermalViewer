@@ -43,6 +43,16 @@ class _CsvExportMixin:
                 "height_px": entry.height(),
                 "width_mm": w_mm,
                 "height_mm": h_mm,
+                # Bugreport: bei aktiver Verlaufs-Interpolation (Abschnitt 6)
+                # aendert sich die ROI-Groesse von Bild zu Bild -- ein in den
+                # Spaltennamen uebernommener fester px/mm-Wert (siehe
+                # CsvColumnDialog._apply_autofill) traefe dann nur zufaellig
+                # auf das gerade beim Oeffnen des Export-Dialogs angezeigte
+                # Bild zu und waere fuer den Rest der exportierten Zeitreihe
+                # falsch. "size_varies" laesst den Dialog die px/mm-Haekchen
+                # fuer GENAU diese Zeile deaktivieren, statt einen
+                # irrefuehrenden Momentaufnahme-Wert anzubieten.
+                "size_varies": entry.is_interp_ready(),
             })
         # Nur noch EIN CSV-Export-Fenster (statt getrennter "Zeitverlauf-"/
         # "Live-Werte"-Menüpunkte, Nutzerwunsch): der Live-Cursor-Verlauf ist

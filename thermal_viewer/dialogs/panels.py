@@ -9,6 +9,53 @@ from ..widgets import LocaleTolerantDoubleSpinBox
 from .misc_dialogs import AxisSettingsDialog
 
 
+class _ScalingPreviewLabel(QtWidgets.QLabel):
+    """QLabel-Unterklasse, die ihr Pixmap bei jeder Groessenaenderung des
+    Labels selbst neu auf die dann verfuegbare Flaeche skaliert (Nutzerwunsch:
+    "wenn ich das Fenster größer ziehe, dann soll auch die Vorschau etwas
+    größer werden") -- haelt dafuer das unskalierte Original-Pixmap getrennt
+    vom tatsaechlich angezeigten (skalierten) Pixmap vor."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._source_pixmap: QtGui.QPixmap | None = None
+        self._initial_size = QtCore.QSize()
+
+    def set_initial_size(self, width: int, height: int) -> None:
+        """Nur ein sizeHint() fuer die ANFANGS-Groesse (siehe
+        ExportPreviewPanel) -- bewusst NICHT per setMinimumSize() als
+        harte Untergrenze erzwungen: das zwang die Box bei kleiner
+        Dialogbreite (z.B. VideoExportDialog, vier Boxen in einer Zeile)
+        in eine permanente Horizontal-Scrollbar, obwohl die Box nur als
+        anfaenglicher Platzvorschlag gedacht war, nicht als dauerhafte
+        Mindestbreite (Bugfix)."""
+        self._initial_size = QtCore.QSize(width, height)
+
+    def sizeHint(self) -> QtCore.QSize:
+        if self._initial_size.isValid():
+            return self._initial_size
+        return super().sizeHint()
+
+    def set_source_pixmap(self, pixmap: QtGui.QPixmap | None) -> None:
+        self._source_pixmap = pixmap
+        if pixmap is None or pixmap.isNull():
+            super().setPixmap(QtGui.QPixmap())
+            return
+        self._apply_scaled()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._apply_scaled()
+
+    def _apply_scaled(self) -> None:
+        if self._source_pixmap is None or self._source_pixmap.isNull():
+            return
+        scaled = self._source_pixmap.scaled(
+            self.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation,
+        )
+        super().setPixmap(scaled)
+
+
 class ExportPreviewPanel:
     """Kleine Live-Vorschau (Nutzerwunsch: "eine kleine Vorschau, wie das
     Zielbild/-video dann ausschauen wird ... noch halbwegs erkennen
@@ -18,16 +65,27 @@ class ExportPreviewPanel:
     (150ms) ueber einen einzigen QTimer, damit schnelle Checkbox-Klicks
     nicht mehrfach unnoetig neu rendern -- seltener geaenderte
     Feineinstellungen (Achsen-Panel, Maßstab/Messungen) aktualisieren die
-    Vorschau bewusst NICHT live (Scope-Entscheidung, siehe Plan)."""
+    Vorschau bewusst NICHT live (Scope-Entscheidung, siehe Plan).
 
-    def __init__(self, max_width: int = 340, max_height: int = 220) -> None:
+    min_width/min_height sind nur die ANFANGS-Groesse -- das Label selbst
+    ist (anders als frueher) Expanding, waechst also mit, wenn der Nutzer
+    den Dialog groesser zieht (Nutzerwunsch, siehe _ScalingPreviewLabel)."""
+
+    def __init__(self, min_width: int = 220, min_height: int = 140) -> None:
         self.group_box = QtWidgets.QGroupBox("Vorschau")
         layout = QtWidgets.QVBoxLayout(self.group_box)
-        self._max_width = max_width
-        self._max_height = max_height
-        self.label = QtWidgets.QLabel("Vorschau erscheint hier.")
+        self.label = _ScalingPreviewLabel("Vorschau erscheint hier.")
         self.label.setAlignment(QtCore.Qt.AlignCenter)
-        self.label.setMinimumHeight(max_height)
+        # NUR Hoehe als harte Untergrenze (wie vor diesem Umbau) -- die
+        # Breite ist lediglich ein anfaenglicher sizeHint() (siehe
+        # set_initial_size), keine permanente Mindestbreite. Mit einer
+        # echten Mindestbreite zusaetzlich zu den drei Nachbar-Boxen in
+        # VideoExportDialogs overlay_row ueberstieg die Zeile selbst die
+        # eigene setMinimumWidth(720) des Dialogs und erzwang dort
+        # dauerhaft eine Horizontal-Scrollbar (Bugfix).
+        self.label.setMinimumHeight(min_height)
+        self.label.set_initial_size(min_width, min_height)
+        self.label.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.label.setWordWrap(True)
         layout.addWidget(self.label)
         self._timer = QtCore.QTimer()
@@ -57,15 +115,13 @@ class ExportPreviewPanel:
     def _refresh_now(self, provider) -> None:
         image = provider()
         if image is None or image.isNull():
-            self.label.setPixmap(QtGui.QPixmap())
+            self.label.set_source_pixmap(None)
             self.label.setText("Vorschau nicht verfügbar (z.B. keine Aufnahme geladen).")
             return
         self.label.setText("")
-        pixmap = QtGui.QPixmap.fromImage(image).scaled(
-            self._max_width, self._max_height,
-            QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation,
-        )
-        self.label.setPixmap(pixmap)
+        # UNskaliert uebergeben -- _ScalingPreviewLabel skaliert selbst auf
+        # seine jeweils aktuelle (ggf. per Fenstergroesse veraenderte) Groesse.
+        self.label.set_source_pixmap(QtGui.QPixmap.fromImage(image))
 
 
 class ColorScaleOverridePanel:
@@ -186,7 +242,7 @@ class AxisOverridePanel:
         layout = QtWidgets.QVBoxLayout(self.group_box)
 
         self.radio_current = QtWidgets.QRadioButton("Aktuelle Ansicht übernehmen")
-        self.radio_current.setToolTip("Übernimmt Wertebereich und Tick-Abstand exakt so, wie sie gerade im Hauptfenster angezeigt werden.")
+        self.radio_current.setToolTip("Übernimmt Wertebereich und Tick-Abstand genau wie im Hauptfenster.")
         self.radio_custom = QtWidgets.QRadioButton("Eigene Achsen-Einstellungen für diesen Export")
         self.radio_current.setChecked(True)
         layout.addWidget(self.radio_current)

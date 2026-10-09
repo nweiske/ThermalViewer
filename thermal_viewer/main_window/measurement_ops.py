@@ -30,10 +30,7 @@ class _MeasurementMixin:
             return
         if self._armed_entry is not None:
             # Siehe _on_roi_place_toggled: beide Modi schliessen sich aus.
-            self._armed_entry.btn_place.blockSignals(True)
-            self._armed_entry.btn_place.setChecked(False)
-            self._armed_entry.btn_place.blockSignals(False)
-            self._armed_entry = None
+            self._disarm_roi_placement()
         if self._measurement_armed:
             self._cancel_measurement_tool()
         if self._sample_height_armed:
@@ -346,10 +343,7 @@ class _MeasurementMixin:
             )
             return False
         if self._armed_entry is not None:
-            self._armed_entry.btn_place.blockSignals(True)
-            self._armed_entry.btn_place.setChecked(False)
-            self._armed_entry.btn_place.blockSignals(False)
-            self._armed_entry = None
+            self._disarm_roi_placement()
         if self._ruler_armed:
             self._cancel_ruler_tool()
         if self._sample_height_armed:
@@ -393,8 +387,19 @@ class _MeasurementMixin:
 
     def _handle_measurement_click(self, event) -> None:
         if event.button() != QtCore.Qt.LeftButton:
-            self._cancel_measurement_tool()
-            self.statusBar().showMessage("Mess-Werkzeug abgebrochen.", 3000)
+            # Bugfix: ein Rechtsklick (z.B. versehentlich) bricht NUR eine
+            # gerade laufende Zwei-Klick-Erfassung ab -- NICHT den ganzen
+            # Messmodus (siehe _on_measurement_mode_toggled), der laut
+            # Statuszeilen-/Tooltip-Text nur ueber den Dauerschalter-Knopf
+            # selbst beendet werden soll. Im one-shot-Vorgaenger war das
+            # irrelevant (der Modus endete nach jeder Messung ohnehin), als
+            # Dauerschalter gibt es jetzt aber ein laengeres "armiert, aber
+            # kein Startpunkt gesetzt"-Fenster zwischen zwei Messungen.
+            if self._measurement_start is not None:
+                self._measurement_start = None
+                if self._measurement_preview_marker is not None:
+                    self._measurement_preview_marker.setVisible(False)
+                self.statusBar().showMessage("Messung abgebrochen.", 3000)
             return
         scene_pos = event.scenePos()
         if not self.view_box.sceneBoundingRect().contains(scene_pos):
@@ -457,7 +462,15 @@ class _MeasurementMixin:
         Messungen gleichzeitig")."""
         number = self._measurement_next_number
         self._measurement_next_number += 1
-        color = roi_color_for_number(number)
+        # Nutzerwunsch: "ich setze den Maßstab standardmäßig in rot und die
+        # erste Messung auch in rot ... ich will nicht händisch nachbessern
+        # müssen". Der Maßstab hat IMMER die feste Standardfarbe #ff2d55
+        # (siehe window.py:self._ruler_color), die in derselben Rot-Familie
+        # wie ROI_COLORS[0] liegt -- um einen Index verschoben, damit die
+        # ERSTE Messung nicht dieselbe Farbfamilie wie der bereits sichtbare
+        # Maßstab bekommt (freie Nachbearbeitung per Farbfeld bleibt
+        # unveraendert jederzeit moeglich).
+        color = roi_color_for_number(number + 1)
         entry = MeasurementEntry(
             number, color, self.view_box, start, end, self._on_measurement_label_moved,
             on_drag_started=self._push_undo_snapshot,

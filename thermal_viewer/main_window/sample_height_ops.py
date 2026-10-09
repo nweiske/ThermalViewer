@@ -173,9 +173,8 @@ class _SampleHeightMixin:
         self.btn_add_sample_height = QtWidgets.QPushButton("+ Probenhöhe")
         self.btn_add_sample_height.setCheckable(True)
         self.btn_add_sample_height.setToolTip(
-            f"Platzieren-Modus: Klick ins Bild platziert eine neue Probenhöhe auf der "
-            f"angeklickten Zeile (bis zu {MAX_SAMPLE_HEIGHT_COUNT}, beliebig oft hintereinander, "
-            f"bis der Knopf erneut geklickt wird)."
+            f"Platzieren-Modus: Klick ins Bild setzt eine neue Probenhöhe auf der Zeile\n"
+            f"(bis zu {MAX_SAMPLE_HEIGHT_COUNT}, beliebig oft -- erneut klicken zum Beenden)."
         )
         self.btn_add_sample_height.toggled.connect(self._on_sample_height_mode_toggled)
         layout.addWidget(self.btn_add_sample_height)
@@ -440,10 +439,7 @@ class _SampleHeightMixin:
         # ein Bildklick darf immer nur genau EINEM Modus zugeordnet sein
         # (siehe mouse_ops.py:_on_scene_mouse_clicked).
         if self._armed_entry is not None:
-            self._armed_entry.btn_place.blockSignals(True)
-            self._armed_entry.btn_place.setChecked(False)
-            self._armed_entry.btn_place.blockSignals(False)
-            self._armed_entry = None
+            self._disarm_roi_placement()
         if self._ruler_armed:
             self._cancel_ruler_tool()
         if self._measurement_armed:
@@ -572,6 +568,29 @@ class _SampleHeightMixin:
         name = entry.name
         self._refresh_sample_height_rows()
         self.statusBar().showMessage(f"Probenhöhe „{name}“ entfernt.", 3000)
+
+    def _clear_all_sample_heights_for_new_recording(self) -> None:
+        """Wirft ALLE Probenhöhen vollstaendig weg -- vom Laden einer
+        WEITEREN Messreihe aufzurufen (frame_nav.py:
+        _reset_state_for_new_recording), NICHT vom blossen Nachladen/
+        Erweitern derselben laufenden Aufnahme (siehe
+        _reset_sample_heights_for_recording weiter unten, die dafuer
+        weiterhin nur klemmt/neu berechnet statt zu verwerfen).
+
+        Bugfix (Nutzerwunsch): "wenn ein neuer Datensatz/neue Daten geladen
+        werden soll das Programm in so einen Zustand zurueckversetzt
+        werden, als waere es gerade erst gestartet worden" -- Probenhöhen
+        bezogen sich bislang (anders als Messbereiche/Messungen/Maßstab,
+        siehe _reset_state_for_new_recording) weiterhin auf Zeilen-
+        Positionen/Namen der ALTEN Aufnahme und blieben fälschlich über
+        einen echten Neu-Ladevorgang hinweg erhalten."""
+        if self._sample_height_armed:
+            self._cancel_sample_height_tool()
+        for entry in self._sample_height_entries:
+            entry.remove_from_view(self.view_box, self.shrinkage_plot)
+        self._sample_height_entries.clear()
+        self._sample_height_next_number = 1
+        self._refresh_sample_height_rows()
 
     def _reset_sample_heights_for_recording(self) -> None:
         """Bei jedem (Neu-)Laden einer Aufnahme (siehe frame_nav.py:

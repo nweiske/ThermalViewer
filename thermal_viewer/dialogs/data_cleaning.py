@@ -45,15 +45,13 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         start_end_row = QtWidgets.QHBoxLayout()
         self.btn_set_eval_start = QtWidgets.QPushButton("Als Auswertungsstart")
         self.btn_set_eval_start.setToolTip(
-            "Setzt den Auswertungsstart (dieselbe Einstellung wie im Hauptfenster) auf das "
-            "gerade oben angezeigte Vorschaubild."
+            "Setzt den Auswertungsstart (wie im Hauptfenster) auf das aktuelle Vorschaubild."
         )
         self.btn_set_eval_start.clicked.connect(self._on_set_eval_start_clicked)
         start_end_row.addWidget(self.btn_set_eval_start)
         self.btn_set_eval_end = QtWidgets.QPushButton("Als Auswertungsende")
         self.btn_set_eval_end.setToolTip(
-            "Setzt das Auswertungsende (dieselbe Einstellung wie im Hauptfenster) auf das "
-            "gerade oben angezeigte Vorschaubild."
+            "Setzt das Auswertungsende (wie im Hauptfenster) auf das aktuelle Vorschaubild."
         )
         self.btn_set_eval_end.clicked.connect(self._on_set_eval_end_clicked)
         start_end_row.addWidget(self.btn_set_eval_end)
@@ -162,9 +160,8 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         range_row.addWidget(self.spin_range_end)
         self.btn_exclude_range = QtWidgets.QPushButton("Bereich ausblenden")
         self.btn_exclude_range.setToolTip(
-            "Blendet alle Bilder von \"Bild X\" bis \"Bild Y\" (beide eingeschlossen) auf einmal "
-            "aus -- zusätzlich zu bereits ausgeblendeten Bildern/Bereichen, beliebig oft "
-            "nacheinander nutzbar (z.B. um mehrere Bereiche und einzelne Bilder zu kombinieren)."
+            "Blendet Bilder X bis Y aus (beide eingeschlossen).\n"
+            "Beliebig oft mit anderen Bereichen/Einzelbildern kombinierbar."
         )
         self.btn_exclude_range.clicked.connect(self._on_exclude_range_clicked)
         range_row.addWidget(self.btn_exclude_range)
@@ -279,8 +276,8 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
             chk_enabled = QtWidgets.QCheckBox()
             chk_enabled.setToolTip(
-                "Punkt vorübergehend deaktivieren -- zählt dann nicht mehr bei UND/ODER mit und "
-                "wird in der Vorschau ausgeblendet, bleibt aber gespeichert."
+                "Punkt vorübergehend deaktivieren -- zählt dann nicht mehr bei UND/ODER.\n"
+                "Bleibt gespeichert, nur in der Vorschau ausgeblendet."
             )
             chk_enabled.setChecked(enabled)
             chk_enabled.toggled.connect(partial(self._on_point_enabled_toggled, i - 1))

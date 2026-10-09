@@ -42,8 +42,8 @@ class _LayerTabsMixin:
         self.layer_tab_bar = QtWidgets.QTabBar()
         self.layer_tab_bar.setExpanding(False)
         self.layer_tab_bar.setToolTip(
-            "Ebene wählen: blendet nur die dazu gehörigen Bereiche im Thermobild und im "
-            "rechten Panel ein -- \"Alle\" zeigt (wie bisher) alles gleichzeitig."
+            "Ebene wählen: blendet nur deren Bereiche im Bild/Panel ein.\n"
+            "\"Alle\" zeigt wie bisher alles gleichzeitig."
         )
         for tab in _LAYER_TAB_ORDER:
             self.layer_tab_bar.addTab(_LAYER_TAB_LABELS[tab])
@@ -66,11 +66,13 @@ class _LayerTabsMixin:
         # Ebene ab, dort bleibt jedes Werkzeug unangetastet scharf.
         if tab != "all":
             if tab != "roi" and self._armed_entry is not None:
-                entry = self._armed_entry
-                entry.btn_place.blockSignals(True)
-                entry.btn_place.setChecked(False)
-                entry.btn_place.blockSignals(False)
-                self._armed_entry = None
+                # _disarm_roi_placement() (roi_ops.py) raeumt auch eine evtl.
+                # GERADE LAUFENDE zweistufige Start-/Ende-Erfassung der
+                # Verlaufs-Interpolation mit auf (siehe dort) -- dieselbe
+                # zentrale Stelle wird auch von _start_ruler_tool/
+                # _start_measurement_tool/_start_sample_height_tool und
+                # _on_roi_place_toggled verwendet.
+                self._disarm_roi_placement()
             if tab != "scale" and self._ruler_armed:
                 self._cancel_ruler_tool()
             if tab != "scale" and self._measurement_armed:

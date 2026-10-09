@@ -8,7 +8,7 @@ from pathlib import Path
 from qtpy import QtCore, QtWidgets
 
 from ..data import compile_filename_template, validate_filename_template, zip_strict
-from ._base import _disable_enter_auto_accept, _NoEnterAutoAccept
+from ._base import _cap_initial_dialog_height, _disable_enter_auto_accept, _NoEnterAutoAccept, _wrap_in_scroll_area
 
 
 class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
@@ -71,7 +71,13 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._percent_unit_combos: dict[int, QtWidgets.QComboBox] = {}
         self.combo_shrinkage_unit: QtWidgets.QComboBox | None = None
 
-        layout = QtWidgets.QVBoxLayout(self)
+        # Bugfix (Architektur): diese Liste kann je Messreihe beliebig viele
+        # Zeilen haben (eine pro Messbereich/Probenhöhe, siehe die Schleife
+        # unten) -- ohne Scroll-Moeglichkeit/Hoehen-Begrenzung reproduzierte
+        # das exakt den Bug, den _wrap_in_scroll_area/_cap_initial_dialog_
+        # height fuer die Export-Dialoge beheben sollten (siehe _base.py),
+        # nur eben hier statt dort.
+        outer_layout, layout = _wrap_in_scroll_area(self)
 
         format_form = QtWidgets.QFormLayout()
         self.combo_format = QtWidgets.QComboBox()
@@ -79,9 +85,8 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.combo_format.addItem("JSON", "json")
         self.combo_format.addItem("Text (Tab-getrennt, Dezimalkomma)", "text")
         self.combo_format.setToolTip(
-            "CSV/Text unterscheiden sich nur im Trennzeichen (';' bzw. Tabulator) -- beide "
-            "nutzen wie die Rohdaten Dezimalkomma. JSON nutzt echte Zahlen mit Dezimalpunkt "
-            "(Standard-Zahlenformat in JSON, unabhängig vom Locale)."
+            "CSV/Text: nur andere Trennzeichen (';' bzw. Tab), beide mit Dezimalkomma.\n"
+            "JSON: Zahlen mit Dezimalpunkt (JSON-Standard)."
         )
         format_form.addRow("Format:", self.combo_format)
         layout.addLayout(format_form)
@@ -102,10 +107,8 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # weiter unten.
         self.chk_extra_runtime = QtWidgets.QCheckBox("Zusätzliche fortlaufende Laufzeit-Spalte")
         self.chk_extra_runtime.setToolTip(
-            "Fügt neben der normalen \"Laufzeit\"-Spalte eine weitere Spalte mit der "
-            "verstrichenen Aufnahmezeit als reine Dezimalzahl in der gewählten Einheit "
-            "hinzu -- unabhängig vom an den Graphen eingestellten Laufzeit-Format, "
-            "praktisch zum direkten Weiterverarbeiten (z.B. Plotten) in anderer Software."
+            "Zusätzliche Spalte: Laufzeit als reine Dezimalzahl in der gewählten Einheit.\n"
+            "Unabhängig vom Laufzeit-Format der Graphen -- praktisch zum Plotten in anderer Software."
         )
         self.combo_extra_runtime_unit = QtWidgets.QComboBox()
         self.combo_extra_runtime_unit.addItem("Sekunden", "s")
@@ -182,13 +185,23 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             grid.addWidget(edit, row, 2)
             self._edits.append(edit)
 
-            has_mm = entry.get("width_mm") is not None
+            # Bugfix: bei interpolierter (ueber die Zeit veraenderlicher)
+            # ROI-Groesse waere ein fester px/mm-Wert im Spaltennamen nur
+            # fuer EIN Bild zufaellig richtig -- siehe export_csv.py.
+            size_varies = entry.get("size_varies", False)
+            has_mm = entry.get("width_mm") is not None and not size_varies
             chk_px = QtWidgets.QCheckBox("px")
             chk_px.setChecked(False)
-            chk_px.setToolTip("Pixel-Größe in den Spaltennamen aufnehmen")
             chk_mm = QtWidgets.QCheckBox("mm")
             chk_mm.setChecked(False)
-            chk_mm.setToolTip("Reale Größe in mm in den Spaltennamen aufnehmen (benötigt gesetzten Maßstab)")
+            if size_varies:
+                size_varies_tip = "Nicht verfügbar: Größe ändert sich durch Verlaufs-Interpolation."
+                chk_px.setEnabled(False)
+                chk_px.setToolTip(size_varies_tip)
+                chk_mm.setToolTip(size_varies_tip)
+            else:
+                chk_px.setToolTip("Pixel-Größe in den Spaltennamen aufnehmen")
+                chk_mm.setToolTip("Reale Größe in mm in den Spaltennamen aufnehmen (braucht gesetzten Maßstab)")
             chk_mm.setEnabled(has_mm)
             self._px_checks.append(chk_px)
             self._mm_checks.append(chk_mm)
@@ -196,7 +209,10 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             unit_row.setContentsMargins(0, 0, 0, 0)
             for w in (chk_px, chk_mm):
                 unit_row.addWidget(w)
-                chk.toggled.connect(w.setEnabled if w is chk_px else partial(self._update_mm_checkbox_enabled, w, entry))
+                if w is chk_px:
+                    chk.toggled.connect(partial(self._update_px_checkbox_enabled, w, entry))
+                else:
+                    chk.toggled.connect(partial(self._update_mm_checkbox_enabled, w, entry))
             unit_widget = QtWidgets.QWidget()
             unit_widget.setLayout(unit_row)
             grid.addWidget(unit_widget, row, 3)
@@ -210,9 +226,8 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 combo_unit.addItem("px²" if is_area else "px", "px")
                 combo_unit.model().item(1).setEnabled(has_mm)
                 combo_unit.setToolTip(
-                    "In welcher Einheit die Werte exportiert werden -- \"Prozent\" entspricht dem, "
-                    "was der Schwindungs-Graph anzeigt (relativ zum ersten Bild), \"mm\"/\"px\" den "
-                    "absoluten Werten."
+                    "Einheit der exportierten Werte.\n"
+                    "\"Prozent\" = wie im Schwindungs-Graph (ggü. erstem Bild), \"mm\"/\"px\" = absolut."
                 )
                 combo_unit.currentIndexChanged.connect(
                     partial(self._on_percent_unit_changed, combo_unit, edit, entry, chk_px, chk_mm, is_area)
@@ -258,12 +273,21 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # obwohl bereits alle Zeilen ausgewaehlt sind.
         self._sync_all_checkbox(self.chk_all, self._checks)
 
-        # Ohne gesetzten Massstab ist "mm" fuer JEDE Zeile deaktiviert -- die
-        # Sammel-Checkbox waere dann klickbar, haette aber nie irgendeine
-        # Wirkung. Von Anfang an deaktivieren statt eines wirkungslosen Hakens.
-        if not any(entry.get("width_mm") is not None for entry in entries):
+        # Ohne gesetzten Massstab (oder wenn JEDE Zeile mit width_mm
+        # gleichzeitig interpolierte, veraenderliche Groesse hat) ist "mm"
+        # fuer JEDE Zeile deaktiviert -- die Sammel-Checkbox waere dann
+        # klickbar, haette aber nie irgendeine Wirkung. Von Anfang an
+        # deaktivieren statt eines wirkungslosen Hakens.
+        if not any(
+            entry.get("width_mm") is not None and not entry.get("size_varies", False) for entry in entries
+        ):
             self.chk_mm_all.setEnabled(False)
             self.chk_mm_all.setToolTip("Kein Maßstab gesetzt -- reale Größe in mm nicht verfügbar.")
+        # Analog: "ALLE px" waere wirkungslos, wenn JEDE Zeile interpolierte
+        # (veraenderliche) Groesse hat.
+        if entries and all(entry.get("size_varies", False) for entry in entries):
+            self.chk_px_all.setEnabled(False)
+            self.chk_px_all.setToolTip("Nicht verfügbar: alle Zeilen haben durch Verlaufs-Interpolation veränderliche Größe.")
 
         self.chk_px_all.toggled.connect(partial(self._bulk_set_checked, self._px_checks))
         self.chk_mm_all.toggled.connect(partial(self._bulk_set_checked, self._mm_checks))
@@ -274,11 +298,16 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         _disable_enter_auto_accept(buttons)
-        layout.addWidget(buttons)
+        outer_layout.addWidget(buttons)
+        _cap_initial_dialog_height(self)
+
+    @staticmethod
+    def _update_px_checkbox_enabled(chk_unit: QtWidgets.QCheckBox, entry: dict, checked: bool) -> None:
+        chk_unit.setEnabled(checked and not entry.get("size_varies", False))
 
     @staticmethod
     def _update_mm_checkbox_enabled(chk_unit: QtWidgets.QCheckBox, entry: dict, checked: bool) -> None:
-        chk_unit.setEnabled(checked and entry.get("width_mm") is not None)
+        chk_unit.setEnabled(checked and entry.get("width_mm") is not None and not entry.get("size_varies", False))
 
     def _bulk_set_checked(self, checks: list[QtWidgets.QCheckBox], checked: bool) -> None:
         """Setzt alle (aktivierten) px- bzw. mm-Checkboxen auf einmal --
@@ -501,9 +530,8 @@ class FilenameTemplateDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.chk_persist = QtWidgets.QCheckBox("Als neues Standard-Namensschema dauerhaft speichern")
         self.chk_persist.setChecked(False)
         self.chk_persist.setToolTip(
-            "Standardmäßig gilt dieses Namensschema nur für den jetzt zu ladenden Ordner "
-            "(das bisherige Schema bleibt beim nächsten Mal wieder aktiv). Angehakt wird "
-            "es stattdessen dauerhaft gespeichert und ab sofort automatisch verwendet."
+            "Unangehakt: Schema gilt nur für diesen Ordner, danach wieder altes Schema.\n"
+            "Angehakt: dauerhaft gespeichert, ab sofort automatisch verwendet."
         )
         layout.addWidget(self.chk_persist)
 

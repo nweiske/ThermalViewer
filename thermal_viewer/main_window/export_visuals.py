@@ -80,6 +80,16 @@ class _ExportVisualsMixin:
         graph_position = export_dialog.graph_position()
         include_cursor = export_dialog.export_cursor_position()
         layer_categories = export_dialog.export_layer_categories()
+        # Bugfix (Nutzerwunsch: "eine (Live-)Vorschau ... Änderungen wie
+        # 'ich nehme zwei Kurven aus dem Graphen raus/rein' bitte direkt mit
+        # anzeigen"): ohne _temporary_graph_content() rendert diese Vorschau
+        # den Zeitverlauf-Graphen immer genau so, wie er GERADE auf dem
+        # Bildschirm aussieht -- unabhaengig davon, welche Messbereiche/
+        # Live-Cursor im Export-Dialog an-/abgewaehlt sind. Echter Export
+        # (_export_combined_image/_export_video) wendet dieselbe
+        # Kurven-Auswahl schon an, hier fehlte das bisher.
+        selected_numbers = export_dialog.included_roi_numbers()
+        include_live = export_dialog.include_live()
         preview_scale = 0.5
         image_bg = QtGui.QColor(self._image_bg)
         bg = QtGui.QColor(self._graph_bg)
@@ -95,7 +105,8 @@ class _ExportVisualsMixin:
             # ausgeloest).
             with self._frozen_ui_during_export(), \
                     self._maybe_hidden_live_cursor(include_cursor), \
-                    self._temporary_export_layers(layer_categories):
+                    self._temporary_export_layers(layer_categories), \
+                    self._temporary_graph_content(selected_numbers, include_live):
                 for key in selected_keys:
                     with self._widget_raised_for_export(self._export_graph_widget(key)):
                         QtWidgets.QApplication.processEvents()

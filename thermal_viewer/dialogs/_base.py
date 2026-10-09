@@ -32,9 +32,14 @@ def _wrap_in_scroll_area(dialog: QtWidgets.QDialog) -> tuple[QtWidgets.QVBoxLayo
     Layout, das vorher direkt "QtWidgets.QVBoxLayout(self)" war), haengt
     die Dialog-Buttons aber bewusst an outer_layout statt an content_layout,
     damit sie IMMER sichtbar am unteren Fensterrand bleiben, unabhaengig
-    vom Scroll-Zustand des Inhalts darueber."""
+    vom Scroll-Zustand des Inhalts darueber. outer_layout behaelt bewusst
+    seine normalen (nicht auf 0 gesetzten) Rand-Abstaende -- der Aufrufer
+    haengt die Dialog-Buttons direkt an outer_layout (siehe oben), ein
+    auf 0 gesetzter Rand liess diese bisher flächig an den Fensterkanten
+    links/rechts/unten kleben statt des ueblichen Dialog-Randes
+    (Bugfix). Der Inhalt selbst bekommt seinen Rand weiterhin ganz normal
+    ueber content_layouts eigene (Default-)Contents-Margins."""
     outer_layout = QtWidgets.QVBoxLayout(dialog)
-    outer_layout.setContentsMargins(0, 0, 0, 0)
     scroll_area = QtWidgets.QScrollArea()
     scroll_area.setWidgetResizable(True)
     scroll_area.setFrameShape(QtWidgets.QFrame.NoFrame)
@@ -52,14 +57,63 @@ def _cap_initial_dialog_height(dialog: QtWidgets.QDialog, margin: int = 60) -> N
     groesser/kleiner ziehbar, wie vom Nutzer gewuenscht. Am Ende von
     __init__ aufzurufen, NACHDEM der komplette Inhalt (inkl. Buttons)
     aufgebaut ist, da sonst dialog.sizeHint() noch nicht die volle
-    tatsaechliche Inhaltshoehe kennt."""
-    screen = QtWidgets.QApplication.primaryScreen()
+    tatsaechliche Inhaltshoehe kennt.
+
+    Bugfix: nutzt den Bildschirm, auf dem der Dialog tatsaechlich
+    erscheint (dialog.screen(), wie schon in widgets.py:
+    UpwardSafeComboBox.showPopup), NICHT QApplication.primaryScreen() --
+    auf einem Mehrschirm-System mit einem kleineren sekundaeren Monitor
+    waere sonst weiterhin die (ggf. groessere) PRIMAERE Bildschirmhoehe
+    massgeblich, und der Dialog koennte auf dem tatsaechlich genutzten
+    Schirm trotzdem ueber dessen Rand hinausragen -- genau der Bug, den
+    diese Funktion beheben soll.
+
+    Bugfix (Breite): dialog.sizeHint() allein unterschaetzt oft die
+    tatsaechlich benoetigte Breite, weil QScrollArea.sizeHint() (anders
+    als das sizeHint() seines eigenen Inhalts-Widgets) sehr konservativ
+    ist -- ohne Korrektur oeffnete sich z.B. VideoExportDialog (vier
+    gleich hohe Boxen inkl. Vorschau in einer Zeile) serienmaessig mit
+    einer unnoetigen Horizontal-Scrollbar, obwohl der Bildschirm genug
+    Breite dafuer haette. Daher zusaetzlich das sizeHint() des
+    gescrollten Inhalts-Widgets heranziehen, falls vorhanden."""
+    screen = dialog.screen() if hasattr(dialog, "screen") else None
+    if screen is None:
+        screen = QtWidgets.QApplication.primaryScreen()
     if screen is None:
         return
-    available_height = screen.availableGeometry().height() - margin
+    available = screen.availableGeometry()
+    available_height = available.height() - margin
+    # Bugfix: QLayout cached sein sizeHint() und aktualisiert es nicht
+    # IMMER sofort bei setVisible() auf einem Kind (z.B. wenn eine Box erst
+    # per enable_preview() NACH dem ersten Aufruf dieser Funktion sichtbar
+    # wird) -- die invalidate()/activate() HIER, VOR dem dialog.sizeHint()
+    # unten, sorgt dafuer, dass sowohl Breite als auch Hoehe aus hint die
+    # AKTUELLE (nicht die veraltete) Inhaltsgroesse widerspiegeln. Ein
+    # frueherer Stand rief dialog.sizeHint() bereits VOR dieser Aktualisierung
+    # ab und reparierte danach nur noch die Breite separat (ueber
+    # content_width unten) -- hint.height() blieb dabei veraltet und konnte
+    # eine gerade erst sichtbar gewordene, hoehen-relevante Box uebersehen.
+    scroll_area = dialog.findChild(QtWidgets.QScrollArea)
+    if scroll_area is not None and scroll_area.widget() is not None:
+        content_layout = scroll_area.widget().layout()
+        if content_layout is not None:
+            content_layout.invalidate()
+            content_layout.activate()
     hint = dialog.sizeHint()
-    if hint.height() > available_height:
-        dialog.resize(hint.width(), available_height)
+    width = hint.width()
+    if scroll_area is not None and scroll_area.widget() is not None:
+        # Platz fuer eine evtl. noetige Scrollbar/Rahmen grob mit einrechnen,
+        # ohne hier bereits auf die (noch nicht final bekannte) Scrollbar-
+        # Sichtbarkeit angewiesen zu sein.
+        scrollbar_allowance = QtWidgets.QApplication.style().pixelMetric(
+            QtWidgets.QStyle.PM_ScrollBarExtent
+        )
+        content_width = scroll_area.widget().sizeHint().width() + scrollbar_allowance
+        width = max(width, content_width)
+    width = min(width, available.width() - margin)
+    height = min(hint.height(), available_height)
+    if width > dialog.width() or hint.height() > available_height:
+        dialog.resize(width, height)
 
 
 class _NoEnterAutoAccept:

@@ -119,7 +119,7 @@ class _RoiMixin:
             self._armed_entry = entry
             self.statusBar().showMessage(f"{entry.name}: Klick ins Bild zum Platzieren.")
         elif self._armed_entry is entry:
-            self._armed_entry = None
+            self._disarm_roi_placement(entry)
 
     def _on_roi_apply_clicked(self, entry: RoiEntry, *_args) -> None:
         # *_args faengt den von spin.valueChanged(float) mitgesendeten neuen
@@ -166,6 +166,33 @@ class _RoiMixin:
         entry.interp_arm_end = False
         entry.btn_interp_start.setText(INTERP_START_LABEL)
         entry.btn_interp_end.setText(INTERP_END_LABEL)
+
+    def _disarm_roi_placement(self, entry: RoiEntry | None = None) -> None:
+        """Zentrale Stelle zum Entschaerfen eines scharf gestellten ROI-
+        Platzierens (entry optional, Default: self._armed_entry) -- fuer
+        ALLE Orte, die ein armiertes ROI wegen eines anderen Werkzeugs
+        (Maßstab/Messmodus/Probenhoehe) oder eines manuellen Abschaltens
+        verdraengen muessen. Setzt dabei immer auch eine evtl. GERADE
+        LAUFENDE zweistufige Start-/Ende-Erfassung der Verlaufs-Interpolation
+        zurueck (siehe _on_roi_interp_capture) -- sonst bliebe deren Knopf
+        auf "...uebernehmen" stehen, obwohl "Messbereich setzen" bereits
+        (stillschweigend) deaktiviert wurde, und ein spaeterer Klick wuerde
+        die dann zufaellig angezeigte Geometrie als falschen Schluesselbild-
+        Wert uebernehmen. Bugfix: frueher hatten _start_ruler_tool/
+        _start_measurement_tool/_start_sample_height_tool/
+        _on_roi_place_toggled diese Logik je einzeln (und dabei unvollstaendig,
+        ohne den Interpolations-Reset) kopiert."""
+        target = entry if entry is not None else self._armed_entry
+        if target is None:
+            return
+        target.btn_place.blockSignals(True)
+        target.btn_place.setChecked(False)
+        target.btn_place.blockSignals(False)
+        if self._armed_entry is target:
+            self._armed_entry = None
+        if target.interp_arm_start or target.interp_arm_end:
+            self._reset_interp_arm_state(target)
+            self._apply_interp_focus_visuals()
 
     def _apply_interp_focus_visuals(self) -> None:
         """Waehrend eine Verlaufs-Interpolation gerade per Start-/Ende-Knopf
@@ -250,10 +277,9 @@ class _RoiMixin:
         label.setVisible(outside)
         if outside:
             label.setToolTip(
-                f"Dieses Bild liegt außerhalb der aktuellen Auswertung (Bild "
-                f"{self._eval_start_index + 1}–{self._eval_end_index + 1}) -- die Interpolation "
-                "bleibt trotzdem möglich, wirkt sich innerhalb der Auswertung aber nur bis zu "
-                "deren Rand aus."
+                f"Außerhalb der Auswertung (Bild {self._eval_start_index + 1}"
+                f"–{self._eval_end_index + 1}).\n"
+                "Interpolation bleibt möglich, wirkt sich aber nur bis zum Rand der Auswertung aus."
             )
 
     def _refresh_all_interp_range_warnings(self) -> None:

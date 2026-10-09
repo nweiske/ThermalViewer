@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-09-17
+Stand: 2026-10-09
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
@@ -271,8 +271,11 @@ lassen sich UNABHAENGIG voneinander ueber drei eigene Untermenues im
 
   - "Ansicht > Fenster-Farbschema" -> Hintergrund-/Schriftfarbe von
     Fenster, Menues und Bedienelementen (Standard: Hell).
-  - "Ansicht > Thermobild-Farbschema" -> Standard: Dunkel (besserer
-    Kontrast zu Hotspots).
+  - "Ansicht > Thermobild-Farbschema" -> Standard: Hell (wie der Rest der
+    Oberflaeche; weiterhin jederzeit frei auf Dunkel umschaltbar -- ein
+    bereits zuvor selbst gewaehlter eigener Wert bleibt unangetastet, der
+    neue Vorgabewert gilt nur fuer einen Rechner, auf dem noch nie eine
+    eigene Wahl gespeichert wurde).
   - "Ansicht > Graph-Farbschema" -> Standard: Hell (wissenschaftlicher
     Standard, gut lesbar auch beim Einfuegen in Berichte/Ausdrucke).
 
@@ -753,23 +756,34 @@ die Temperatur dort entwickelt hat.
      mindestens eine Kurve darin). Darunter "Position:" legt fest, WO der
      gesamte Graphen-Block relativ zum Thermobild sitzt: Unter/Über/Links/
      Rechts vom Bild (frei waehlbar, Standard: Rechts) -- nur im
-     "Kombiniert"-Modus (siehe Punkt 3) wirksam; mehrere ausgewaehlte
+     "Kombiniert"-Modus (siehe Punkt 4) wirksam; mehrere ausgewaehlte
      Graphen reihen sich dabei stets entlang derselben Achse wie das Bild
      an (untereinander bei Oben/Unten, nebeneinander bei Links/Rechts).
-  2. Aufloesung in DPI eingeben (z.B. 150 fuer Bildschirm, 300-600 fuer
+  2. "Ebenen im Bild" -> per Checkbox waehlen, welche Bild-Overlays im
+     exportierten THERMOBILD selbst erscheinen: "Temperatur-Messung
+     (ROI-Messbereiche)" und/oder "Schwindungsmessung (Box, Kontur,
+     Probenhöhen)" (Abschnitt 18) -- UNABHAENGIG davon, welcher Ebenen-Tab
+     gerade im Hauptfenster aktiv ist (Abschnitt 19); beide Standard AN
+     (entspricht "Alle"). Nuetzlich, um z.B. ganz gezielt nur die
+     Schwindungsmessung ohne die ROI-Rechtecke zu exportieren, ohne dafuer
+     extra im Hauptfenster den Ebenen-Tab umschalten zu muessen. Der
+     Maßstab (Referenzlinie) UND einzelne Messungen sind bewusst NICHT
+     Teil dieser Gruppe -- dafuer gibt es die eigene, feinere Auswahl
+     weiter unten (Maßstab/Messungen einzeln an-/abwaehlbar).
+  3. Aufloesung in DPI eingeben (z.B. 150 fuer Bildschirm, 300-600 fuer
      Druck/Berichte).
-  3. Waehlen, ob Bild und Graph(en) KOMBINIERT (eine Grafik, Anordnung
+  4. Waehlen, ob Bild und Graph(en) KOMBINIERT (eine Grafik, Anordnung
      gemaess "Position:" aus Punkt 1) oder GETRENNT (eine Datei "..._Bild"
      plus je eine weitere Datei pro ausgewaehltem Graphen, z.B.
      "..._Zeitverlauf"/"..._Schwindung"/"..._Querschnitt") gespeichert
      werden sollen. Die Wahl wird gemerkt.
-  4. "Farbskala / Legende" -> dieselbe Freiheit wie im Hauptfenster: entweder
+  5. "Farbskala / Legende" -> dieselbe Freiheit wie im Hauptfenster: entweder
      "Aktuelle Anzeige-Einstellungen uebernehmen" (Standard) oder "Eigene
      Einstellungen fuer diesen Export" mit eigenem Farbverlauf,
      Invertierung, Skalierungsmodus (Abschnitt 7) und Min/Max NUR fuer
      diese eine Grafik -- die Anzeige im Hauptfenster bleibt danach
      unveraendert.
-  5. "Achsen" (nur bei Export mit Kurve) -> entweder "Aktuelle Ansicht
+  6. "Achsen" (nur bei Export mit Kurve) -> entweder "Aktuelle Ansicht
      uebernehmen" (Standard -- exportiert exakt den Wertebereich, den der
      Zeitverlauf-Graph gerade im Hauptfenster zeigt) oder "Eigene Achsen-
      Einstellungen fuer diesen Export". Bei letzterem oeffnet "Einstellen…"
@@ -782,7 +796,7 @@ die Temperatur dort entwickelt hat.
      Umschalter, Abschnitt 8, frei aenderbar). "Beide" fuegt eine ZWEITE
      Achse oben am Graphen hinzu, sodass Uhrzeit UND Laufzeit gleichzeitig
      in EINER Grafik zu sehen sind (statt wie sonst nur eine der beiden).
-  6. "Cursor-Position im Bild anzeigen" (Standard: AUS) -- blendet das
+  7. "Cursor-Position im Bild anzeigen" (Standard: AUS) -- blendet das
      Fadenkreuz samt Temperaturanzeige am fixierten/zuletzt angefahrenen
      Cursor-Pixel (siehe Abschnitt 8) im Thermobild mit ein. Bleibt der
      Haken leer, enthaelt die Grafik unabhaengig vom aktuellen
@@ -793,10 +807,10 @@ die Temperatur dort entwickelt hat.
      Cursor im Bild ist dagegen nicht sinnvoll: ein Anhaken von
      "Live-Cursor" aktiviert diese Option automatisch mit; ein
      nachtraegliches Abhaken hier deaktiviert dann auch die Kurve wieder.
-  7. Dateiname und -format waehlen: PNG, JPEG, BMP, TIFF, WebP oder SVG
+  8. Dateiname und -format waehlen: PNG, JPEG, BMP, TIFF, WebP oder SVG
      (Vektorgrafik - die Kurve bleibt darin als editierbarer Vektorpfad
      erhalten, das Thermobild selbst ist naturgemaess ein Rasterbild).
-  8. Zusaetzlich entsteht eine gleichnamige ".json"-Datei mit
+  9. Zusaetzlich entsteht eine gleichnamige ".json"-Datei mit
      Metadaten: Koordinaten, Groesse (px und, falls ein Massstab
      definiert ist, auch mm), Name und Farbe jedes Messbereichs,
      Quellordner, Anzahl der Frames, alle Zeitstempel und verwendete
@@ -809,14 +823,26 @@ zwischen Bild und Farbskala (durch das feste Bild-Seitenverhaeltnis bei
 "krummen" Bildschirm-/Exportgroessen) wird automatisch entfernt, Achse
 und Farbskala schliessen direkt am Thermobild an.
 
-VORSCHAU: unten im Export-Fenster zeigt eine kleine, verkleinerte
+VORSCHAU: in der rechten Spalte des Export-Fensters zeigt eine kleine
 Vorschau, wie das Ergebnis ungefaehr aussehen wird -- sie aktualisiert
-sich automatisch, sobald ein Graph an-/abgehakt, die Position geaendert
-oder "Cursor-Position im Bild anzeigen" umgeschaltet wird. Feinere
-Einstellungen (Achsen-Details, Farbskala, Maßstab/Messungen) wirken sich
-NICHT live auf die Vorschau aus -- sie dient nur dazu, die grobe
-Anordnung von Bild und Graph(en) auf einen Blick zu erkennen, nicht als
-pixelgenaue Voransicht jeder Feineinstellung.
+sich automatisch, sobald ein Graph an-/abgehakt, die Position geaendert,
+"Cursor-Position im Bild anzeigen" umgeschaltet oder eine Checkbox unter
+"Ebenen im Bild" (Punkt 2 oben) veraendert wird. Feinere Einstellungen
+(Achsen-Details, Farbskala, Maßstab/Messungen) wirken sich NICHT live auf
+die Vorschau aus -- sie dient nur dazu, die grobe Anordnung von Bild und
+Graph(en) auf einen Blick zu erkennen, nicht als pixelgenaue Voransicht
+jeder Feineinstellung. Die Vorschau WAECHST dabei mit, wenn das gesamte
+Export-Fenster per Maus groesser gezogen wird (Nutzerwunsch), statt
+starr auf ihrer anfaenglichen Groesse zu bleiben.
+
+FENSTERGROESSE: der gesamte Inhalt jedes Export-Fensters (Grafik- UND
+Video-/Bildstapel-Export) steckt in einem Scrollbereich -- reicht der
+Bildschirm fuer alle Einstellungen gleichzeitig nicht aus, erscheint statt
+eines ueber den Bildschirmrand hinausragenden Fensters einfach ein
+Scrollbalken. Die OK-/Abbrechen-Knoepfe bleiben dabei immer am unteren
+Fensterrand sichtbar, unabhaengig vom Scroll-Zustand des Inhalts darueber.
+Das Fenster selbst laesst sich am Rand zusaetzlich beliebig groesser (oder
+kleiner) ziehen, genau wie jedes andere Fenster.
 
 WERTE EXPORTIEREN ("Export > Werte exportieren..."):
 Fuer die reinen Zahlen zur Weiterverarbeitung (z.B. Excel, Python). Nur
@@ -1009,12 +1035,21 @@ Alle uebrigen Einstellungen im Dialog:
     Unter/Über/Links/Rechts vom Bild (frei waehlbar, Standard: Rechts);
     mehrere ausgewaehlte Graphen reihen sich dabei stets entlang derselben
     Achse wie das Bild an. Darunter "Achsen" -- dieselbe Wahl wie beim
-    Grafik-Export (Abschnitt 9, Punkt 5), betrifft NUR den Zeitverlauf-
+    Grafik-Export (Abschnitt 9, Punkt 6), betrifft NUR den Zeitverlauf-
     Graphen: "Aktuelle Ansicht uebernehmen" (Standard) oder ueber
     "Einstellen…" eigene Achsen-Einstellungen (Wertebereich/Tick-Abstand)
     NUR fuer dieses eine Video/diesen Bildstapel, gelten dann fuer ALLE
     exportierten Frames gleich. Dieser gesamte Kasten betrifft NUR die
     Kurven-Graphen -- nicht das Thermobild selbst.
+  - "Ebenen im Bild" -> per Checkbox waehlen, welche Bild-Overlays im
+    exportierten THERMOBILD selbst erscheinen -- genau dieselben beiden
+    Kategorien wie beim Grafik-Export (Abschnitt 9, Punkt 2): "Temperatur-
+    Messung (ROI-Messbereiche)" und/oder "Schwindungsmessung (Box, Kontur,
+    Probenhöhen)" (Abschnitt 18), unabhaengig vom aktuell im Hauptfenster
+    gewaehlten Ebenen-Tab (Abschnitt 19). Beide Standard AN. Bewusst als
+    EIGENE, von "Graphen" UNABHAENGIGE Box, auch ohne jede angehakte
+    Graphen-Checkbox bedienbar -- betrifft ausschliesslich das Thermobild,
+    nicht die Kurven-Graphen.
   - "Cursor & Maßstab im Bild" -> EIGENER, vom Graphen UNABHAENGIGER Kasten
     (bewusst NICHT Teil von "Graphen", auch ohne jede angehakte Graphen-
     Checkbox bedienbar) fuer alles, was zusaetzlich DIREKT AUF DEM
@@ -1036,7 +1071,7 @@ Alle uebrigen Einstellungen im Dialog:
   - "Zeitanzeige im Bild" -> blendet unten im Bild einen Streifen ein,
     waehlbar als 2x2-Auswahl (Namen bewusst wie im uebrigen Programm, mit
     Tooltip bei Laufzeit/Zeitstempel; Standard: "Beides"). Nicht zu
-    verwechseln mit "Zeitachse:" beim Grafik-Export (Abschnitt 9, Punkt 5,
+    verwechseln mit "Zeitachse:" beim Grafik-Export (Abschnitt 9, Punkt 6,
     Teil der "Achsen"-Box) -- dort geht es um die X-ACHSE des Kurven-Graphen, hier um einen Text/
     Balken, der direkt in das Bild/Video eingebrannt wird:
       * "Laufzeit" -> Fortschrittsbalken mit gruener/roter Markierung
@@ -1063,9 +1098,10 @@ Alle uebrigen Einstellungen im Dialog:
 
 Wie beim Bild-Export ist das Thermobild eng zugeschnitten (kein
 unnoetiger Leerraum links/rechts zwischen Bild und Achse bzw.
-Farbskala, siehe Abschnitt 9). Ebenso zeigt eine kleine Vorschau unten
-im Export-Fenster die grobe Anordnung von Bild und Graph(en), siehe
-Abschnitt 9.
+Farbskala, siehe Abschnitt 9). Ebenso zeigt eine Vorschau im Export-
+Fenster die grobe Anordnung von Bild und Graph(en) (waechst mit, wenn das
+Fenster groesser gezogen wird) und der gesamte Dialog-Inhalt steckt in
+einem Scrollbereich, siehe Abschnitt 9.
 
 Der Export laeuft mit Fortschrittsanzeige (abbrechbar). Waehrend des
 Renderns bleibt die Anzeige im Hauptfenster VOLLSTAENDIG unveraendert --
@@ -1190,7 +1226,9 @@ mit den Rohdaten wieder oeffnet:
                               ausgeblendete Bilder, siehe Abschnitt 17),
                               die Schwindungsmessung (Box, Boxfarbe,
                               Konturfarbe, Kenngröße, siehe Abschnitt
-                              18) UND den Quellordner der Messreihe in
+                              18), alle Probenhöhen (Zeile, Name, Farbe,
+                              siehe ebenfalls Abschnitt 18) UND den
+                              Quellordner der Messreihe in
                               eine Datei mit Endung ".tvproj" -- damit gibt
                               "Projekt speichern/laden" den vollstaen-
                               digen Auswertungs-Zustand wieder, nicht
@@ -1308,6 +1346,21 @@ des Menues oder auf einen nicht-ankreuzbaren Eintrag (z.B. "Alles: Hell"/
      Blockaden) technisch fehlschlagen, bitte die GENAUE Fehlermeldung
      notieren -- ohne sie laesst sich ein moeglicher echter Programmfehler
      nicht eingrenzen.
+
+- "Ein Knopf/Menüpunkt reagiert scheinbar gar nicht (kein Fenster öffnet
+   sich, nichts passiert)."
+  -> Seit diesem Umbau zeigt ein unerwarteter interner Fehler in JEDEM
+     Knopf/Menüpunkt zuverlässig einen Dialog "Unerwarteter Fehler" an
+     (statt die Aktion unbemerkt stillschweigend abzubrechen) -- "Details
+     anzeigen" im Dialog zeigt den vollen technischen Hintergrund. Zusätzlich
+     wird JEDER so aufgetretene Fehler dauerhaft protokolliert in
+     "ThermalViewer\fehlerprotokoll.log" im eigenen Benutzerordner (bei den
+     meisten Windows-Installationen also
+     "C:\Users\<Benutzername>\ThermalViewer\fehlerprotokoll.log") -- nützlich,
+     um einen Fehler nachträglich zu melden/zu analysieren, auch wenn der
+     Dialog selbst bereits weggeklickt wurde. Erscheint dieser Dialog NICHT
+     und bleibt eine erwartete Aktion trotzdem aus, handelt es sich vermutlich
+     nicht um einen Programmfehler dieser Art.
 
 
 ================================================================
@@ -1440,7 +1493,10 @@ Ablauf:
      JEWEILS VORHERIGEN Bild an einem Punkt (bzw. dessen Mittelungsbereich)
      mindestens sein muss, um als Störung zu zählen.
   4. Verknüpfung PRO Punkt wählen: jede Zeile der Punkte-Liste hat eine
-     eigene Combobox "UND"/"ODER" (Standard: "UND"). Ein Bild gilt als
+     eigene Combobox "UND"/"ODER" (Standard: "ODER" -- ein neu gesetzter
+     Punkt schlägt damit sofort allein zuverlässig an, ohne dass er erst
+     mit anderen Punkten kombiniert werden muss; weiterhin frei auf "UND"
+     umstellbar). Ein Bild gilt als
      Ausreißer, wenn ENTWEDER ALLE als "UND" markierten Punkte gleichzeitig
      den Schwellenwert überschreiten, ODER MINDESTENS EIN als "ODER"
      markierter Punkt allein anschlägt -- die beiden Gruppen wirken
@@ -1645,6 +1701,76 @@ Nach einer berechneten Messung steht der Wert auch im Werte-Export
 wie in der Kurve) -- auch dann, wenn kein Messbereich platziert oder
 Live-Cursor-Pixel gewählt ist.
 
+PROBENHÖHEN (zusätzliche, unabhängige Breitenmessung an beliebigen Zeilen):
+Direkt unterhalb der Box-Einstellungen, im selben Panel-Reiter
+"Schwindungsmessung", bietet die Gruppe "Probenhöhen (zusätzliche,
+unabhängige Breitenmessung)" eine ZWEITE, ERGÄNZENDE Messart -- unabhängig
+davon, ob die Box oben überhaupt aktiviert oder schon berechnet ist. Statt
+EINER Fläche werden hier beliebig viele (max. 10) benannte, waagerechte
+Bildzeilen definiert, deren Breite (linke/rechte Kante der Probe) JEDE FÜR
+SICH über die Zeit verfolgt wird -- nützlich z.B., um mehrere
+unterschiedliche Höhen derselben Probe gleichzeitig im Blick zu behalten,
+statt nur eine einzelne Gesamtfläche/-breite.
+
+  1. "+ Probenhöhe" klicken -- GENAU WIE "Messmodus" beim Maßstab
+     (Abschnitt 11) ein echter Ein/Aus-Dauerschalter, kein Einmal-Klick-
+     Knopf: einschalten, danach beliebig oft (bis zu 10 insgesamt) ins
+     Thermobild klicken -- jeder Linksklick platziert sofort eine neue,
+     benannte Probenhöhe auf der angeklickten Bildzeile. Rechtsklick ins
+     Bild oder das Erreichen des Maximums schaltet den Modus automatisch
+     wieder aus (der Knopf selbst ist dann zusätzlich ausgegraut).
+  2. Jede platzierte Probenhöhe erscheint als eigene Zeile in der Liste
+     darüber mit: einem Häkchen zum Ein-/Ausblenden (Linie + Kurve,
+     Standard: an), einem frei editierbaren Namen (Standard "Probenhöhe 1",
+     "Probenhöhe 2", ...), einem Zahlenfeld "Zeile:" für die exakte
+     Bildzeile, einem Farbfeld (eigene, von ROI-/Boxfarben klar
+     unterscheidbare Standardpalette) und einem "×"-Knopf zum endgültigen
+     Entfernen GENAU dieser einen Probenhöhe.
+  3. Die zugehörige Linie im Thermobild (gestrichelt, waagerecht) lässt
+     sich ALTERNATIV auch direkt per Ziehen verschieben, ähnlich der
+     Querschnitt-Linie (Abschnitt 21) -- nur dauerhaft statt nur bei
+     Hover, und mit dem Namen direkt an der Linie beschriftet.
+
+Die Breite wird an jeder Probenhöhen-Zeile automatisch per Otsu-
+Schwellenwert bestimmt (dieselbe Methode wie bei der Box, inklusive
+automatischer Erkennung, ob die Probe wärmer/kälter als der Hintergrund
+ist) -- UNABHÄNGIG davon, ob die Box-Messung selbst aktiviert/berechnet
+ist. Als Spaltenbereich (Suchbereich links/rechts) wird dabei die Breite
+der oben gezogenen Box mitverwendet, GEMEINSAM für ALLE Probenhöhen (kein
+zusätzliches Eingabefeld dafür nötig) -- ist die Box nie platziert oder
+auf Breite 0 gezogen, wird ersatzweise die volle Bildbreite verwendet.
+Anders als die Box (die bei vielen Bildern mehrere Sekunden dauern kann,
+siehe oben) ist eine einzelne Zeile schnell genug, um bei JEDER
+Positionsänderung sofort live neu zu rechnen -- es gibt bewusst KEINEN
+separaten "Berechnen"-Knopf.
+
+An der jeweils aktuell erkannten linken bzw. rechten Kante zeigt das Bild
+zusätzlich zwei kleine, kurze senkrechte Striche (bewusst klein gehalten,
+nicht wesentlich größer als die Start-/Ende-Markierungen am Frame-Regler)
+-- so lässt sich die Erkennung auf einen Blick kontrollieren, ohne wie bei
+der Box eine ganze Kontur einblenden zu müssen.
+
+Das Ergebnis jeder Probenhöhe erscheint als eigene Kurve im selben Tab
+"Schwindung" wie die Box-Kurve (Abschnitt 8) -- als Prozentwert gegenüber
+dem ERSTEN Bild, exakt dieselbe Formel/Achse wie bei der Box, damit beide
+Messarten direkt vergleichbar bleiben. Sichtbarkeit (Linie, Name, Kurve,
+Kanten-Striche im Bild) folgt demselben Ebenen-Tab "Schwindungsmessung"
+wie die Box (Abschnitt 19).
+
+Werte-Export: jede berechnete Probenhöhe steht im Werte-Export (Abschnitt
+9, "Werte exportieren...") als eigene, wählbare Spalte unter ihrem Namen
+zur Verfügung -- GENAU dieselbe %/mm/px-Werteinheit-Wahl wie bei der
+Schwindungsmessung-Zeile (siehe oben), unabhängig je Probenhöhe wählbar.
+
+Boxposition/-größe (siehe oben) sowie Zeile, Name und Farbe JEDER
+Probenhöhe werden beim "Projekt speichern…" mit gesichert und bei
+"Projekt laden…" wiederhergestellt (Abschnitt 12).
+
+HINWEIS: wird eine WEITERE Messreihe geladen (Abschnitt 3), werden
+Probenhöhen GENAUSO vollständig verworfen wie Messbereiche/Messungen/
+Maßstab -- sie beziehen sich auf Zeilen-Positionen der ALTEN Aufnahme und
+wären für eine andere Messreihe bedeutungslos.
+
 
 19. EBENEN-TABS (BEREICHE ÜBER DEM THERMOBILD EIN-/AUSBLENDEN)
 ================================================================
@@ -1675,10 +1801,12 @@ Zuordnung:
 
   - "Temperatur-Messung": alle Messbereiche (ROIs) im Bild sowie die
     ROI-Liste samt Details im gleichnamigen Panel-Reiter (Abschnitt 6).
-  - "Schwindungsmessung": die Boxen der Schwindungsmessung im Bild sowie
-    deren Panel-Reiter (Abschnitt 18) -- wirkt zusätzlich zur
-    "Aktivieren"-Checkbox dort (beides muss gleichzeitig zutreffen, damit
-    die Boxen sichtbar sind).
+  - "Schwindungsmessung": die Box der Schwindungsmessung UND alle
+    Probenhöhen (Linien, Namen, Kanten-Striche) im Bild sowie deren
+    gemeinsamer Panel-Reiter (Abschnitt 18) -- wirkt bei der Box
+    zusätzlich zur "Aktivieren"-Checkbox dort (beides muss gleichzeitig
+    zutreffen, damit die Box sichtbar ist) bzw. bei jeder Probenhöhe
+    zusätzlich zu deren eigenem Häkchen in der Liste.
   - "Maßstab": die Maßstab-Linie und alle Freihand-Messungen im Bild sowie
     deren Panel-Reiter (Abschnitt 11) -- wirkt zusätzlich zur "Anzeigen"-
     Checkbox dort.
@@ -1693,10 +1821,21 @@ unabhängig vom gewählten Tab.
 AUTOMATISCHES UMSCHALTEN: wird ein Werkzeug über seinen eigenen Knopf
 gestartet, springt die Tab-Auswahl (oben UND im Panel) von selbst dorthin
 -- "+ Messbereich" wechselt auf "Temperatur-Messung", die "Aktivieren"-
-Checkbox der Schwindungsmessung auf "Schwindungsmessung" (nur beim
-Anschalten, nicht beim Abschalten), "Festlegen…"/"Messmodus" auf
+Checkbox der Schwindungsmessung UND "+ Probenhöhe" auf "Schwindungsmessung"
+(nur beim Anschalten, nicht beim Abschalten), "Festlegen…"/"Messmodus" auf
 "Maßstab". So landet man beim Start einer Aktion automatisch auf der dazu
 passenden Ansicht, ohne den Tab von Hand mitziehen zu müssen.
+
+UMGEKEHRT -- ein noch scharf gestelltes Werkzeug wird beim Tab-Wechsel
+ABGEBROCHEN: ein gerade armiertes Platzier-/Mess-Werkzeug (Messbereich
+setzen, Maßstab festlegen/Messmodus, Probenhöhe platzieren) gehört fest zu
+GENAU EINER Ebene. Wird der Tab gewechselt, OHNE das Werkzeug vorher selbst
+zu beenden (z.B. per erneutem Klick auf den jeweiligen Knopf), bricht das
+Programm es automatisch ab -- sonst bliebe es im Hintergrund weiter scharf
+und ein Klick ins Bild würde auf der NEUEN (fachlich unpassenden) Ebene
+unbemerkt noch das alte Werkzeug auslösen. Der Tab "Alle" ist davon
+ausgenommen: dort bleibt jedes Werkzeug unabhängig von einem Tab-Wechsel
+unverändert scharf.
 
 
 ================================================================
@@ -1708,7 +1847,9 @@ JEDE inhaltliche Änderung der aktuellen Sitzung rückgängig machen und
 wieder herstellen -- Messbereiche/Messungen/Maßstab hinzufügen, verschieben,
 umbenennen, farblich ändern oder entfernen; Referenzpunkte, Schwellenwert,
 Mittelungsbereich und ausgeblendete Bilder/Bereiche der Rohdaten-Bereinigung;
-Box, Farbe und Kenngröße der Schwindungsmessung; Auswertungsstart/-ende.
+Box, Farbe und Kenngröße der Schwindungsmessung; jede Probenhöhe hinzufügen,
+verschieben, umbenennen, farblich ändern, ein-/ausblenden oder entfernen;
+Auswertungsstart/-ende.
 
   - "Rückgängig" (Strg+Z) -> macht die letzte Änderung rückgängig, beliebig
                               oft nacheinander (voller mehrstufiger Verlauf,
@@ -1732,11 +1873,16 @@ Thermobilds oder der Graphen, der gewählte Ebenen-Tab, sowie das Laden einer
 neuen Messreihe oder eines Projekts selbst (jeweils bereits über eine eigene
 Rückfrage abgesichert, siehe Abschnitt 3/12) -- das Laden einer neuen
 Messreihe/eines Projekts LEERT den bisherigen Rückgängig-Verlauf, da er sich
-auf die vorherige Aufnahme bezieht. Ein berechnetes Schwindungsmessung-
-Ergebnis wird durch Rückgängig/Wiederholen NICHT automatisch neu berechnet
-(kann bei aktivierter Messung mehrere Sekunden dauern, siehe Abschnitt 18)
--- stattdessen erscheint ein Hinweis, danach einmal erneut auf "Berechnen"
-zu klicken.
+auf die vorherige Aufnahme bezieht. Wird durch "Rückgängig"/"Wiederholen"
+tatsächlich die Box-Position/-Größe der Schwindungsmessung (Abschnitt 18)
+verändert, wird deren bereits berechnetes Ergebnis NICHT automatisch neu
+berechnet (kann bei vielen Bildern mehrere Sekunden dauern) -- stattdessen
+erscheint ein Hinweis, danach einmal erneut auf "Berechnen" zu klicken. Bei
+jeder ANDEREN, damit unzusammenhängenden Änderung (z.B. einen Messbereich
+verschieben) bleibt ein bereits berechnetes Schwindungs-Ergebnis dagegen
+unverändert erhalten und muss NICHT neu berechnet werden. Probenhöhen
+(Abschnitt 18) sind davon nicht betroffen -- sie werden ohnehin bei jeder
+sie betreffenden Änderung automatisch sofort live neu berechnet.
 
 
 ================================================================
@@ -1784,7 +1930,10 @@ Drüberfahren mit der Maus als Zeichen, dass sie greifbar ist), solange
 der Tab sichtbar ist. Über "Richtung: Horizontal (Zeile) / Vertikal
 (Spalte)" wird gewählt, ob die komplette BildZEILE (X-Achse = Spalten-
 Index) oder die komplette BildSPALTE (X-Achse = Zeilen-Index) angezeigt
-wird. Der Graph aktualisiert sich zusätzlich automatisch beim Wechsel des
+wird -- die X-Achsen-Beschriftung selbst lautet in BEIDEN Fällen
+einheitlich "Bildbreite bzw. Höhe (px)" (statt separat "Spalte"/"Zeile"),
+da sie je nach Richtung tatsächlich jeweils eine andere Bildausdehnung
+meint. Der Graph aktualisiert sich zusätzlich automatisch beim Wechsel des
 angezeigten Bilds (Frame), auch ohne Positionsänderung.
 
 MARKIERUNGEN: liegt die aktuell gewählte Zeile/Spalte innerhalb eines

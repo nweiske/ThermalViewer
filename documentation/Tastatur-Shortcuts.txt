@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - TASTATUR-SHORTCUTS (KURZREFERENZ)
 ================================================================
 
-Stand: 2026-09-17
+Stand: 2026-10-09
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.

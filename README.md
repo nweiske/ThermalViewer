@@ -24,6 +24,23 @@ uv run python run.py
 Abhängigkeiten (PySide6, pyqtgraph, numpy) – kein manuelles
 `pip install` nötig. Abhängigkeit hinzufügen: `uv add <paket>`.
 
+## Fähigkeiten
+
+- Thermokamera-CSV-Serie als "Video" abspielen, Live-Temperatur am
+  Mauszeiger über alle Frames
+- Beliebig viele frei platzierbare/skalierbare Messbereiche (ROIs) mit
+  Zeitverlauf-Graph, optional Verlaufs-Interpolation bei bewegten Objekten
+- Maßstab (reale mm-Größen) und freie Punkt-zu-Punkt-Streckenmessungen
+- Schwindungsmessung: eine Kontur-Box plus beliebig viele unabhängige
+  "Probenhöhen"-Breitenmessungen, automatische Kantenerkennung
+- Querschnitt-Graph (horizontaler/vertikaler Schnitt) mit Fadenkreuz
+- Rohdaten-Bereinigung: automatisch erkannte Ausreißer-Bilder ausblenden
+- Export: Grafik (Bild + Graph), Werte (CSV/JSON/Text), Video/Bildstapel –
+  mit Live-Vorschau im jeweiligen Export-Dialog
+- Undo/Redo über die gesamte Sitzung, Projekte speichern/laden (`.tvproj`)
+- Hell-/Dunkelmodus (Fenster, Thermobild, Graphen unabhängig wählbar),
+  Live-Ordner-Überwachung für parallel laufende Messungen
+
 ## Bedienoberfläche
 
 Links das Thermobild mit Legende (Farbskala + einstellbare/automatische
@@ -154,11 +171,13 @@ konkreten Qt-Anbindung entkoppelt: lokal läuft er unter PySide6 (siehe
 `pyproject.toml`), für den Windows-7-Release-Build unter PyQt5 (siehe
 `requirements-win7.txt`) – ohne Code-Änderung.
 
+Kurzanleitung für den Einstieg (typischer Ablauf einer Auswertung in
+wenigen Schritten): [documentation/Kurzanleitung.txt](documentation/Kurzanleitung.txt).
 Ausführliche Bedienungsanleitung (reine Textdatei, ohne Zusatzsoftware
 lesbar): [documentation/Bedienungsanleitung.txt](documentation/Bedienungsanleitung.txt).
 Separate Kurzreferenz aller Tastatur-Shortcuts:
 [documentation/Tastatur-Shortcuts.txt](documentation/Tastatur-Shortcuts.txt).
-Beide Dateien werden im Release-Zip mitausgeliefert (siehe unten).
+Alle drei Dateien werden im Release-Zip mitausgeliefert (siehe unten).
 
 ## App-Icon
 
@@ -230,8 +249,8 @@ baut nur bei vollständig grünen Tests tatsächlich eine exe:
   nachinstallierbar). Vor dem Ausführen `chmod +x ThermalViewer` setzen.
 
 Alle drei Varianten enthalten neben der Anwendung auch `README.md` sowie
-`documentation/Bedienungsanleitung.txt` und
-`documentation/Tastatur-Shortcuts.txt`.
+`documentation/Kurzanleitung.txt`, `documentation/Bedienungsanleitung.txt`
+und `documentation/Tastatur-Shortcuts.txt`.
 
 ```
 git tag v1.0.0

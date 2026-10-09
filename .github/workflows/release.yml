@@ -88,7 +88,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}"
-          Compress-Archive -Path dist/ThermalViewer.exe, README.md, documentation/Bedienungsanleitung.txt, documentation/Tastatur-Shortcuts.txt `
+          Compress-Archive -Path dist/ThermalViewer.exe, README.md, documentation/Kurzanleitung.txt, documentation/Bedienungsanleitung.txt, documentation/Tastatur-Shortcuts.txt `
             -DestinationPath "ThermalViewer-$version-windows10-11.zip"
 
       - name: Archiv hochladen
@@ -140,7 +140,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}"
-          Compress-Archive -Path dist/ThermalViewer.exe, README.md, documentation/Bedienungsanleitung.txt, documentation/Tastatur-Shortcuts.txt, requirements-win7.txt `
+          Compress-Archive -Path dist/ThermalViewer.exe, README.md, documentation/Kurzanleitung.txt, documentation/Bedienungsanleitung.txt, documentation/Tastatur-Shortcuts.txt, requirements-win7.txt `
             -DestinationPath "ThermalViewer-$version-windows7-legacy.zip"
 
       - name: Archiv hochladen
@@ -200,7 +200,7 @@ jobs:
           version="${GITHUB_REF_NAME}"
           chmod +x dist/ThermalViewer
           mkdir -p stage
-          cp dist/ThermalViewer README.md documentation/Bedienungsanleitung.txt documentation/Tastatur-Shortcuts.txt stage/
+          cp dist/ThermalViewer README.md documentation/Kurzanleitung.txt documentation/Bedienungsanleitung.txt documentation/Tastatur-Shortcuts.txt stage/
           tar -czf "ThermalViewer-$version-linux.tar.gz" -C stage .
 
       - name: Archiv hochladen

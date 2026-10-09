@@ -1,0 +1,118 @@
+================================================================
+  THERMO-SEQUENZ-VIEWER - KURZANLEITUNG FÜR DEN EINSTIEG
+================================================================
+
+Stand: 2026-10-09
+
+Diese Kurzanleitung zeigt den TYPISCHEN Ablauf einer Auswertung in
+wenigen Schritten, als schnelle Arbeitsanweisung für den Einstieg.
+Für Details zu jeder einzelnen Funktion siehe die ausführliche
+Bedienungsanleitung.txt (gleicher Ordner) - die dort genannten
+Abschnittsnummern sind unten in Klammern vermerkt. Eine Kurzreferenz
+aller Tastatur-Shortcuts liegt separat in Tastatur-Shortcuts.txt.
+
+Die jeweils NEUESTE Version dieser App (inkl. aktueller Releases zum
+Download) ist immer hier verfügbar:
+https://github.com/nweiske/ThermalViewer.git
+
+
+SCHRITT 1 -- MESSREIHE LADEN (Bedienungsanleitung Abschnitt 3)
+----------------------------------------------------------------
+"Datei > Ordner öffnen…" wählen und den Ordner mit den CSV-Dateien
+der Messung angeben. Die App erkennt die zeitliche Reihenfolge
+automatisch am Zeitstempel im Dateinamen und zeigt danach den ersten
+Frame an. Passt das Dateinamen-Schema nicht, bietet die App sofort
+an, es anzupassen (mit Live-Vorschau).
+
+War bereits eine andere Messreihe geladen, fragt die App vorher, ob
+der bisherige Auswertungsstand gespeichert werden soll -- alles, was
+sich auf die ALTE Aufnahme bezieht (Messbereiche, Maßstab, Messungen,
+Schwindungsmessung inkl. Probenhöhen), wird beim Laden einer neuen
+Messreihe vollständig zurückgesetzt, als würde das Programm gerade
+neu gestartet.
+
+
+SCHRITT 2 -- MESSBEREICH (ROI) SETZEN (Abschnitt 6)
+----------------------------------------------------------------
+Im rechten Panel, Reiter "Temperatur-Messung", sind standardmäßig
+fünf Messbereiche angelegt ("Oben"/"Links"/"Mitte"/"Rechts"/"Unten").
+Einen davon anklicken (Liste ODER sein Rechteck im Bild) -> der
+Knopf "Messbereich setzen" aktiviert sich automatisch -> einmal ins
+Thermobild klicken, der Messbereich wird dort zentriert platziert.
+
+Worauf es ankommt:
+  - GRÖSSE/POSITION: per Maus direkt im Bild ziehen (Ecken =
+    proportional, Kanten = nur eine Richtung), oder exakt über die
+    Felder X/Y/Breite/Höhe rechts. Faustregel: der Messbereich soll
+    NUR das eigentliche Messobjekt abdecken, kein Hintergrund/keine
+    Umgebung -- sonst verfälscht das den gemittelten Temperaturwert.
+  - RUNDE Objekte: Checkbox "Kreis" aktivieren -- dann zählen nur die
+    Pixel innerhalb der eingeschriebenen Ellipse, nicht die vier
+    Rechteck-Ecken.
+  - BEWEGT sich das Messobjekt während der Aufnahme (Drift)?
+    Checkbox "Position/Größe über Zeit interpolieren" aktivieren und
+    Start-/Ende-Position wie im Abschnitt 6 beschrieben festlegen.
+  - Überflüssige Messbereiche einfach per Häkchen ausblenden oder mit
+    "Messbereich entfernen" löschen; mit "+ Messbereich" beliebig
+    viele weitere anlegen.
+
+Danach läuft die Auswertung automatisch: der Temperaturverlauf jedes
+platzierten, sichtbaren Messbereichs erscheint sofort im
+"Zeitverlauf"-Graphen rechts und aktualisiert sich bei jeder
+Änderung live mit.
+
+
+SCHRITT 3 -- MASSSTAB SETZEN (NUR falls reale mm-Größen gebraucht
+werden, Abschnitt 11)
+----------------------------------------------------------------
+Ohne Maßstab zeigt die App nur Pixel-Größen an. Für reale mm-Werte:
+"Werkzeuge > Maßstab festlegen…" -> zwei Klicks ins Bild setzen
+Start-/Endpunkt einer Referenzstrecke bekannter Länge (z.B. eine
+bekannte Objektkante) -> im folgenden Dialog die reale Länge in mm
+eingeben. Ab sofort zeigen Messbereiche zusätzlich ihre reale Größe
+in mm an, und Werkzeuge wie "Messmodus" (Punkt-zu-Punkt-Strecken
+messen) stehen zur Verfügung.
+
+
+SCHRITT 4 -- SCHWINDUNGSMESSUNG (optional, Abschnitt 18)
+----------------------------------------------------------------
+Für die Breiten-/Flächenschwindung einer Probe über die Zeit: Reiter
+"Schwindungsmessung" im rechten Panel.
+
+  - BOX-MESSUNG: Checkbox "Aktivieren" -> die eingeblendete Box im
+    Bild per Maus so ziehen, dass sie die Probe (mit etwas Rand)
+    umschließt -> "Berechnen" klicken. Die App erkennt automatisch,
+    ob die Probe wärmer oder kälter als der Hintergrund ist, verfolgt
+    ihre Kontur über alle Bilder und zeigt Fläche/Breite als
+    Prozent-Kurve relativ zum ersten Bild.
+  - PROBENHÖHEN (zusätzlich, für mehrere unabhängige Breiten
+    gleichzeitig): "+ Probenhöhe" aktivieren (bleibt an, wie der
+    Messmodus) -> beliebig oft ins Bild klicken, jeder Klick setzt
+    eine neue, benannte Messzeile. Rechtsklick oder 10 erreichte
+    Probenhöhen beendet den Modus automatisch. Jede Zeile berechnet
+    ihre Breite live, ohne eigenen "Berechnen"-Knopf.
+
+
+SCHRITT 5 -- ERGEBNISSE EXPORTIEREN (Abschnitt 9/10)
+----------------------------------------------------------------
+Menü "Export":
+  - "Werte exportieren…" -> Messwerte als CSV/JSON/Text, wählbare
+    Spalten (Messbereiche, Live-Cursor, Schwindung, Probenhöhen).
+  - "Grafik exportieren…" -> Thermobild + Graph(en) als Bild (PNG/
+    JPEG/.../SVG), inkl. kleiner Live-Vorschau im Dialog.
+  - "Video / Bildstapel exportieren…" -> die ganze Aufnahme (oder ein
+    gewählter Ausschnitt) als Video oder Bilderserie.
+
+Alle drei Dialoge merken sich den zuletzt verwendeten Zielordner.
+
+
+WEITERE SCHRITTE JE NACH BEDARF
+----------------------------------------------------------------
+  - Rohdaten säubern (Ausreißer-Bilder ausblenden): "Daten > Rohdaten
+    säubern…" (Abschnitt 17).
+  - Projekt für später/eine andere Sitzung sichern: "Datei > Projekt
+    speichern…"/"…laden…" (Abschnitt 12).
+  - Bei vielen gleichzeitig genutzten Werkzeugen das Bild über die
+    Ebenen-Tabs oberhalb des Thermobilds aufräumen (Abschnitt 19).
+  - Rückgängig/Wiederholen: Strg+Z / Strg+Y, für die gesamte Sitzung
+    (Abschnitt 20).

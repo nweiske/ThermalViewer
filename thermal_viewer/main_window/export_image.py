@@ -254,7 +254,25 @@ class _ImageExportMixin:
             "quellordner": str(self.recording.paths[0].parent) if self.recording.paths else None,
         }
         meta_path = path_obj.with_suffix(".json")
-        meta_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+        try:
+            meta_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+        except OSError as exc:
+            # Bugfix: siehe _export_combined_image fuer denselben Grund --
+            # die Grafik selbst ist zu diesem Zeitpunkt bereits erfolgreich
+            # gespeichert, ein Fehler hier (Datentraeger voll, Zielordner
+            # inzwischen schreibgeschuetzt, ".json" von einem anderen
+            # Programm gesperrt) betrifft nur die zusaetzliche Metadaten-
+            # Datei. Ohne dieses try/except propagierte die Exception bis
+            # zum globalen Fehlerdialog durch, statt der freundlichen,
+            # spezifischen Meldung, die _export_combined_image fuer genau
+            # denselben Fehlerfall bereits zeigt.
+            QtWidgets.QMessageBox.warning(
+                self, "Metadaten nicht gespeichert",
+                f"Die Grafik wurde gespeichert, die Metadaten-Datei „{meta_path.name}“ konnte aber "
+                f"nicht geschrieben werden:\n{exc}",
+            )
+            self.statusBar().showMessage(f"Grafik gespeichert: {path_obj.name}  |  Metadaten fehlgeschlagen")
+            return
         self.statusBar().showMessage(f"Grafik gespeichert: {path_obj.name}  |  Metadaten: {meta_path.name}")
 
     def _export_combined_image(

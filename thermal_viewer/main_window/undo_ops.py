@@ -76,6 +76,14 @@ class _UndoMixin:
             self._restore_project_state_dict(snapshot)
         finally:
             self._restoring_undo_snapshot = False
+        # Bugfix: eine evtl. noch offene gruppierte Tipp-Sitzung (siehe
+        # _begin_grouped_undo_edit) bezog sich auf den Zustand VOR diesem
+        # Undo -- ohne Reset wuerde ein direkt im Anschluss (ohne
+        # zwischenzeitliches editingFinished) erfolgter weiterer
+        # Tastendruck faelschlich als Fortsetzung derselben Sitzung
+        # behandelt und KEINEN eigenen Snapshot mehr pushen, wodurch diese
+        # Aenderung beim naechsten Strg+Z unbemerkt uebersprungen wuerde.
+        self._active_undo_edit = False
         self._update_undo_redo_actions()
         self.statusBar().showMessage("Rückgängig.", 3000)
 
@@ -89,6 +97,8 @@ class _UndoMixin:
             self._restore_project_state_dict(snapshot)
         finally:
             self._restoring_undo_snapshot = False
+        # Bugfix: siehe _on_undo oben -- derselbe Grund.
+        self._active_undo_edit = False
         self._update_undo_redo_actions()
         self.statusBar().showMessage("Wiederholt.", 3000)
 

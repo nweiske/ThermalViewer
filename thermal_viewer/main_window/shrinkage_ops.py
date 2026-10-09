@@ -411,19 +411,38 @@ def _track_sample_width_at_row(
     signalisieren, wo/welche Breite bzw. Kante gerade vermutet/detektiert
     wird", siehe sample_height_ops.py:_rebuild_sample_height_edge_ticks).
     Breite 0.0 und Kanten NaN, wenn an dieser Zeile/diesem Bild kein
-    zusammenhaengender Run gefunden wird (z.B. Zeile ausserhalb der Probe)."""
+    zusammenhaengender Run gefunden wird (z.B. Zeile ausserhalb der Probe).
+
+    Bugfix: _run_containing_or_largest allein waehlt PRO BILD unabhaengig
+    den groessten Run, falls der Saatpunkt nicht direkt auf der Probe
+    liegt (siehe dessen Docstring) -- anders als bei der Box
+    (_track_sample_blob) gibt es hier aber KEINE zeilenweise Fortsetzung
+    (_run_overlapping_most), die einen einmal falsch gewaehlten Run
+    spaeter korrigieren koennte: bei schwachem Kontrast kann so JEDES Bild
+    denselben falschen (z.B. groesseren Hintergrund-)Run waehlen, ohne dass
+    dies ueberhaupt auffaellt. anchor haelt deshalb den zuletzt gefundenen
+    Run ueber die Bild-Schleife hinweg fest und bevorzugt ab dem zweiten
+    Bild den zu ihm am staerksten ueberlappenden Run (dieselbe raeumliche
+    Kontinuitaet, nur zeitlich statt zeilenweise) -- _run_containing_or_
+    largest bleibt nur der Fallback fuer das allererste Bild bzw. falls
+    kein Run mehr ueberlappt (z.B. nach einer echten Luecke)."""
     blur_kernel = _adaptive_blur_kernel(col1 - col0)
     seed_col_local = max(0, min(col1 - col0 - 1, seed_col - col0))
     n = len(frames)
     widths = np.zeros(n, dtype=float)
     lefts = np.full(n, np.nan, dtype=float)
     rights = np.full(n, np.nan, dtype=float)
+    anchor: tuple[int, int] | None = None
     for idx in range(n):
         row_region = frames[idx][row:row + 1, col0:col1]
         blurred = _horizontal_blur_region(row_region, blur_kernel)
         mask = _candidate_mask(blurred, warmer)[0]
-        run = _run_containing_or_largest(_row_runs(mask), seed_col_local)
+        runs = _row_runs(mask)
+        run = _run_overlapping_most(runs, anchor) if anchor is not None else None
+        if run is None:
+            run = _run_containing_or_largest(runs, seed_col_local)
         if run is not None:
+            anchor = run
             widths[idx] = float(run[1] - run[0])
             lefts[idx] = float(run[0] + col0)
             rights[idx] = float(run[1] + col0)
@@ -527,8 +546,7 @@ class _ShrinkageMixin:
         self.btn_shrinkage_color.setFixedSize(20, 20)
         self.btn_shrinkage_color.setCursor(QtCore.Qt.PointingHandCursor)
         self.btn_shrinkage_color.setToolTip(
-            "Farbe der Box ändern -- hilfreich, falls sie im aktuell gewählten Farbverlauf kaum zu "
-            "erkennen ist."
+            "Farbe der Box ändern -- hilfreich, falls sie im Farbverlauf kaum zu erkennen ist."
         )
         self.btn_shrinkage_color.clicked.connect(self._on_shrinkage_color_clicked)
         box_frame_layout.addWidget(self.btn_shrinkage_color)
@@ -540,8 +558,7 @@ class _ShrinkageMixin:
         self.btn_shrinkage_contour_color.setFixedSize(20, 20)
         self.btn_shrinkage_contour_color.setCursor(QtCore.Qt.PointingHandCursor)
         self.btn_shrinkage_contour_color.setToolTip(
-            "Farbe der erkannten Kontur-Linie im Thermobild ändern -- hilfreich, falls sie im aktuell "
-            "gewählten Farbverlauf kaum zu erkennen ist."
+            "Farbe der Kontur-Linie ändern -- hilfreich, falls sie im Farbverlauf kaum zu erkennen ist."
         )
         self.btn_shrinkage_contour_color.clicked.connect(self._on_shrinkage_contour_color_clicked)
         box_frame_layout.addWidget(self.btn_shrinkage_contour_color)
@@ -553,10 +570,9 @@ class _ShrinkageMixin:
         for value, label in _SHRINKAGE_METRIC_LABELS.items():
             self.combo_shrinkage_metric.addItem(label, value)
         self.combo_shrinkage_metric.setToolTip(
-            "Welche Kenngröße aus der erkannten Kontur berechnet wird -- \"quaderförmig\" nimmt den "
-            "Median der Zeilenbreiten (passend für gerade, parallele Kanten), \"rund\" die breiteste "
-            "Zeile (den \"Äquator\", passend für eine gewölbte Kontur). Nach \"Berechnen\" wirkt ein "
-            "Wechsel sofort, ohne erneut berechnen zu müssen."
+            "Kenngröße aus der Kontur: \"quaderförmig\" = Median der Zeilenbreiten\n"
+            "(gerade Kanten), \"rund\" = breiteste Zeile/Äquator (gewölbte Kontur).\n"
+            "Wechsel wirkt sofort, ohne neu zu berechnen."
         )
         self.combo_shrinkage_metric.currentIndexChanged.connect(self._on_shrinkage_metric_changed)
         box_frame_layout.addWidget(self.combo_shrinkage_metric, 1)

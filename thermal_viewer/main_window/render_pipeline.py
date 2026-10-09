@@ -505,10 +505,15 @@ class _RenderPipelineMixin:
         Graphen gleichzeitig einbetten, siehe GraphicExportDialog/
         VideoExportDialog "Graphen"-Checkboxen) mit Überschriften zu einer
         Gesamtgrafik zusammen -- position ("unten"/"oben"/"links"/"rechts",
-        siehe _combined_panel_order) legt fest, WO der GESAMTE Graphen-
-        Block relativ zum Bild landet (Standard: "rechts"); mehrere Graphen
-        stapeln sich dabei IMMER untereinander (siehe _combined_layout).
-        Ehemals _stack_images_vertically (nur "unten", nur ein Graph).
+        siehe _combined_panel_order) legt fest, auf welcher Seite des Bildes
+        die Graphen landen (Standard: "rechts"). Bugfix (Dokumentation war
+        falsch): Bild UND alle Graphen reihen sich dabei ENTLANG DERSELBEN
+        Achse wie in _render_video_frame an -- bei "oben"/"unten" also
+        UNTEREINANDER (Bild inklusive), bei "links"/"rechts" dagegen ALLE
+        NEBENEINANDER in einer Reihe (siehe _combined_layout/
+        _combined_panel_order); mehrere Graphen bilden KEINEN eigenen,
+        zuerst untereinander gestapelten Block neben dem Bild. Ehemals
+        _stack_images_vertically (nur "unten", nur ein Graph).
         Hintergrund- und Schriftfarbe folgen der aktuellen Grafik-
         Darstellung (Punkt 13), sonst wirkt die Grafik im Dunkel-Modus wie
         ein dunkler Fleck auf weissem Papier."""

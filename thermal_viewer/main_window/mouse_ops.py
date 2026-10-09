@@ -10,6 +10,25 @@ class _MouseMixin:
         if self.recording is None:
             return
 
+        if self._crosssection_tab_active():
+            # Nutzerwunsch: waehrend der "Querschnitt"-Tab im Vordergrund
+            # ist, verhaelt sich ein Linksklick ins Bild komplett anders
+            # (setzt die Schnitt-Position statt den normalen Live-Cursor zu
+            # fixieren/loesen) -- siehe crosssection_ops.py Moduldocstring.
+            #
+            # Bugfix: dieser Check muss VOR allen "armierte Werkzeuge"-
+            # Checks unten stehen (nicht erst danach) -- der Querschnitt-
+            # DOCK-Tab (rechtes Panel) ist ein voellig UNABHAENGIGES Tab-
+            # System von den Bild-Ebenen-Tabs (layer_tabs_ops.py), die ein
+            # armiertes Werkzeug beim Wechsel abbrechen (siehe dort). Ein
+            # Wechsel auf den Querschnitt-Dock-Tab allein bricht ein noch
+            # armiertes ROI-Platzieren/Maßstab/Messmodus/Probenhöhen-
+            # Werkzeug also NICHT ab -- ohne diese Prioritaet haette ein
+            # Klick ins Bild dann unbemerkt noch das alte Werkzeug statt
+            # der erwarteten Querschnitt-Fixierung ausgeloest.
+            self._handle_crosssection_click(event)
+            return
+
         if self._ruler_armed:
             self._handle_ruler_click(event)
             return
@@ -44,14 +63,6 @@ class _MouseMixin:
             self._armed_entry = None
             self._recompute_curves(entries=[entry])
             self._refresh_idle_guidance()
-            return
-
-        if self._crosssection_tab_active():
-            # Nutzerwunsch: waehrend der "Querschnitt"-Tab im Vordergrund
-            # ist, verhaelt sich ein Linksklick ins Bild komplett anders
-            # (setzt die Schnitt-Position statt den normalen Live-Cursor zu
-            # fixieren/loesen) -- siehe crosssection_ops.py Moduldocstring.
-            self._handle_crosssection_click(event)
             return
 
         if event.button() == QtCore.Qt.RightButton:

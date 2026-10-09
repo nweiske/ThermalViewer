@@ -402,7 +402,17 @@ class _ImportMixin:
                 pattern=self._active_filename_pattern, strptime_fmt=self._active_filename_strptime_fmt,
                 import_settings=self._active_import_settings,
             )
-        except RecordingError:
+        except RecordingError as exc:
+            # Bugfix: zuvor komplett stillschweigend verworfen -- neue
+            # Dateien erschienen im Ordner, wurden aber (z.B. nach einem
+            # Formatwechsel der Messsoftware mitten in der laufenden
+            # Messung) nie geladen, ohne dass der Nutzer je einen Hinweis
+            # bekam, warum. Da dieser Pfad alle 10s erneut laeuft, reicht
+            # eine nicht-blockierende Statuszeilen-Meldung (kein Dialog,
+            # der sonst bei jedem Poll erneut aufpoppen wuerde).
+            self.statusBar().showMessage(
+                f"Live-Überwachung: neue Datei(en) im Ordner konnten nicht geladen werden ({exc})", 8000
+            )
             return
         if updated.n_frames != self.recording.n_frames:
             self._apply_appended_recording(updated)
@@ -462,6 +472,28 @@ class _ImportMixin:
         self.timeseries_live_curve.setSymbol(symbol)
 
         self._recompute_curves()
+
+        # Bugfix: ein bereits berechnetes Schwindungs-Box-Ergebnis bzw.
+        # bereits berechnete Probenhöhen-Breiten beziehen sich auf die ALTE
+        # (kürzere) Framezahl -- ohne Invalidierung/Neuberechnung würden
+        # Kurven-/Export-Code (shrinkage_ops.py/sample_height_ops.py/
+        # export_csv.py) mit den jetzt zu kurzen Arrays gegen die neue,
+        # längere Zeitachse indizieren (IndexError bzw. unterschiedlich
+        # lange x/y-Arrays bei curve.setData). Die Schwindungs-Box-Blob-
+        # Verfolgung ist zu teuer, um sie hier automatisch (alle 10s
+        # während der Live-Überwachung) neu laufen zu lassen -- der Nutzer
+        # muss bewusst erneut auf "Berechnen" klicken. Probenhöhen-Breiten
+        # sind dagegen günstig genug (kein "Berechnen"-Knopf vorhanden,
+        # siehe sample_height_ops.py), um sie automatisch neu zu berechnen.
+        if self._shrinkage_result is not None:
+            self._shrinkage_result = None
+            self.lbl_shrinkage_result.setText(
+                "Neue Bilder hinzugekommen -- bitte erneut auf „Berechnen“ klicken."
+            )
+            self.shrinkage_curve.clear()
+            self.shrinkage_curve.setVisible(False)
+        if self._sample_height_entries:
+            self._recompute_all_sample_heights()
 
         if was_at_latest and n > 0:
             self.current_index = n - 1

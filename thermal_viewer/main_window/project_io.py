@@ -857,17 +857,27 @@ class _ProjectMixin:
         shrinkage_ops.py-Moduldocstring mehrere SEKUNDEN dauern, waere also
         bei jedem einzelnen Rueckgaengig/Wiederholen voellig unangemessen.
 
-        Bugfix: bei recompute=False (Undo/Redo) NICHTS tun, wenn sich die
-        Schwindungs-Eingaben durch diesen Schritt gar nicht aendern (Vergleich
-        gegen den AKTUELLEN Live-Zustand, siehe _shrinkage_state_dict) --
-        sonst wuerde JEDES Undo/Redo, auch eines voellig unabhaengigen
-        Schritts (z.B. ein ROI verschoben), das bereits berechnete Ergebnis/
-        die Kurve/Kontur verwerfen und (wegen recompute=False) NICHT neu
-        berechnen, sodass sie kommentarlos verschwinden."""
+        Bugfix: bei recompute=False (Undo/Redo) die teure Neu-Anwendung der
+        Einstellungen (inkl. Zuruecksetzen von self._shrinkage_result) NUR
+        ueberspringen, wenn sich die Schwindungs-Eingaben durch diesen
+        Schritt gar nicht aendern (Vergleich gegen den AKTUELLEN
+        Live-Zustand, siehe _shrinkage_state_dict) -- sonst wuerde JEDES
+        Undo/Redo, auch eines voellig unabhaengigen Schritts (z.B. ein ROI
+        verschoben), das bereits berechnete Ergebnis/die Kurve/Kontur
+        verwerfen und (wegen recompute=False) NICHT neu berechnen, sodass
+        sie kommentarlos verschwinden.
+
+        Bugfix: self._update_shrinkage_curve()/_update_status_bar() am Ende
+        laufen bewusst IMMER, auch wenn der obige Kurzschluss greift -- sie
+        sind billig (reines Neu-Zeichnen aus dem bereits vorhandenen
+        self._shrinkage_result) und muessen z.B. nach einem Undo/Redo der
+        Rohdaten-Bereinigung (self._excluded_frame_indices, siehe
+        data_cleaning_ops.py) laufen, auch wenn sich die Schwindungs-
+        Einstellungen SELBST dabei gar nicht geaendert haben -- sonst zeigt
+        die Kurve weiterhin die VOR dem Undo/Redo ausgeblendeten Bilder an."""
         shrink_data = data.get("schwindung")
-        if not recompute and self.recording is not None and shrink_data == self._shrinkage_state_dict():
-            return
-        if isinstance(shrink_data, dict) and self.recording is not None:
+        unchanged = not recompute and self.recording is not None and shrink_data == self._shrinkage_state_dict()
+        if not unchanged and isinstance(shrink_data, dict) and self.recording is not None:
             self._shrinkage_result = None
             self.lbl_shrinkage_result.setText("Noch nicht berechnet.")
             self.lbl_shrinkage_result.setToolTip("")
@@ -935,51 +945,86 @@ class _ProjectMixin:
         Wiederholen aber unnötiger Mehraufwand, wenn ohnehin sofort wieder
         neu gerechnet werden könnte.
 
-        Bugfix: bei recompute=False (Undo/Redo) NICHTS tun, wenn sich die
-        Probenhöhen durch diesen Schritt gar nicht ändern (Vergleich gegen
-        den AKTUELLEN Live-Zustand, siehe _sample_heights_state_list) --
-        siehe _load_project_shrinkage für die ausführliche Begründung
-        (sonst würden alle Kurven/Kantenmarkierungen bei JEDEM Undo/Redo
-        verschwinden, auch bei einem völlig unabhängigen Schritt)."""
+        Bugfix: bei recompute=False (Undo/Redo) NUR das Verwerfen-und-neu-
+        Aufbauen der Eintraege ueberspringen, wenn sich die Probenhöhen
+        durch diesen Schritt gar nicht ändern (Vergleich gegen den
+        AKTUELLEN Live-Zustand, siehe _sample_heights_state_list) -- siehe
+        _load_project_shrinkage für die ausführliche Begründung (sonst
+        würden alle Kurven/Kantenmarkierungen bei JEDEM Undo/Redo
+        verschwinden, auch bei einem völlig unabhängigen Schritt).
+
+        Bugfix: wird AM ENDE trotzdem IMMER neu gerechnet (unabhaengig vom
+        recompute-Parameter) -- anders als bei der Box ist das pro
+        Probenhöhe schnell genug fuer eine Live-Aktualisierung (siehe
+        Moduldocstring sample_height_ops.py), es gibt bewusst KEINEN
+        "Berechnen"-Knopf zur manuellen Wiederherstellung. Ohne das wuerde
+        z.B. das Rueckgaengig-Machen einer einzelnen Probenhöhen-Aenderung
+        (Name/Farbe/Aktiviert-Haken) -- die den obigen Kurzschluss NICHT
+        trifft, weil sich der Live-Zustand dabei ja gerade geaendert hat --
+        die frisch aufgebauten Eintraege (widths_px=None) dauerhaft ohne
+        Kurve/Kantenmarkierung stehen lassen. Dieselbe Neuberechnung
+        repariert ausserdem die Kurven, falls NUR die Rohdaten-Bereinigung
+        (self._excluded_frame_indices) durch ein Undo/Redo geaendert wurde,
+        waehrend die Probenhöhen-Eingaben selbst unveraendert blieben."""
         heights_data = data.get("probenhoehen")
-        if not recompute and self.recording is not None and heights_data == self._sample_heights_state_list():
-            return
-        for entry in self._sample_height_entries:
-            entry.remove_from_view(self.view_box, self.shrinkage_plot)
-        self._sample_height_entries = []
+        unchanged = not recompute and self.recording is not None and heights_data == self._sample_heights_state_list()
+        if not unchanged:
+            for entry in self._sample_height_entries:
+                entry.remove_from_view(self.view_box, self.shrinkage_plot)
+            self._sample_height_entries = []
 
-        if isinstance(heights_data, list) and self.recording is not None:
-            rows, _cols = self.recording.shape
-            max_number = 0
-            for item in heights_data[:MAX_SAMPLE_HEIGHT_COUNT]:
-                if not isinstance(item, dict):
-                    continue
-                try:
-                    number = int(item["nummer"])
-                except (KeyError, TypeError, ValueError):
-                    continue
-                color = item.get("farbe")
-                if not (isinstance(color, str) and QtGui.QColor(color).isValid()):
-                    color = _sample_height_color(number)
-                entry = self._create_sample_height_entry(number, color)
-                name = item.get("name")
-                entry.set_name(name if isinstance(name, str) and name.strip() else f"Probenhöhe {number}")
-                try:
-                    row_val = int(float(item.get("zeile", 0)))
-                except (TypeError, ValueError):
-                    row_val = 0
-                entry.row = max(0, min(rows - 1, row_val))
-                enabled = item.get("aktiv")
-                entry.enabled = enabled if isinstance(enabled, bool) else True
-                self._update_sample_height_line_pos(entry)
-                self._sample_height_entries.append(entry)
-                max_number = max(max_number, number)
-            self._sample_height_next_number = max_number + 1
+            if isinstance(heights_data, list) and self.recording is not None:
+                rows, _cols = self.recording.shape
+                max_number = 0
+                for item in heights_data[:MAX_SAMPLE_HEIGHT_COUNT]:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        number = int(item["nummer"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    color = item.get("farbe")
+                    if not (isinstance(color, str) and QtGui.QColor(color).isValid()):
+                        color = _sample_height_color(number)
+                    entry = self._create_sample_height_entry(number, color)
+                    name = item.get("name")
+                    entry.set_name(name if isinstance(name, str) and name.strip() else f"Probenhöhe {number}")
+                    try:
+                        row_val = int(float(item.get("zeile", 0)))
+                    except (TypeError, ValueError):
+                        row_val = 0
+                    entry.row = max(0, min(rows - 1, row_val))
+                    enabled = item.get("aktiv")
+                    entry.enabled = enabled if isinstance(enabled, bool) else True
+                    self._update_sample_height_line_pos(entry)
+                    self._sample_height_entries.append(entry)
+                    max_number = max(max_number, number)
+                self._sample_height_next_number = max_number + 1
 
-        self._refresh_sample_height_rows()
-        if recompute:
+            self._refresh_sample_height_rows()
+            # Bugfix: wird HIER (nach einem tatsaechlichen Aenderungs-
+            # Schritt) IMMER neu gerechnet, unabhaengig vom recompute-
+            # Parameter -- anders als bei der Box ist das pro Probenhöhe
+            # schnell genug fuer eine Live-Aktualisierung (siehe
+            # Moduldocstring sample_height_ops.py), es gibt bewusst KEINEN
+            # "Berechnen"-Knopf zur manuellen Wiederherstellung. Ohne das
+            # wuerde z.B. das Rueckgaengig-Machen einer einzelnen
+            # Probenhöhen-Aenderung (Name/Farbe/Aktiviert-Haken) -- die den
+            # obigen Kurzschluss NICHT trifft, weil sich der Live-Zustand
+            # dabei ja gerade geaendert hat -- die frisch aufgebauten
+            # Eintraege (widths_px=None) dauerhaft ohne Kurve/
+            # Kantenmarkierung stehen lassen.
             self._recompute_all_sample_heights()
         else:
+            # unchanged: NICHTS neu berechnen (widths_px bleibt dieselbe
+            # Referenz -- wichtig fuer den Kurzschluss-Zweck selbst, siehe
+            # oben), aber die Anzeige trotzdem auffrischen. Bugfix: holt
+            # z.B. eine zwischenzeitlich per Undo/Redo geaenderte Rohdaten-
+            # Bereinigung (self._excluded_frame_indices) nachtraeglich in
+            # die Kurve, auch wenn sich die Probenhöhen-Eingaben selbst
+            # dabei gar nicht geaendert haben (dieselbe Begruendung wie der
+            # unconditionale _update_shrinkage_curve()-Aufruf in
+            # _load_project_shrinkage).
             self._update_all_sample_height_curves()
             self._rebuild_all_sample_height_edge_ticks()
             for entry in self._sample_height_entries:

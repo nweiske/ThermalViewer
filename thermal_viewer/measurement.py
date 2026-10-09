@@ -43,7 +43,7 @@ def clamp_label_offset(offset: QtCore.QPointF, line_length: float) -> QtCore.QPo
     unmittelbarer Naehe."""
     max_dist = max(line_length * 0.5, 20.0)
     dist = (offset.x() ** 2 + offset.y() ** 2) ** 0.5
-    if dist <= max_dist or dist < 1e-9:
+    if dist <= max_dist:
         return offset
     scale = max_dist / dist
     return QtCore.QPointF(offset.x() * scale, offset.y() * scale)

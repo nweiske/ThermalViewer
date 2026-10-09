@@ -326,6 +326,21 @@ def parse_frame_text(text: str, settings: ImportSettings | None = None) -> np.nd
     np.stack() der ganzen Serie einen kryptischen numpy-Fehler weit weg von
     der eigentlichen Ursache."""
     settings = settings or ImportSettings()
+    # Bugfix: Trennzeichen == Dezimaltrennzeichen (z.B. beide ",") zerlegt
+    # jeden Wert unbemerkt in zwei Spalten -- jede Zeile bekommt dadurch
+    # GLEICH VIELE (doppelte) Spalten, die Spaltenzahl-Pruefung unten greift
+    # also nicht, und load_frame() liefert ein voll befuelltes, aber
+    # systematisch falsches Array OHNE jede Fehlermeldung. ImportSettings-
+    # Dialog.verhindert diese Kombination zwar schon in der UI (deaktiviert
+    # dort den OK-Knopf), aber ueber QSettings geladene/gespeicherte
+    # Einstellungen (siehe main_window/import_ops.py:_load_import_settings)
+    # durchlaufen diese Pruefung nicht -- hier an der Datenquelle nochmal
+    # verbindlich abgesichert.
+    if settings.delimiter and settings.delimiter == settings.decimal_separator:
+        raise RecordingError(
+            "Trennzeichen und Dezimaltrennzeichen dürfen im Datenimport nicht identisch sein -- "
+            "bitte im Datenimport-Manager anpassen."
+        )
     rows: list[list[float]] = []
     for line in _select_data_lines(text, settings):
         try:
@@ -410,7 +425,12 @@ def load_tiff_grayscale(path: Path) -> np.ndarray:
         r = arr[:, :, 0].astype(np.float64)
         g = arr[:, :, 1].astype(np.float64)
         b = arr[:, :, 2].astype(np.float64)
-        if max(float(np.abs(r - g).max()), float(np.abs(r - b).max())) > 4:
+        # Bugfix: auch G-B vergleichen, nicht nur R-G/R-B -- ein Bild, bei
+        # dem R zufaellig zwischen G und B liegt (z.B. R=130, G=126, B=134),
+        # haette sonst zwei unauffaellige Differenzen (|R-G|=4, |R-B|=4) UNTER
+        # dem Schwellwert, obwohl G und B tatsaechlich um das Doppelte davon
+        # (8) auseinanderliegen -- eindeutig kein Graustufenbild.
+        if max(float(np.abs(r - g).max()), float(np.abs(r - b).max()), float(np.abs(g - b).max())) > 4:
             raise RecordingError(
                 f"„{path.name}“ ist kein Graustufenbild (die Farbkanäle weichen sichtbar "
                 "voneinander ab) -- eine zuverlässige Rückrechnung aus einer Falschfarben-"
@@ -467,12 +487,6 @@ class Recording:
     @property
     def shape(self) -> tuple[int, int]:
         return (0, 0) if self.frames is None else self.frames.shape[1:]
-
-    def timestamp_seconds(self) -> np.ndarray:
-        if not self.timestamps:
-            return np.zeros(0)
-        t0 = self.timestamps[0]
-        return np.asarray([(t - t0).total_seconds() for t in self.timestamps])
 
     def unix_seconds(self) -> np.ndarray:
         """Bugreport (Punkt 7): "wenn ich den Live-Cursor durch das Bild
@@ -651,20 +665,42 @@ def append_paths(
     loaded: list[tuple[Path, datetime, np.ndarray]] = []
     skipped: list[tuple[Path, str]] = list(recording.skipped_files)
 
+    # Bugfix: frueher wurde die Aufloesung JEDES neuen Frames direkt gegen
+    # reference_shape geprueft -- war `recording` noch leer (reference_shape
+    # == (0, 0), in der App aktuell nie der Fall, siehe einziger Aufrufer
+    # oben, aber append_paths ist oeffentliche API), griff der
+    # "reference_shape != (0, 0)"-Guard NIE, also wurde JEDER Frame
+    # unabhaengig von seiner Aufloesung durchgelassen. Heterogene
+    # Aufloesungen im selben Batch liessen np.stack() am Ende mit einem
+    # kryptischen ValueError abbrechen, statt sie wie sonst ueberall
+    # (load_paths(), bzw. hier selbst bei nicht-leerem recording) einzeln
+    # als skipped_files zu behandeln. Daher zweistufig: erst alle Dateien
+    # laden, DANACH -- falls noetig per Majority-Vote wie in load_paths()
+    # -- eine reference_shape bestimmen und erst dann filtern.
+    candidate_frames: list[tuple[Path, datetime, np.ndarray]] = []
     for i, p in enumerate(candidates):
         try:
             frame = load_frame(p, import_settings)
         except (OSError, UnicodeDecodeError, ValueError, RecordingError) as exc:
             skipped.append((p, str(exc)))
         else:
-            if reference_shape != (0, 0) and frame.shape != reference_shape:
-                skipped.append(
-                    (p, f"Abweichende Bildaufloesung {frame.shape} -- erwartet wurde {reference_shape}")
-                )
-            else:
-                loaded.append((p, timestamps_by_path[p], frame))
+            candidate_frames.append((p, timestamps_by_path[p], frame))
         if progress_cb is not None:
             progress_cb(i + 1, len(candidates))
+
+    if reference_shape == (0, 0) and candidate_frames:
+        shape_counts: dict[tuple[int, int], int] = {}
+        for _, _, frame in candidate_frames:
+            shape_counts[frame.shape] = shape_counts.get(frame.shape, 0) + 1
+        reference_shape = max(shape_counts, key=shape_counts.get)
+
+    for p, ts, frame in candidate_frames:
+        if reference_shape != (0, 0) and frame.shape != reference_shape:
+            skipped.append(
+                (p, f"Abweichende Bildaufloesung {frame.shape} -- erwartet wurde {reference_shape}")
+            )
+        else:
+            loaded.append((p, ts, frame))
 
     if not loaded:
         return Recording(

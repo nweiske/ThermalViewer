@@ -143,8 +143,8 @@ class MainWindow(
         self._graph_theme = "light"
         self._graph_bg = THEMES["light"]["pg_background"]
         self._graph_fg = THEMES["light"]["pg_foreground"]
-        self._image_bg = THEMES["dark"]["pg_background"]
-        self._image_fg = THEMES["dark"]["pg_foreground"]
+        self._image_bg = THEMES["light"]["pg_background"]
+        self._image_fg = THEMES["light"]["pg_foreground"]
         # Min/Max ueber alle Frames der aktuellen Aufnahme (Punkt 1), einmalig
         # beim Laden berechnet.
         self._global_level_range: tuple[float, float] | None = None

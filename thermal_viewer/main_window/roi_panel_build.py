@@ -163,7 +163,8 @@ class _RoiPanelBuildMixin:
         )
         self.radio_level_manual = QtWidgets.QRadioButton("Manuell:")
         self.radio_level_manual.setToolTip(
-            "Feste, selbst gewählte Grenzwerte (Felder \"Min\"/\"Max\" rechts) statt automatischer Skalierung."
+            "Feste, selbst gewählte Grenzwerte (Felder \"Min\"/\"Max\" rechts)\n"
+            "statt automatischer Skalierung."
         )
         self.level_mode_group = QtWidgets.QButtonGroup(self)
         self.level_mode_group.addButton(self.radio_level_auto)
@@ -185,8 +186,8 @@ class _RoiPanelBuildMixin:
         )
         self.radio_level_global = QtWidgets.QRadioButton("Über gesamte Messung")
         self.radio_level_global.setToolTip(
-            "Ermittelt Minimum/Maximum einmalig über alle geladenen Frames und verwendet "
-            "diesen Bereich durchgehend für die Legende (statt pro Bild neu zu skalieren)."
+            "Ermittelt Min/Max einmalig über alle Frames, verwendet diesen Bereich durchgehend\n"
+            "(statt pro Bild neu zu skalieren)."
         )
         self.level_auto_submode_group = QtWidgets.QButtonGroup(self)
         self.level_auto_submode_group.addButton(self.radio_level_per_frame)
@@ -262,8 +263,8 @@ class _RoiPanelBuildMixin:
         self.btn_ruler_color.setFixedSize(20, 20)
         self.btn_ruler_color.setCursor(QtCore.Qt.PointingHandCursor)
         self.btn_ruler_color.setToolTip(
-            "Farbe der Referenzlinie ändern -- bei manchen Farbverläufen (z.B. \"Hot\") ist die "
-            "Standardfarbe sonst kaum zu erkennen."
+            "Farbe der Referenzlinie ändern -- bei manchen Farbverläufen (z.B. \"Hot\")\n"
+            "sonst kaum erkennbar."
         )
         self.btn_ruler_color.clicked.connect(self._on_ruler_color_clicked)
         scale_buttons_row.addWidget(self.btn_ruler_color)
@@ -291,10 +292,9 @@ class _RoiPanelBuildMixin:
         self.btn_add_measurement = QtWidgets.QPushButton("Messmodus")
         self.btn_add_measurement.setCheckable(True)
         self.btn_add_measurement.setToolTip(
-            "Messmodus einschalten, dann beliebig viele Strecken im Bild anklicken (je Start-, "
-            "dann Endpunkt) und mit dem oben definierten Maßstab in mm anzeigen -- ändert den "
-            "Maßstab selbst NICHT. Zum Beenden erneut klicken. Erst verfügbar, wenn ein Maßstab "
-            "festgelegt ist."
+            "Messmodus: beliebig viele Strecken anklicken (Start-/Endpunkt), angezeigt in mm.\n"
+            "Ändert den Maßstab selbst nicht. Erneut klicken zum Beenden.\n"
+            "Erst verfügbar, wenn ein Maßstab festgelegt ist."
         )
         self.btn_add_measurement.setEnabled(False)
         self.btn_add_measurement.toggled.connect(self._on_measurement_mode_toggled)
@@ -347,8 +347,8 @@ class _RoiPanelBuildMixin:
         # der "+"-Knopf ist ein ganz normaler Knopf ohne Sondermechanik.
         self.roi_list = QtWidgets.QListWidget()
         self.roi_list.setToolTip(
-            "Messbereich auswählen (aktiviert direkt \"Messbereich setzen\") -- Doppelklick zum "
-            "Umbenennen."
+            "Messbereich auswählen (aktiviert direkt \"Messbereich setzen\").\n"
+            "Doppelklick zum Umbenennen."
         )
         self.roi_stack = QtWidgets.QStackedWidget()
         for entry in self.roi_entries:
@@ -731,8 +731,8 @@ class _RoiPanelBuildMixin:
 
         chk_circular = QtWidgets.QCheckBox("Kreis")
         chk_circular.setToolTip(
-            "Zeichnet eine in Breite/Höhe eingeschriebene Ellipse statt eines Rechtecks und "
-            "mittelt die Temperatur nur über die Pixel innerhalb dieser Fläche."
+            "Zeichnet eine Ellipse (in Breite/Höhe) statt eines Rechtecks.\n"
+            "Mittelt die Temperatur nur über die Pixel innerhalb dieser Fläche."
         )
         chk_circular.toggled.connect(partial(self._on_roi_circular_toggled, entry))
         entry.chk_circular = chk_circular
@@ -754,8 +754,7 @@ class _RoiPanelBuildMixin:
         for mode, label in STAT_MODE_LABELS.items():
             combo_stat_mode.addItem(label, mode)
         combo_stat_mode.setToolTip(
-            "Welche Kennzahl innerhalb des Messbereichs angezeigt und in die Zeitverlauf-Kurve "
-            "übernommen wird."
+            "Welche Kennzahl angezeigt und in die Zeitverlauf-Kurve übernommen wird."
         )
         combo_stat_mode.currentIndexChanged.connect(partial(self._on_roi_stat_mode_changed, entry))
         entry.combo_stat_mode = combo_stat_mode

@@ -125,7 +125,7 @@ class ImportSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
         self.spin_skip_leading = QtWidgets.QSpinBox()
         self.spin_skip_leading.setRange(0, 100)
-        self.spin_skip_leading.setToolTip("Anzahl der Spalten am Zeilenanfang, die keine Messwerte enthalten (z.B. eine Index-Spalte).")
+        self.spin_skip_leading.setToolTip("Anzahl der Spalten am Zeilenanfang ohne Messwerte (z.B. eine Index-Spalte).")
         form.addRow("Erste Spalte(n) entfernen:", self.spin_skip_leading)
 
         self.spin_skip_trailing = QtWidgets.QSpinBox()
@@ -165,8 +165,8 @@ class ImportSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             # unmarkiert gilt die Anpassung wirklich nur fuer DIESEN einen Versuch,
             # der Session-Standard bleibt unveraendert.
             self.chk_persist.setToolTip(
-                "Aus: gilt nur für diesen einen Ladevorgang. An: wird als neuer Standard für "
-                "künftige Ladevorgänge gespeichert."
+                "Aus: gilt nur für diesen einen Ladevorgang.\n"
+                "An: wird als neuer Standard für künftige Ladevorgänge gespeichert."
             )
         else:
             # Eigenstaendig ueber "Werkzeuge > Datenimport anpassen…" geoeffnet
@@ -174,7 +174,7 @@ class ImportSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             # ueberhaupt einen Effekt, wenn es den Session-Standard aendert,
             # sonst waere der Dialog ausserhalb einer Fehlerbehebung wirkungslos.
             self.chk_persist.setToolTip(
-                "Aus: gilt nur für die aktuelle Sitzung (bis zum Beenden des Programms). "
+                "Aus: gilt nur für die aktuelle Sitzung (bis Programmende).\n"
                 "An: wird zusätzlich dauerhaft als neuer Standard gespeichert."
             )
         layout.addWidget(self.chk_persist)

@@ -36,14 +36,13 @@ class _UIBuildMenuMixin:
         file_menu.addSeparator()
         act_save_project = file_menu.addAction("Projekt speichern…")
         act_save_project.setToolTip(
-            "Speichert Messbereiche (Position, Name, Farbe), Farbverlauf und Legenden-Limits "
-            "in einer Projektdatei."
+            "Speichert Messbereiche, Farbverlauf und Legenden-Limits in einer Projektdatei."
         )
         act_save_project.triggered.connect(self._save_project)
         act_load_project = file_menu.addAction("Projekt laden…")
         act_load_project.setToolTip(
-            "Wendet eine gespeicherte Projektdatei an -- ist noch keine Messreihe geladen, wird "
-            "deren gespeicherter Quellordner automatisch mitgeladen (falls noch vorhanden)."
+            "Wendet eine gespeicherte Projektdatei an.\n"
+            "Ohne geladene Messreihe wird deren Quellordner automatisch mitgeladen (falls vorhanden)."
         )
         act_load_project.triggered.connect(self._load_project)
         file_menu.addSeparator()
@@ -79,10 +78,9 @@ class _UIBuildMenuMixin:
         data_menu = self.menuBar().addMenu("&Daten")
         act_clean_data = data_menu.addAction("Rohdaten säubern…")
         act_clean_data.setToolTip(
-            "Erkennt einzelne Ausreißer-Bilder (z.B. durch eine kurze Kamera-/Übertragungsstörung) "
-            "anhand der Temperaturänderung zu frei markierten Referenzpunkten und blendet sie aus "
-            "Kurven/Wiedergabe/Export aus -- ohne sie oder ihre Zeitstempel zu löschen, jederzeit "
-            "einzeln wieder einblendbar."
+            "Erkennt Ausreißer-Bilder (z.B. kurze Störung) an frei markierten Referenzpunkten\n"
+            "und blendet sie aus Kurven/Wiedergabe/Export aus.\n"
+            "Nichts wird gelöscht -- jederzeit einzeln wieder einblendbar."
         )
         act_clean_data.triggered.connect(self._open_data_cleaning_dialog)
         self._requires_recording_actions.append(act_clean_data)
@@ -94,10 +92,9 @@ class _UIBuildMenuMixin:
         act_import_tiff.setEnabled(False)
         act_import_tiff.setToolTip(
             "Vorübergehend deaktiviert.\n\n"
-            "Wandelt einzelne Graustufen-TIFF-Bilder (z.B. ein unkoloriertes „Intensität (DL)“-"
-            "Rohbild ohne eingebettete Kalibrierung) in Messdateien im normalen Format um -- "
-            "erfordert eine MANUELL angegebene Min-/Max-Temperatur (unkalibrierte Schätzung, "
-            "Auswertung auf eigene Gefahr) sowie einen Bildausschnitt ohne Farbskala/Legende."
+            "Wandelt Graustufen-TIFF-Bilder (unkoloriertes Rohbild ohne Kalibrierung) in\n"
+            "Messdateien um -- erfordert manuelle Min-/Max-Temperatur (Schätzung, auf\n"
+            "eigene Gefahr) und einen Ausschnitt ohne Farbskala/Legende."
         )
         act_import_tiff.triggered.connect(self._import_tiff_images)
 
@@ -125,16 +122,14 @@ class _UIBuildMenuMixin:
         # zuruecksetzen"-Aktionen, kein dauerhafter Schalter.
         act_theme_all_light = view_menu.addAction("Alles: Hell")
         act_theme_all_light.setToolTip(
-            "Setzt Fenster, Thermobild UND Graph gemeinsam auf Hell -- alle drei bleiben danach "
-            "trotzdem weiterhin über die eigenen Untermenüs darunter unabhängig voneinander "
-            "veränderbar."
+            "Setzt Fenster, Thermobild UND Graph gemeinsam auf Hell.\n"
+            "Bleiben danach weiterhin einzeln über die Untermenüs änderbar."
         )
         act_theme_all_light.triggered.connect(partial(self._apply_default_theme, "light"))
         act_theme_all_dark = view_menu.addAction("Alles: Dunkel")
         act_theme_all_dark.setToolTip(
-            "Setzt Fenster, Thermobild UND Graph gemeinsam auf Dunkel -- alle drei bleiben danach "
-            "trotzdem weiterhin über die eigenen Untermenüs darunter unabhängig voneinander "
-            "veränderbar."
+            "Setzt Fenster, Thermobild UND Graph gemeinsam auf Dunkel.\n"
+            "Bleiben danach weiterhin einzeln über die Untermenüs änderbar."
         )
         act_theme_all_dark.triggered.connect(partial(self._apply_default_theme, "dark"))
 
@@ -150,9 +145,8 @@ class _UIBuildMenuMixin:
         self._window_theme_actions: dict[str, QtGui.QAction] = {}
         window_theme_menu = view_menu.addMenu("Fenster-Farbschema")
         window_theme_menu.setToolTip(
-            "Hintergrund-/Schriftfarbe von Fenster, Menüs und Panels -- unabhaengig von "
-            "Thermobild und Graph darunter, siehe auch die beiden \"Alles: ...\"-Knöpfe oben, "
-            "die alle drei gemeinsam auf einen Schlag umschalten."
+            "Hintergrund-/Schriftfarbe von Fenster, Menüs und Panels.\n"
+            "Unabhängig von Thermobild/Graph -- siehe auch die \"Alles: ...\"-Knöpfe oben."
         )
         window_theme_group = QtGui.QActionGroup(self)
         window_theme_group.setExclusive(True)
@@ -169,8 +163,8 @@ class _UIBuildMenuMixin:
         self._image_theme_actions: dict[str, QtGui.QAction] = {}
         image_theme_menu = view_menu.addMenu("Thermobild-Farbschema")
         image_theme_menu.setToolTip(
-            "Hintergrund-/Schriftfarbe des Thermobilds -- unabhaengig vom Fenster-Farbschema "
-            "oben und vom Graphen, gilt auch für alle Exporte (Bild/Video/Bildstapel)."
+            "Hintergrund-/Schriftfarbe des Thermobilds -- unabhängig von Fenster/Graph.\n"
+            "Gilt auch für alle Exporte (Bild/Video/Bildstapel)."
         )
         image_theme_group = QtGui.QActionGroup(self)
         image_theme_group.setExclusive(True)
@@ -190,9 +184,8 @@ class _UIBuildMenuMixin:
         self._graph_theme_actions: dict[str, QtGui.QAction] = {}
         graph_theme_menu = view_menu.addMenu("Graph-Farbschema")
         graph_theme_menu.setToolTip(
-            "Hintergrund-/Schriftfarbe der Kurven-Graphen (Zeitverlauf/Live) -- unabhaengig vom "
-            "Fenster-Farbschema oben und vom Thermobild, gilt auch für alle Exporte "
-            "(Bild/Video/Bildstapel)."
+            "Hintergrund-/Schriftfarbe der Kurven-Graphen -- unabhängig von Fenster/Thermobild.\n"
+            "Gilt auch für alle Exporte (Bild/Video/Bildstapel)."
         )
         graph_theme_group = QtGui.QActionGroup(self)
         graph_theme_group.setExclusive(True)
@@ -208,17 +201,16 @@ class _UIBuildMenuMixin:
         tools_menu = self.menuBar().addMenu("&Werkzeuge")
         act_import_settings = tools_menu.addAction("Datenimport anpassen…")
         act_import_settings.setToolTip(
-            "Datenimport-Manager: bereitet Messdateien mit abweichendem Rohformat (z.B. "
-            "zusätzliche Kopfzeilen, eine führende Index-Spalte, anderes Trennzeichen) fürs "
-            "Einlesen vor -- mit Live-Vorschau gegen eine echte Beispieldatei. Nicht Teil des "
-            "Namensschemas (Dateinamen, siehe Datei-Menü) -- betrifft nur den INHALT der Dateien."
+            "Datenimport-Manager: bereitet Messdateien mit abweichendem Rohformat vor\n"
+            "(z.B. Kopfzeilen, Index-Spalte, anderes Trennzeichen), mit Live-Vorschau.\n"
+            "Betrifft nur den Dateiinhalt, nicht das Namensschema (siehe Datei-Menü)."
         )
         act_import_settings.triggered.connect(self._configure_import_settings)
         tools_menu.addSeparator()
         act_ruler = tools_menu.addAction("Maßstab festlegen…")
         act_ruler.setToolTip(
-            "Referenzlinie im Bild einzeichnen und ihre reale Länge in mm angeben, um Messbereich-"
-            "Größen zusätzlich in mm anzuzeigen."
+            "Referenzlinie einzeichnen und ihre reale Länge in mm angeben, um\n"
+            "Messbereich-Größen zusätzlich in mm anzuzeigen."
         )
         act_ruler.triggered.connect(self._start_ruler_tool)
         self._requires_recording_actions.append(act_ruler)
@@ -228,8 +220,8 @@ class _UIBuildMenuMixin:
 
         kernel_menu = tools_menu.addMenu("Live-Cursor-Bereichsgröße")
         kernel_menu.setToolTip(
-            "Legt fest, wie viele Pixel um den Live-Cursor (Maus im Thermobild) herum "
-            "für den Live-Verlauf/die Live-Anzeige gemittelt werden."
+            "Legt fest, wie viele Pixel um den Live-Cursor gemittelt werden\n"
+            "(für Live-Verlauf/Live-Anzeige)."
         )
         self._live_cursor_kernel_actions: dict[int, QtGui.QAction] = {}
         kernel_group = QtGui.QActionGroup(self)
@@ -254,8 +246,8 @@ class _UIBuildMenuMixin:
         export_menu = self.menuBar().addMenu("&Export")
         act_export_video = export_menu.addAction("Video / Bildstapel exportieren…")
         act_export_video.setToolTip(
-            "Exportiert einen wählbaren Frame-Bereich als MP4-, AVI- oder WebM-Video, oder "
-            "wahlweise als Bildstapel (eine Bilddatei pro Frame)."
+            "Exportiert einen Frame-Bereich als MP4-/AVI-/WebM-Video oder als Bildstapel\n"
+            "(eine Bilddatei pro Frame)."
         )
         act_export_video.triggered.connect(self._export_video)
         export_menu.addSeparator()
@@ -265,16 +257,15 @@ class _UIBuildMenuMixin:
         # (Nutzerwunsch: "nur noch ein einziges CSV/-Bild-Export Fenster").
         act_export_graphic = export_menu.addAction("Grafik exportieren…")
         act_export_graphic.setToolTip(
-            "Speichert Thermobild (mit Position der Messbereiche/des Cursors) und "
-            "Temperaturverlauf gemeinsam oder getrennt als Grafik(en) -- welche Kurve(n) "
-            "(Messbereiche und/oder Live-Cursor) dabei sind, wählt der Dialog selbst."
+            "Speichert Thermobild (mit Messbereichen/Cursor) und Temperaturverlauf\n"
+            "gemeinsam oder getrennt als Grafik(en) -- welche Kurven, wählt der Dialog."
         )
         act_export_graphic.triggered.connect(self._export_graphic)
         export_menu.addSeparator()
         act_export_csv = export_menu.addAction("Werte exportieren…")
         act_export_csv.setToolTip(
-            "Speichert die Temperaturwerte aller platzierten Messbereiche und/oder des "
-            "Live-Cursor-Pixels wählbar über die Zeit als CSV-, JSON- oder Text-Datei."
+            "Speichert die Temperaturwerte der Messbereiche und/oder des Live-Cursors\n"
+            "über die Zeit als CSV-, JSON- oder Text-Datei."
         )
         act_export_csv.triggered.connect(self._export_csv)
         self._requires_recording_actions.extend([

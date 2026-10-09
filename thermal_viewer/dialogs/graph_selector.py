@@ -57,11 +57,11 @@ class GraphContentSelector:
         self.chk_live.setChecked(default_live_checked and live_available)
         self.chk_live.setEnabled(live_available)
         self.chk_live.setToolTip(
-            "Temperaturverlauf des fixierten/zuletzt mit der Maus gezeigten Cursor-Pixels. "
+            "Temperaturverlauf des fixierten/zuletzt gezeigten Cursor-Pixels.\n"
             "Erfordert „Cursor-Position im Bild anzeigen“ (siehe unten)."
             if live_available else
-            "Kein Live-Cursor-Pixel gewählt (Maus über das Bild bewegen oder eine Stelle "
-            "fixieren, um diese Option zu aktivieren)."
+            "Kein Live-Cursor-Pixel gewählt.\n"
+            "Maus über das Bild bewegen oder eine Stelle fixieren, um dies zu aktivieren."
         )
         outer.addWidget(self.chk_live)
 

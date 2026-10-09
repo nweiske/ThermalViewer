@@ -209,18 +209,17 @@ class _UIBuildMixin:
         row = QtWidgets.QHBoxLayout()
         btn_reset_view = QtWidgets.QPushButton("Achsen zurücksetzen")
         btn_reset_view.setToolTip(
-            "Setzt Zoom/Verschieben dieses Graphen zurück (X- und Y-Achse wieder auf den "
-            "kompletten Datenbereich) -- falls per Maus verzoomt/verschoben wurde."
+            "Setzt Zoom/Verschieben zurück auf den vollen Datenbereich (X- und Y-Achse),\n"
+            "falls per Maus verzoomt/verschoben wurde."
         )
         btn_reset_view.clicked.connect(partial(self._reset_plot_view, plot_widget))
         row.addWidget(btn_reset_view)
 
         btn_axis_settings = QtWidgets.QPushButton("Achsen einstellen…")
         btn_axis_settings.setToolTip(
-            "Y-Achse (Temperatur): Wertebereich und/oder Schrittweite manuell festlegen. "
-            "X-Achse (Zeit): Wertebereich manuell festlegen (eine feste Schrittweite ist dort "
-            "nicht wählbar, siehe Dialog) -- Alternative zum pyqtgraph-eigenen, schwerer "
-            "auffindbaren Rechtsklick-Menü „X/Y axis“."
+            "Y-Achse (Temperatur): Wertebereich und/oder Schrittweite manuell festlegen.\n"
+            "X-Achse (Zeit): nur Wertebereich (keine feste Schrittweite, siehe Dialog).\n"
+            "Alternative zum schwer auffindbaren Rechtsklick-Menü „X/Y axis“ von pyqtgraph."
         )
         btn_axis_settings.clicked.connect(partial(self._open_axis_settings, plot_widget))
         row.addWidget(btn_axis_settings)
@@ -247,11 +246,9 @@ class _UIBuildMixin:
         format_combo.addItem("Laufzeit in Minuten", "min")
         format_combo.addItem("Laufzeit in Stunden", "h")
         format_combo.setToolTip(
-            "Format der Laufzeit-Anzeige -- \"hh:mm:ss\" (Standard) oder eine fortlaufende "
-            "Dezimalzahl in der gewählten Einheit (erleichtert das Weiterverarbeiten/Zeichnen in "
-            "anderer Software, ohne die Zeit vorher selbst umrechnen zu müssen). Gilt einheitlich "
-            "überall, wo die Laufzeit angezeigt wird: hier, im Video-/Bildstapel-Export, im "
-            "CSV-Export und in der Statuszeile. Nur wirksam, solange links „Laufzeit“ gewählt ist."
+            "Laufzeit-Format: \"hh:mm:ss\" oder Dezimalzahl in der gewählten Einheit\n"
+            "(praktisch zum Weiterverarbeiten in anderer Software).\n"
+            "Gilt überall: hier, Export, CSV, Statuszeile. Nur wirksam bei „Laufzeit“ links."
         )
         format_combo.setEnabled(False)
         row.addWidget(format_combo)
@@ -567,8 +564,8 @@ class _UIBuildMixin:
         # muessen.
         self.chk_show_live_in_timeseries = QtWidgets.QCheckBox("Live-Cursor-Kurve zusätzlich anzeigen")
         self.chk_show_live_in_timeseries.setToolTip(
-            "Blendet den Temperaturverlauf des Live-Cursor-Pixels zusätzlich zu den "
-            "Messbereichen in diesem Graphen ein (dieselbe Kurve wie im Live-Panel)."
+            "Blendet den Temperaturverlauf des Live-Cursor-Pixels zusätzlich ein\n"
+            "(dieselbe Kurve wie im Live-Panel)."
         )
         self.chk_show_live_in_timeseries.toggled.connect(self._on_show_live_in_timeseries_toggled)
         timeseries_layout.addWidget(self.chk_show_live_in_timeseries)

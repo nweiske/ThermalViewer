@@ -54,6 +54,8 @@ class _VideoExportMixin:
             has_excluded_frames=bool(self._excluded_frame_indices),
             shrinkage_available=self._shrinkage_result is not None,
             querschnitt_available=self._crosssection_pinned or bool(self._crosssection_entries),
+            crosssection_entries=[(e.number, e.name) for e in self._crosssection_entries],
+            crosssection_pinned_available=self._crosssection_pinned,
         )
         dialog.enable_preview(lambda: self._render_export_preview_image(dialog))
         # Schleife statt einmaligem exec() (Punkt 3): bricht der Nutzer den
@@ -109,6 +111,11 @@ class _VideoExportMixin:
                 selected_roi_numbers = dialog.included_roi_numbers()
                 include_live_curve = dialog.include_live()
                 axis_overrides = dialog.custom_axis_overrides()
+            selected_crosssection_numbers: set[int] = set()
+            include_pinned_crosssection = False
+            if "querschnitt" in selected_keys:
+                selected_crosssection_numbers = dialog.included_crosssection_entry_numbers()
+                include_pinned_crosssection = dialog.include_pinned_crosssection() and self._crosssection_pinned
             # "Zeitanzeige im Bild" (overlay_mode) galt bisher NUR fuer den ins
             # Bild eingebrannten Text-Streifen -- der mit exportierte Graph
             # blieb unabhaengig davon immer bei der gerade in der App aktiven
@@ -336,6 +343,7 @@ class _VideoExportMixin:
                     self._temporary_scale_visuals(include_scale_ruler, selected_scale_numbers), \
                     self._temporary_export_layers(layer_categories), \
                     self._temporary_graph_content(selected_roi_numbers, include_live_curve), \
+                    self._temporary_crosssection_content(selected_crosssection_numbers, include_pinned_crosssection), \
                     (self._temporary_axis_override(self.timeseries_plot, axis_overrides)
                      if "zeitverlauf" in selected_keys else contextlib.nullcontext()), \
                     (self._dual_time_axis_export(self.timeseries_plot)

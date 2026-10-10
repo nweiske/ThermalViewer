@@ -80,6 +80,22 @@ class _UIBuildMixin:
         self.plot_item.addItem(self.crosssection_image_line)
         self.crosssection_image_line.sigDragged.connect(self._on_crosssection_image_line_dragged)
 
+        # Vorschau-Linie fuer das Platzieren-Werkzeug der PLURAL-Querschnitte
+        # (siehe crosssection_entry_ops.py) -- folgt der Maus, waehrend "+
+        # Horizontal"/"+ Vertikal" armiert ist, UNABHAENGIG vom Pin-Zustand
+        # des einzelnen Hover/Pin-Querschnitts oben (Bugreport: war der
+        # einzelne Querschnitt bereits fixiert, folgte GAR KEINE Linie mehr
+        # der Maus beim Platzieren eines neuen Eintrags). movable=False --
+        # reine Anzeige, das Platzieren selbst laeuft ueber einen Linksklick
+        # (siehe mouse_ops.py:_on_scene_mouse_clicked).
+        self.crosssection_entry_preview_line = pg.InfiniteLine(
+            angle=0, movable=False,
+            pen=pg.mkPen("#facc15", width=1.5, style=QtCore.Qt.DashLine),
+        )
+        self.crosssection_entry_preview_line.setZValue(10)
+        self.crosssection_entry_preview_line.setVisible(False)
+        self.plot_item.addItem(self.crosssection_entry_preview_line)
+
         self.histogram = pg.HistogramLUTItem()
         self.histogram.setImageItem(self.image_item)
         self.histogram.gradient.setColorMap(pg.colormap.get(COLORMAPS[0][1]))

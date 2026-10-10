@@ -118,6 +118,16 @@ class _MouseMixin:
     def _on_scene_mouse_moved(self, scene_pos: QtCore.QPointF) -> None:
         if self.recording is None:
             return
+        if self._crosssection_entry_armed_direction is not None:
+            # Dieselbe Prioritaet wie im Klick-Handler (siehe
+            # _on_scene_mouse_clicked): ein explizit ueber "+ Horizontal"/
+            # "+ Vertikal" armiertes Platzieren-Werkzeug ist eine
+            # spezifischere Nutzerabsicht als der blosse Dock-Tab-Hover
+            # unten -- sonst wuerde bei bereits fixiertem einzelnen
+            # Querschnitt (siehe crosssection_ops.py:_handle_crosssection_
+            # hover) ueberhaupt keine Vorschau-Linie der Maus folgen.
+            self._handle_crosssection_entry_hover(scene_pos)
+            return
         if self._crosssection_tab_active():
             # Nutzerwunsch: waehrend der "Querschnitt"-Tab im Vordergrund
             # ist, folgt die Schnitt-Position (eigenes Fixier-Flag, siehe

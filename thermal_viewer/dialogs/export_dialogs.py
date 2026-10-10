@@ -10,7 +10,7 @@ from ..data import render_filename_template
 from ..widgets import LocaleTolerantDoubleSpinBox
 from ._base import _cap_initial_dialog_height, _disable_enter_auto_accept, _NoEnterAutoAccept, _wrap_in_scroll_area
 from .filename_tokens import INDEX_TOKEN, render_export_filename, render_index_token, render_runtime_token, sanitize_filename_prefix
-from .graph_selector import GraphContentSelector, _CursorCurveLink
+from .graph_selector import CrosssectionContentSelector, GraphContentSelector, _CursorCurveLink
 from .panels import AxisOverridePanel, ColorScaleOverridePanel, ExportPreviewPanel, _color_scale_range_invalid
 from .scale_selector import ScaleContentSelector
 
@@ -32,6 +32,19 @@ _IMAGE_LAYER_LABELS = {
     "roi": "Temperatur-Messung (ROI-Messbereiche)",
     "shrinkage": "Schwindungsmessung (Box, Kontur, Probenhöhen)",
 }
+
+
+def _new_tab_page() -> tuple[QtWidgets.QWidget, QtWidgets.QVBoxLayout]:
+    """Baut eine leere Tab-Seite samt ihrer Inhalts-Spalte -- gemeinsame
+    Hilfsfunktion fuer GraphicExportDialog/VideoExportDialog (Nutzerwunsch:
+    "zu unübersichtlich" bei vielen gleichzeitig sichtbaren Gruppenboxen,
+    siehe dortige Tab-Aufteilung). Der Aufrufer haengt bestehende
+    Gruppenboxen unveraendert an die zurueckgegebene Spalte und ruft am
+    Ende addStretch(1) darauf auf, bevor die Seite per addTab() eingehaengt
+    wird."""
+    page = QtWidgets.QWidget()
+    col = QtWidgets.QVBoxLayout(page)
+    return page, col
 
 
 class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
@@ -63,21 +76,35 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         measurement_entries: list[tuple[int, str]] | None = None,
         shrinkage_available: bool = True,
         querschnitt_available: bool = True,
+        crosssection_entries: list[tuple[int, str]] | None = None,
+        crosssection_pinned_available: bool = False,
     ):
         super().__init__(parent)
         self.setWindowTitle("Grafik exportieren")
-        # Nutzerwunsch: "gleiche Wahlmoeglichkeiten wie beim Video-Export ...
-        # zur Not auch in die Breite gehen (vom Fenster her)" -- zweispaltiger
-        # Aufbau (siehe layout_top unten) statt einer einzigen, stetig nach
-        # unten wachsenden Spalte, analog zu VideoExportDialog.
-        self.setMinimumWidth(760)
+        # Nutzerwunsch: "zu unübersichtlich" bei vielen gleichzeitig
+        # sichtbaren Gruppenboxen -- vier Tabs ("Graphen"/"Bild & Maßstab"/
+        # "Farbskala"/"Ausgabe") statt zweier, stetig wachsender Spalten
+        # (frueherer Stand, siehe Git-Historie). Die Vorschau bleibt bewusst
+        # AUSSERHALB der Tabs in einer eigenen Spalte daneben (siehe
+        # layout_top unten) -- sie muss unabhaengig vom gerade gewaehlten
+        # Tab sichtbar bleiben, das ist der ganze Zweck der Live-Vorschau.
+        self.setMinimumWidth(820)
         self._settings = settings
         self._show_mode_choice = show_mode_choice
 
         outer_layout, layout = _wrap_in_scroll_area(self)
         layout_top = QtWidgets.QHBoxLayout()
-        left_col = QtWidgets.QVBoxLayout()
-        right_col = QtWidgets.QVBoxLayout()
+        self._tabs = QtWidgets.QTabWidget()
+        graphs_tab, graphs_col = _new_tab_page()
+        overlays_tab, overlays_col = _new_tab_page()
+        color_tab, color_col = _new_tab_page()
+        output_tab, output_col = _new_tab_page()
+        # "Graphen" nur, wenn dieser Export ueberhaupt eine Graphen-Auswahl
+        # anbietet (sonst bliebe die Seite leer) -- Achsen-/Zeitachsen-
+        # Einstellungen gehoeren inhaltlich dazu und landen in DERSELBEN
+        # Spalte, fallen aber (sollten sie je ohne Graphen-Auswahl auftreten)
+        # auf "Bild & Maßstab" zurueck. Die anderen drei Tabs existieren immer.
+        graph_related_col = graphs_col if show_graph_source_choice else overlays_col
 
         # LINKE Spalte: WELCHE Graphen (Nutzerwunsch: beliebig viele
         # gleichzeitig, per Checkbox statt bisher fest einem einzigen),
@@ -89,6 +116,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # aber ausserhalb von dessen eigener Box) -- beides jetzt DIREKT in
         # dieselbe Box gehaengt.
         self._content_selector: GraphContentSelector | None = None
+        self._crosssection_content_selector: CrosssectionContentSelector | None = None
         self.combo_graph_position = None
         self.chk_cursor_position = None
         self.chk_graph_zeitverlauf = None
@@ -107,7 +135,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 "Beliebig viele gleichzeitig einbettbar.\n"
                 "\"Schwindung\"/\"Querschnitt\" exportieren die aktuellen Hauptfenster-Einstellungen."
             )
-            left_col.addWidget(graphs_box)
+            graph_related_col.addWidget(graphs_box)
             # Bugfix: ein Graph ohne jede Daten liess sich bisher trotzdem
             # anhaken und exportierte dann ein leeres Koordinatensystem --
             # alle drei jetzt gesperrt, wenn es nichts zu zeigen gibt.
@@ -157,7 +185,22 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             )
             content_box_layout.addWidget(self.chk_cursor_position)
             self._cursor_curve_link = _CursorCurveLink(self.chk_cursor_position, self._content_selector.chk_live)
-            left_col.addWidget(self._content_selector.group_box)
+            graph_related_col.addWidget(self._content_selector.group_box)
+
+            # Punkt 6 (Nutzerwunsch): "der Querschnittsgraph kann nur
+            # exportiert werden/eine Linie darin, wenn die zugehörige
+            # Querschnittslinie im Thermobild zu sehen ist ... analog wie bei
+            # den ROIs/Messungen der Länge dem User die Möglichkeit geben,
+            # gezielt Linien anzuzeigen/auszublenden" -- eigene, zu
+            # GraphContentSelector parallele Box (siehe graph_selector.py),
+            # analog verschachtelt: nur sichtbar/relevant, wenn "Querschnitt"
+            # ueberhaupt angehakt ist.
+            self._crosssection_content_selector = CrosssectionContentSelector(
+                crosssection_entries or [], crosssection_pinned_available, default_pinned_checked=True,
+            )
+            graph_related_col.addWidget(self._crosssection_content_selector.group_box)
+            self._crosssection_content_selector.group_box.setEnabled(self.chk_graph_querschnitt.isChecked())
+            self.chk_graph_querschnitt.toggled.connect(self._crosssection_content_selector.group_box.setEnabled)
         else:
             # Kein Graph in diesem Export (z.B. Einzelexport des Thermobilds
             # per Rechtsklick) -- die Option bleibt trotzdem sinnvoll, hier
@@ -168,7 +211,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 "Zeigt Fadenkreuz + Temperatur am Cursor-Pixel im exportierten Thermobild.\n"
                 "Standardmäßig aus, damit keine ungewollte Maus-/Debug-Markierung erscheint."
             )
-            left_col.addWidget(self.chk_cursor_position)
+            overlays_col.addWidget(self.chk_cursor_position)
 
         # Nutzerwunsch: "Ebenen" (ROI-Messbereiche/Schwindungsmessung) im
         # exportierten THERMOBILD per Ankreuzliste waehlbar, unabhaengig vom
@@ -191,7 +234,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             layers_box.setToolTip(
                 "Steuert die Bild-Overlays im Export -- unabhängig von der im Hauptfenster aktiven Ebene."
             )
-            left_col.addWidget(layers_box)
+            overlays_col.addWidget(layers_box)
 
         # Punkt 12 (Nutzerwunsch): Maßstab-Linie und einzelne Messungen
         # optional mit ins exportierte Thermobild aufnehmen -- nur relevant,
@@ -201,7 +244,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._scale_selector: ScaleContentSelector | None = None
         if show_scale_choice:
             self._scale_selector = ScaleContentSelector(ruler_available, measurement_entries or [])
-            left_col.addWidget(self._scale_selector.group_box)
+            overlays_col.addWidget(self._scale_selector.group_box)
 
         # Punkt 8 (Nutzerwunsch, "besseres Platzmanagement"): Farbskala/
         # Legende in die ERSTE Spalte -- dieselbe Freiheit wie in der UI:
@@ -212,11 +255,9 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             colormaps or [], current_colormap_index, current_invert,
             current_level_mode, current_min, current_max,
         )
-        left_col.addWidget(self._color_panel.group_box)
-        left_col.addStretch(1)
-        layout_top.addLayout(left_col, 1)
+        color_col.addWidget(self._color_panel.group_box)
 
-        # RECHTE Spalte: Ausgabe (DPI, Dateien kombiniert/getrennt), Achsen,
+        # "Ausgabe"-Tab: Auflösung (DPI, Dateien kombiniert/getrennt), Achsen,
         # Zeitachse -- alle uebrigen, von der Kurven-Auswahl unabhaengigen
         # Export-Einstellungen.
         # Punkt 7 (Nutzerwunsch): "Auflösung (DPI)" stand bisher ohne jede
@@ -263,7 +304,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             if self.combo_graph_position is not None:
                 self.chk_combined.toggled.connect(self._update_graph_position_enabled)
                 self._update_graph_position_enabled()
-        right_col.addWidget(output_box)
+        output_col.addWidget(output_box)
 
         # Nur anbieten, wenn dieser Export ueberhaupt einen Kurven-Graphen
         # enthaelt (current_axis_state wird von MainWindow nur dann
@@ -272,7 +313,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._axis_panel: AxisOverridePanel | None = None
         if current_axis_state is not None:
             self._axis_panel = AxisOverridePanel(self, current_axis_state)
-            right_col.addWidget(self._axis_panel.group_box)
+            graph_related_col.addWidget(self._axis_panel.group_box)
             # Bugfix: Achsen-/Zeitachsen-Overrides betreffen (siehe Scope-
             # Entscheidung im Plan) AUSSCHLIESSLICH den Zeitverlauf-Graphen
             # (_export_combined_image wendet sie nur an, wenn "zeitverlauf" in
@@ -309,28 +350,36 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             if self._axis_panel is not None:
                 self._axis_panel.group_box.layout().addLayout(time_form)
             else:
-                right_col.addLayout(time_form)
-        # Vorschau (Nutzerwunsch) -- bewusst IN die rechte Spalte gehaengt statt
-        # als eigene volle Zeile unter den beiden Spalten: eine zusaetzliche
-        # Zeile liess den ganzen Dialog so weit nach unten wachsen, dass er
-        # ueber den Bildschirmrand hinausragte (Bugreport: "macht den
-        # Exportmanager nach unten aber so groß/lang, dass das Fenster aus
-        # dem Bildschirm hinausragt"). In der Spalte nutzt sie stattdessen
-        # den ohnehin vorhandenen Platz neben der linken Spalte. Nur
-        # sichtbar/aktiv, wenn der Aufrufer per enable_preview(...)
-        # tatsaechlich einen Renderer bereitstellt (siehe dort) -- ohne
-        # Aufruf bleibt die Box unsichtbar.
+                graph_related_col.addLayout(time_form)
+        # Vorschau (Nutzerwunsch) -- bewusst AUSSERHALB der Tabs, in einer
+        # eigenen Spalte daneben: eine zusaetzliche Zeile liess den ganzen
+        # Dialog so weit nach unten wachsen, dass er ueber den Bildschirmrand
+        # hinausragte (Bugreport: "macht den Exportmanager nach unten aber so
+        # groß/lang, dass das Fenster aus dem Bildschirm hinausragt"), UND
+        # sie muss unabhaengig vom gerade gewaehlten Tab sichtbar bleiben --
+        # das ist der ganze Zweck der Live-Vorschau. Nur sichtbar/aktiv, wenn
+        # der Aufrufer per enable_preview(...) tatsaechlich einen Renderer
+        # bereitstellt (siehe dort) -- ohne Aufruf bleibt die Box unsichtbar.
         self._preview_panel = ExportPreviewPanel(min_width=260, min_height=160)
         self._preview_panel.group_box.setVisible(False)
+
+        for col in (graphs_col, overlays_col, color_col, output_col):
+            col.addStretch(1)
+        self._tabs.addTab(graphs_tab, "Graphen")
+        self._tabs.addTab(overlays_tab, "Bild & Maßstab")
+        self._tabs.addTab(color_tab, "Farbskala")
+        self._tabs.addTab(output_tab, "Ausgabe")
+        if not show_graph_source_choice:
+            # Ohne Graphen-Auswahl bliebe dieser Tab leer -- siehe
+            # graph_related_col weiter oben (faellt dann auf "Bild &
+            # Maßstab" zurueck).
+            self._tabs.removeTab(self._tabs.indexOf(graphs_tab))
+        layout_top.addWidget(self._tabs, 1)
         # Stretch-Faktor 1 (statt eines zusaetzlichen, konkurrierenden
-        # addStretch(1) danach): die Vorschau soll den gesamten Platz-
-        # ueberschuss bekommen, wenn der Nutzer den Dialog groesser zieht
-        # (Nutzerwunsch: "soll auch die Vorschau etwas größer werden"),
-        # waehrend output_box/axis_panel/time_form (Stretch 0) auf ihrer
-        # sizeHint-Groesse bleiben -- ein zusaetzlicher reiner Platzhalter
-        # wuerde sich den Zuwachs sonst mit der Vorschau-Box teilen.
-        right_col.addWidget(self._preview_panel.group_box, 1)
-        layout_top.addLayout(right_col, 1)
+        # addStretch(1)): die Vorschau soll den gesamten Platzueberschuss
+        # bekommen, wenn der Nutzer den Dialog groesser zieht (Nutzerwunsch:
+        # "soll auch die Vorschau etwas größer werden").
+        layout_top.addWidget(self._preview_panel.group_box, 1)
         layout.addLayout(layout_top)
 
         # Bugfix: der Aufrufer (export_image.py) stoppte den debounced
@@ -387,6 +436,10 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             for chk in self._content_selector.checks.values():
                 chk.toggled.connect(refresh)
             self._content_selector.chk_live.toggled.connect(refresh)
+        if self._crosssection_content_selector is not None:
+            for chk in self._crosssection_content_selector.checks.values():
+                chk.toggled.connect(refresh)
+            self._crosssection_content_selector.chk_pinned.toggled.connect(refresh)
         refresh()
         # Bugfix: _cap_initial_dialog_height() lief am Ende von __init__
         # bereits, DA war die (hier erst sichtbar gemachte) Vorschau-Box
@@ -459,6 +512,16 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 "Bitte für den Zeitverlauf mindestens einen Messbereich und/oder Live-Cursor auswählen."
             )
             return
+        if (
+            self._crosssection_content_selector is not None
+            and self.chk_graph_querschnitt.isChecked()
+            and not self._crosssection_content_selector.has_any_selected()
+        ):
+            QtWidgets.QMessageBox.information(
+                self, "Keine Auswahl",
+                "Bitte für den Querschnitt mindestens eine Linie auswählen."
+            )
+            return
         if self._color_panel.range_invalid():
             QtWidgets.QMessageBox.warning(
                 self, "Ungültiger Bereich", "Bei der Farbskala muss „Max“ größer als „Min“ sein."
@@ -512,6 +575,22 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
     def include_live(self) -> bool:
         return self._content_selector is not None and self._content_selector.include_live()
+
+    def included_crosssection_entry_numbers(self) -> set[int]:
+        """Nummern (CrosssectionEntry.number) der ausgewählten Querschnitt-
+        Linien (Punkt 6) -- leere Menge, falls der Dialog keine Graph-
+        Inhalt-Auswahl anbietet."""
+        if self._crosssection_content_selector is None:
+            return set()
+        return self._crosssection_content_selector.included_numbers()
+
+    def include_pinned_crosssection(self) -> bool:
+        """Punkt 6: der einzelne Hover/Pin-Querschnitt mit ins exportierte
+        Querschnitt-Graph aufnehmen."""
+        return (
+            self._crosssection_content_selector is not None
+            and self._crosssection_content_selector.include_pinned()
+        )
 
     def include_scale_ruler(self) -> bool:
         """Punkt 12: Maßstab-Linie mit ins exportierte Thermobild aufnehmen --
@@ -603,10 +682,15 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         has_excluded_frames: bool = False,
         shrinkage_available: bool = True,
         querschnitt_available: bool = True,
+        crosssection_entries: list[tuple[int, str]] | None = None,
+        crosssection_pinned_available: bool = False,
     ):
         super().__init__(parent)
         self.setWindowTitle("Video / Bildstapel exportieren")
-        self.setMinimumWidth(720)
+        # Nutzerwunsch: "zu unübersichtlich" -- vier Tabs statt bisher drei
+        # Zeilen mit je 2-4 gleichzeitig sichtbaren Gruppenboxen (siehe
+        # GraphicExportDialog fuer dasselbe Schema/dieselbe Begruendung).
+        self.setMinimumWidth(780)
         # Wie CsvColumnDialog/GraphicExportDialog fuer den LAUF-Einheit-
         # Combo (Punkt 6) -- Fallback auf dieselbe Org/App-Kennung wie
         # MainWindow._settings, falls ein Aufrufer (z.B. ein Test) keine
@@ -622,6 +706,11 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._timestamps = timestamps
 
         outer_layout, layout = _wrap_in_scroll_area(self)
+        self._tabs = QtWidgets.QTabWidget()
+        graphs_tab, graphs_col = _new_tab_page()
+        overlays_tab, overlays_col = _new_tab_page()
+        color_tab, color_col = _new_tab_page()
+        output_tab, output_col = _new_tab_page()
 
         # Bildstapel (Punkt: "neben einem Video auch einen Bilderstapel
         # exportieren") nutzt exakt dieselbe Frame-Bereich-/Farbskalen-/
@@ -678,8 +767,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         image_form.addRow("", self.lbl_filename_warning)
         image_indent_row.addLayout(image_form)
         output_layout.addLayout(image_indent_row)
-        layout_top = QtWidgets.QHBoxLayout()
-        layout_top.addWidget(output_box, 1)
+        output_col.addWidget(output_box)
 
         # Frame-Bereich (Von/Bis nebeneinander statt untereinander) + FPS
         # in derselben rechten Spalte wie "Ausgabeform" (Nutzerwunsch:
@@ -733,8 +821,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.chk_freeze_excluded_pixels.setVisible(has_excluded_frames)
         range_outer.addWidget(self.chk_freeze_excluded_pixels)
 
-        layout_top.addWidget(range_box, 1)
-        layout.addLayout(layout_top)
+        output_col.addWidget(range_box)
 
         self.radio_output_video.toggled.connect(self._update_output_mode_enabled)
         self.radio_output_images.toggled.connect(self._update_output_mode_enabled)
@@ -745,8 +832,6 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.spin_start.valueChanged.connect(self._update_filename_preview)
         self.spin_end.valueChanged.connect(self._update_filename_preview)
         self._update_filename_preview()
-
-        row2 = QtWidgets.QHBoxLayout()
 
         legend_box = QtWidgets.QGroupBox("Farbskala / Legende")
         legend_layout = QtWidgets.QVBoxLayout(legend_box)
@@ -800,7 +885,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         custom_form.addRow(minmax_row)
         custom_indent_row.addLayout(custom_form)
         legend_layout.addLayout(custom_indent_row)
-        row2.addWidget(legend_box, 1)
+        color_col.addWidget(legend_box)
 
         self.chk_legend.toggled.connect(self._update_legend_options_enabled)
         self.radio_current_settings.toggled.connect(self._update_legend_options_enabled)
@@ -869,6 +954,16 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         )
         graph_indent_col.addWidget(self._content_selector.group_box)
 
+        # Punkt 6 (Nutzerwunsch): siehe GraphicExportDialog fuer die volle
+        # Begruendung -- dieselbe, zu GraphContentSelector parallele Box,
+        # nur relevant/aktiv, wenn "Querschnitt" angehakt ist.
+        self._crosssection_content_selector = CrosssectionContentSelector(
+            crosssection_entries or [], crosssection_pinned_available, default_pinned_checked=True,
+        )
+        graph_indent_col.addWidget(self._crosssection_content_selector.group_box)
+        self._crosssection_content_selector.group_box.setEnabled(self.chk_graph_querschnitt.isChecked())
+        self.chk_graph_querschnitt.toggled.connect(self._crosssection_content_selector.group_box.setEnabled)
+
         self.combo_graph_position = QtWidgets.QComboBox()
         self.combo_graph_position.addItem("Unter dem Bild", "unten")
         self.combo_graph_position.addItem("Über dem Bild", "oben")
@@ -894,8 +989,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
             chk.toggled.connect(self._update_graph_export_enabled)
         self._update_graph_export_enabled()
-        row2.addWidget(graph_box, 1)
-        layout.addLayout(row2)
+        graphs_col.addWidget(graph_box)
 
         # Nutzerwunsch: "Ebenen" (ROI-Messbereiche/Schwindungsmessung) im
         # exportierten THERMOBILD per Ankreuzliste waehlbar, unabhaengig vom
@@ -906,11 +1000,11 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # Ueberraschung).
         layers_box = QtWidgets.QGroupBox("Ebenen im Bild")
         layers_layout = QtWidgets.QVBoxLayout(layers_box)
-        # Bugreport: ohne AlignTop verteilt Qt den durch die gleich hohe
-        # overlay_row (siehe dort) erzwungenen Platzueberschuss auf die
-        # Checkboxen, die dadurch "komisch in der Luft haengen" statt oben
-        # buendig zu bleiben -- AlignTop haelt den Inhalt oben, der
-        # ungenutzte Rest bleibt als Leerraum unten in der Box.
+        # Bugreport: ohne AlignTop verteilt Qt den durch benachbarte, hoehere
+        # Boxen in derselben Tab-Spalte (siehe overlays_col) erzwungenen
+        # Platzueberschuss auf die Checkboxen, die dadurch "komisch in der
+        # Luft haengen" statt oben buendig zu bleiben -- AlignTop haelt den
+        # Inhalt oben, der ungenutzte Rest bleibt als Leerraum unten in der Box.
         layers_layout.setAlignment(QtCore.Qt.AlignTop)
         self.chk_layer_roi = QtWidgets.QCheckBox(_IMAGE_LAYER_LABELS["roi"])
         self.chk_layer_roi.setChecked(True)
@@ -993,28 +1087,28 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         overlay_grid.addWidget(self.radio_overlay_timestamp, 1, 0)
         overlay_grid.addWidget(self.radio_overlay_both, 1, 1)
 
-        # Vorschau (Nutzerwunsch) -- bewusst als VIERTE Spalte in derselben
-        # Zeile wie Ebenen/Cursor & Maßstab/Zeitanzeige statt als eigene
-        # volle Zeile darunter: eine zusaetzliche Zeile liess den ganzen
-        # Dialog so weit nach unten wachsen, dass er ueber den
-        # Bildschirmrand hinausragte (Bugreport: "macht den Exportmanager
-        # nach unten aber so groß/lang, dass das Fenster aus dem Bildschirm
-        # hinausragt"). Nur sichtbar/aktiv, wenn der Aufrufer per
-        # enable_preview(...) tatsaechlich einen Renderer bereitstellt.
+        overlays_col.addWidget(layers_box)
+        overlays_col.addWidget(cursor_box)
+        overlays_col.addWidget(overlay_box)
+
+        # Vorschau (Nutzerwunsch) -- bewusst AUSSERHALB der Tabs, siehe
+        # GraphicExportDialog fuer die volle Begruendung (muss unabhaengig
+        # vom gerade gewaehlten Tab sichtbar bleiben). Nur sichtbar/aktiv,
+        # wenn der Aufrufer per enable_preview(...) tatsaechlich einen
+        # Renderer bereitstellt.
         self._preview_panel = ExportPreviewPanel(min_width=220, min_height=140)
         self._preview_panel.group_box.setVisible(False)
 
-        # Ebenen-/Cursor-/Zeitanzeige-im-Bild/Vorschau nebeneinander -- alle
-        # sind zusaetzliche Einblendungen direkt auf dem Bild/Video (im
-        # Unterschied zum Graphen-Kasten oben) bzw. deren Ergebnisvorschau,
-        # daher hier bewusst als eigene Zeile gruppiert statt einzeln
-        # untereinander.
-        overlay_row = QtWidgets.QHBoxLayout()
-        overlay_row.addWidget(layers_box, 1)
-        overlay_row.addWidget(cursor_box, 1)
-        overlay_row.addWidget(overlay_box, 1)
-        overlay_row.addWidget(self._preview_panel.group_box, 1)
-        layout.addLayout(overlay_row)
+        for col in (graphs_col, overlays_col, color_col, output_col):
+            col.addStretch(1)
+        self._tabs.addTab(graphs_tab, "Graphen")
+        self._tabs.addTab(overlays_tab, "Bild & Maßstab")
+        self._tabs.addTab(color_tab, "Farbskala")
+        self._tabs.addTab(output_tab, "Ausgabe")
+        top_row = QtWidgets.QHBoxLayout()
+        top_row.addWidget(self._tabs, 1)
+        top_row.addWidget(self._preview_panel.group_box, 1)
+        layout.addLayout(top_row)
 
         # Bugfix: siehe GraphicExportDialog.__init__ -- self.finished deckt
         # ALLE Schliesswege ab (Accept/Abbrechen/ESC/X), nicht nur den vom
@@ -1135,11 +1229,12 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         for chk in self._content_selector.checks.values():
             chk.toggled.connect(refresh)
         self._content_selector.chk_live.toggled.connect(refresh)
+        for chk in self._crosssection_content_selector.checks.values():
+            chk.toggled.connect(refresh)
+        self._crosssection_content_selector.chk_pinned.toggled.connect(refresh)
         refresh()
         # Bugfix: siehe GraphicExportDialog.enable_preview -- dieselbe
-        # verspaetete Breiten-Neuberechnung, hier besonders relevant, da
-        # die Vorschau-Box in VideoExportDialog eine VIERTE Spalte in
-        # derselben Zeile wie Ebenen/Cursor & Maßstab/Zeitanzeige ist.
+        # verspaetete Breiten-Neuberechnung.
         _cap_initial_dialog_height(self)
 
     def export_layer_categories(self) -> set[str]:
@@ -1166,6 +1261,15 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             QtWidgets.QMessageBox.information(
                 self, "Keine Auswahl",
                 "Bitte mindestens einen Messbereich und/oder Live-Cursor für den Zeitverlauf auswählen."
+            )
+            return
+        if (
+            "querschnitt" in self.selected_graph_keys()
+            and not self._crosssection_content_selector.has_any_selected()
+        ):
+            QtWidgets.QMessageBox.information(
+                self, "Keine Auswahl",
+                "Bitte für den Querschnitt mindestens eine Linie auswählen."
             )
             return
         # Nur relevant, wenn "Zeitverlauf" ueberhaupt exportiert wird (siehe
@@ -1239,6 +1343,16 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
     def include_live(self) -> bool:
         return self._content_selector.include_live()
+
+    def included_crosssection_entry_numbers(self) -> set[int]:
+        """Nummern (CrosssectionEntry.number) der ausgewählten Querschnitt-
+        Linien (Punkt 6)."""
+        return self._crosssection_content_selector.included_numbers()
+
+    def include_pinned_crosssection(self) -> bool:
+        """Punkt 6: der einzelne Hover/Pin-Querschnitt mit ins exportierte
+        Video/Bildstapel aufnehmen."""
+        return self._crosssection_content_selector.include_pinned()
 
     def include_scale_ruler(self) -> bool:
         """Punkt 12: Maßstab-Linie mit ins exportierte Video/Bildstapel

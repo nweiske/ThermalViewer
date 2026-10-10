@@ -90,6 +90,8 @@ class _ExportVisualsMixin:
         # Kurven-Auswahl schon an, hier fehlte das bisher.
         selected_numbers = export_dialog.included_roi_numbers()
         include_live = export_dialog.include_live()
+        selected_crosssection_numbers = export_dialog.included_crosssection_entry_numbers()
+        include_pinned_crosssection = export_dialog.include_pinned_crosssection()
         preview_scale = 0.5
         image_bg = QtGui.QColor(self._image_bg)
         bg = QtGui.QColor(self._graph_bg)
@@ -121,6 +123,7 @@ class _ExportVisualsMixin:
                     self._temporary_export_layers(layer_categories), \
                     time_axis_ctx, \
                     self._temporary_graph_content(selected_numbers, include_live), \
+                    self._temporary_crosssection_content(selected_crosssection_numbers, include_pinned_crosssection), \
                     self._temporary_best_legend_placement():
                 for key in selected_keys:
                     with self._widget_raised_for_export(self._export_graph_widget(key)):
@@ -788,6 +791,35 @@ class _ExportVisualsMixin:
                 vb.enableAutoRange(y=True)
             else:
                 vb.setYRange(y0, y1, padding=0)
+
+    @contextlib.contextmanager
+    def _temporary_crosssection_content(self, selected_numbers: set[int], include_pinned: bool):
+        """Blendet im Querschnitt-Graphen (self.crosssection_plot) genau die
+        gewaehlten Kurven ein -- benannte CrosssectionEntry-Linien per
+        NUMMER (selected_numbers, siehe crosssection_entry_ops.py) und
+        optional die einzelne Hover/Pin-Kurve (self.crosssection_curve,
+        include_pinned) -- und stellt danach exakt den vorherigen
+        Anzeigezustand wieder her. Gemeinsam genutzt von Grafik-, Video- und
+        Bildstapel-Export, analog zu _temporary_graph_content (Zeitverlauf)
+        -- siehe CrosssectionContentSelector (dialogs/graph_selector.py) fuer
+        die Auswahl-UI. Anders als dort KEIN Achsen-Einfrieren noetig: der
+        Querschnitt-Graph steht bereits IMMER auf Automatisch (zeigt pro
+        Bild ein komplett neues Profil, ein eingefrorener Wertebereich der
+        letzten Live-Ansicht waere hier nie sinnvoll)."""
+        prev_entry_visible = {}
+        for entry in self._crosssection_entries:
+            prev_entry_visible[entry.number] = entry.curve.isVisible()
+            entry.curve.setVisible(entry.number in selected_numbers)
+
+        prev_pinned_visible = self.crosssection_curve.isVisible()
+        self.crosssection_curve.setVisible(include_pinned)
+        try:
+            yield
+        finally:
+            for entry in self._crosssection_entries:
+                if entry.number in prev_entry_visible:
+                    entry.curve.setVisible(prev_entry_visible[entry.number])
+            self.crosssection_curve.setVisible(prev_pinned_visible)
 
     def _show_live_curve_in_timeseries(self) -> None:
         """Blendet die Live-Cursor-Kurve im Zeitverlauf-Graphen ein -- von

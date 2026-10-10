@@ -35,6 +35,7 @@ class _ImageExportMixin:
             return
         live_available = self._hover_row is not None and self._hover_col is not None
         roi_entries = [(e.number, e.name) for e in self.roi_entries if e.placed]
+        crosssection_entries = [(e.number, e.name) for e in self._crosssection_entries]
 
         # Lokaler statt Modul-Import: siehe Kommentar in ui_build.py bei
         # AxisSettingsDialog -- greift so auch fuer per monkeypatch
@@ -58,6 +59,8 @@ class _ImageExportMixin:
             measurement_entries=[(e.number, e.name) for e in self.measurements],
             shrinkage_available=self._shrinkage_result is not None,
             querschnitt_available=self._crosssection_pinned or bool(self._crosssection_entries),
+            crosssection_entries=crosssection_entries,
+            crosssection_pinned_available=self._crosssection_pinned,
         )
         export_dialog.enable_preview(lambda: self._render_export_preview_image(export_dialog))
         # Schleife statt einmaligem exec() (Punkt 3): bricht der Nutzer den
@@ -76,6 +79,8 @@ class _ImageExportMixin:
 
             selected_numbers = export_dialog.included_roi_numbers()
             include_live = export_dialog.include_live() and live_available
+            selected_crosssection_numbers = export_dialog.included_crosssection_entry_numbers()
+            include_pinned_crosssection = export_dialog.include_pinned_crosssection() and self._crosssection_pinned
             selected_keys = export_dialog.selected_graph_keys()
             graphs = [
                 (
@@ -91,7 +96,9 @@ class _ImageExportMixin:
                 if "zeitverlauf" in selected_keys else contextlib.nullcontext()
             )
 
-            with self._temporary_graph_content(selected_numbers, include_live), axis_ctx:
+            with self._temporary_graph_content(selected_numbers, include_live), \
+                    self._temporary_crosssection_content(selected_crosssection_numbers, include_pinned_crosssection), \
+                    axis_ctx:
                 retry = self._export_combined_image(
                     export_dialog, graphs, suggested_name, self._timeseries_metadata,
                 )

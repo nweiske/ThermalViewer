@@ -15,6 +15,7 @@ from ..measurement import (
     DraggableTextItem,
     MeasurementEntry,
     clamp_label_offset,
+    line_roi_endpoints,
 )
 from ..roi_entry import (
     mm_value_de,
@@ -220,7 +221,7 @@ class _MeasurementMixin:
 
     def _on_ruler_line_drag_started(self) -> None:
         if self._ruler_line is not None:
-            self._ruler_drag_start_points = list(self._ruler_line.listPoints())
+            self._ruler_drag_start_points = list(line_roi_endpoints(self._ruler_line))
 
     def _on_ruler_line_dragged(self) -> None:
         """Nach dem Ziehen eines Endpunkts (Punkt 11): die reale Länge
@@ -229,7 +230,7 @@ class _MeasurementMixin:
         den Maßstab neu setzen zu müssen."""
         if self._ruler_line is None or self._ruler_mm_value is None:
             return
-        p1, p2 = self._ruler_line.listPoints()
+        p1, p2 = line_roi_endpoints(self._ruler_line)
         pixel_distance = (p2 - p1).length()
         if pixel_distance < 1e-6:
             # Degenerierter Zustand (ein Endpunkt exakt auf den anderen
@@ -261,7 +262,7 @@ class _MeasurementMixin:
     def _update_ruler_text_position(self) -> None:
         if self._ruler_line is None or self._ruler_text is None or self._ruler_mm_value is None:
             return
-        p1, p2 = self._ruler_line.listPoints()
+        p1, p2 = line_roi_endpoints(self._ruler_line)
         mid = (p1 + p2) / 2
         pos = mid if self._ruler_label_offset is None else mid + self._ruler_label_offset
         self._ruler_text.setText(f"{self._format_de(self._ruler_mm_value, 1)} mm")
@@ -283,7 +284,7 @@ class _MeasurementMixin:
         noch quer durchs Bild ziehen")."""
         if self._ruler_line is None:
             return raw_pos
-        p1, p2 = self._ruler_line.listPoints()
+        p1, p2 = line_roi_endpoints(self._ruler_line)
         mid = (p1 + p2) / 2
         offset = clamp_label_offset(raw_pos - mid, (p2 - p1).length())
         return QtCore.QPointF(mid.x() + offset.x(), mid.y() + offset.y())
@@ -296,7 +297,7 @@ class _MeasurementMixin:
         _on_measurement_label_moved fuer das Gegenstueck bei Messungen."""
         if self._ruler_line is None or self._ruler_text is None:
             return
-        p1, p2 = self._ruler_line.listPoints()
+        p1, p2 = line_roi_endpoints(self._ruler_line)
         mid = (p1 + p2) / 2
         offset = clamp_label_offset(self._ruler_text.pos() - mid, (p2 - p1).length())
         self._ruler_label_offset = offset
@@ -327,7 +328,7 @@ class _MeasurementMixin:
         length_dialog = RulerLengthDialog(self, current_mm=self._ruler_mm_value)
         if length_dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        p1, p2 = self._ruler_line.listPoints()
+        p1, p2 = line_roi_endpoints(self._ruler_line)
         pixel_distance = (p2 - p1).length()
         if pixel_distance < 1e-6:
             return

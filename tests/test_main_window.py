@@ -836,6 +836,51 @@ def test_cleaning_dialog_layout_minimum_size_stable_after_first_point(loaded_mai
         dlg.close()
 
 
+def test_cleaning_dialog_summary_label_position_does_not_jump_when_its_text_grows(loaded_main_window):
+    # Bugfix (zweimal reproduziert): lbl_summary stand bisher NACH
+    # candidates_area (der einzigen Stretch(1)-Komponente in right_column) --
+    # wechselte ihr eigener Text von "Noch keine Referenzpunkte markiert."
+    # (1 Zeile) zum mehrzeiligen Zaehler-Text, musste candidates_area um
+    # genau diese Hoehendifferenz schrumpfen, wodurch lbl_summary selbst
+    # sichtbar nach unten/oben sprang. Jetzt VOR candidates_area -- ihre
+    # eigene y()-Position darf sich dadurch nicht mehr aendern.
+    from thermal_viewer.dialogs import DataCleaningDialog
+
+    mw = loaded_main_window
+    dlg = DataCleaningDialog(mw)
+    try:
+        dlg.show()
+        dlg.layout().activate()
+        QtWidgets.QApplication.processEvents()
+        assert mw._cleaning_points == []
+        y_before = dlg.lbl_summary.y()
+
+        dlg.preview.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+        dlg.preview.view_box.mapSceneToView = lambda pos: pos
+
+        class FakeEvent:
+            def button(self):
+                return QtCore.Qt.LeftButton
+
+            def scenePos(self):
+                return QtCore.QPointF(5, 5)
+
+        dlg.preview._on_scene_clicked(FakeEvent())
+        # refresh_candidates() (ausgeloest ueber refresh_points(), siehe dort)
+        # ruft layout().activate() bereits selbst auf (siehe data_cleaning.py)
+        # -- hier zusaetzlich explizit, damit der Test unabhaengig von dessen
+        # interner Reihenfolge dieselbe, vollstaendig konsistente Geometrie
+        # liest wie die echte App nach einem Klick.
+        dlg.layout().activate()
+        QtWidgets.QApplication.processEvents()
+        assert len(mw._cleaning_points) == 1
+
+        y_after = dlg.lbl_summary.y()
+        assert y_after == y_before, "lbl_summary ist trotz Positions-Fix gesprungen"
+    finally:
+        dlg.close()
+
+
 def test_cleaning_preview_viewer_shows_any_frame_independent_of_main_window(loaded_main_window):
     """Punkt 3/5 (Nutzerwunsch): das Hauptfenster darf NIE ein ausgeblendetes
     Bild zeigen (siehe test_excluded_frames_are_skipped_during_stepping_and_
@@ -1145,6 +1190,53 @@ def test_export_graphic_requires_at_least_one_curve_selected(loaded_main_window,
     dlg._on_accept()
     assert dlg.result() != QtWidgets.QDialog.DialogCode.Accepted
     dlg.close()
+
+
+def test_graphic_export_dialog_organizes_controls_into_four_tabs(loaded_main_window):
+    # Punkt 7 (Nutzerwunsch): "zu unübersichtlich" bei vielen gleichzeitig
+    # sichtbaren Gruppenboxen -- vier Tabs statt gestapelter Boxen, Vorschau
+    # bleibt ausserhalb der Tabs immer sichtbar.
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    dlg = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=False,
+        roi_entries=[(1, "ROI 1")], show_scale_choice=True, ruler_available=True,
+        crosssection_entries=[(1, "Querschnitt 1")], crosssection_pinned_available=True,
+    )
+    try:
+        tab_labels = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
+        assert tab_labels == ["Graphen", "Bild & Maßstab", "Farbskala", "Ausgabe"]
+        # Stichprobe: bekannte Steuerelemente muessen tatsaechlich als
+        # Nachfahren der jeweils richtigen Tab-Seite auffindbar sein.
+        assert dlg._tabs.widget(0).isAncestorOf(dlg.chk_graph_querschnitt), "gehoert auf den 'Graphen'-Tab"
+        assert dlg._tabs.widget(0).isAncestorOf(dlg._crosssection_content_selector.chk_pinned)
+        assert dlg._tabs.widget(1).isAncestorOf(dlg._scale_selector.group_box), "gehoert auf 'Bild & Maßstab'"
+        assert dlg._tabs.widget(2).isAncestorOf(dlg._color_panel.group_box), "gehoert auf 'Farbskala'"
+        assert dlg._tabs.widget(3).isAncestorOf(dlg.spin_dpi), "gehoert auf 'Ausgabe'"
+        # Die Vorschau liegt AUSSERHALB jeder Tab-Seite (direkt im obersten
+        # layout_top), nicht als Kind von dlg._tabs.
+        assert not dlg._tabs.isAncestorOf(dlg._preview_panel.group_box)
+    finally:
+        dlg.close()
+
+
+def test_video_export_dialog_organizes_controls_into_four_tabs(qapp):
+    from thermal_viewer.dialogs import VideoExportDialog
+
+    dlg = VideoExportDialog(
+        parent=None, n_frames=5, colormaps=[("Grau", "grey")], current_colormap_index=0,
+        current_invert=False, current_level_mode="global", current_min=0.0, current_max=100.0,
+        current_fps=5.0, crosssection_entries=[(1, "Querschnitt 1")], crosssection_pinned_available=True,
+    )
+    try:
+        tab_labels = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
+        assert tab_labels == ["Graphen", "Bild & Maßstab", "Farbskala", "Ausgabe"]
+        assert not dlg._tabs.isAncestorOf(dlg._preview_panel.group_box)
+    finally:
+        dlg.close()
 
 
 def test_export_graphic_writes_a_png(roi_and_live_window, tmp_path, monkeypatch):
@@ -1704,6 +1796,14 @@ def test_video_export_dialog_freeze_checkbox_visibility_and_getter(qapp):
     dlg_without = VideoExportDialog(**common_kwargs, has_excluded_frames=False)
     dlg_with.show()
     dlg_without.show()
+    # chk_freeze_excluded_pixels lebt im "Ausgabe"-Tab (siehe export_dialogs.py
+    # Tab-Aufteilung) -- isVisible() ist fuer ein Widget auf einer gerade
+    # NICHT aktiven QTabWidget-Seite immer False, unabhaengig von dessen
+    # eigenem setVisible()-Zustand. Den Tab zuerst aktivieren, um die vom
+    # Dialog selbst gesetzte has_excluded_frames-Sichtbarkeit zu pruefen.
+    for dlg in (dlg_with, dlg_without):
+        tabs = dlg._tabs
+        tabs.setCurrentIndex(next(i for i in range(tabs.count()) if tabs.tabText(i) == "Ausgabe"))
     try:
         assert dlg_with.chk_freeze_excluded_pixels.isVisible() is True
         assert dlg_without.chk_freeze_excluded_pixels.isVisible() is False
@@ -2090,6 +2190,40 @@ def test_candidate_mask_applies_otsu_threshold_and_polarity():
     assert int(mask.sum()) == 9
     # Umgekehrte Richtung ("kaelter als Hintergrund"): der Rest (16 Pixel).
     assert int(_candidate_mask(frame, warmer=False).sum()) == 16
+
+
+def test_sobel_gradient_magnitude_peaks_at_known_vertical_edge():
+    # Kantenfilter zur Konturverfeinerung (Nutzerwunsch, siehe Modul-
+    # Docstring) -- fuer eine scharfe, rauschfreie senkrechte Kante muss der
+    # Gradientenbetrag in jeder (inneren, Rand-Padding unkritischen) Zeile
+    # genau an der Kante maximal sein.
+    from thermal_viewer.main_window.shrinkage_ops import _sobel_gradient_magnitude
+
+    region = np.zeros((10, 20), dtype=np.float64)
+    region[:, 8:] = 100.0  # Kante zwischen Spalte 7 und 8
+    gradient = _sobel_gradient_magnitude(region)
+    for row in range(1, 9):
+        assert int(np.argmax(gradient[row])) == 7
+        assert gradient[row, 7] == gradient[row, 8]  # symmetrischer Sobel-Stencil, beide Seiten gleich stark
+
+
+def test_refine_run_edges_snaps_grob_daneben_liegende_kante_zum_gradienten():
+    # Die Otsu-Schwelle liefert nur eine GROBE Randspalte -- _refine_run_edges
+    # muss sie auf die tatsaechliche, per Gradient gefundene Kante verschieben.
+    from thermal_viewer.main_window.shrinkage_ops import _refine_run_edges, _sobel_gradient_magnitude
+
+    region = np.zeros((5, 20), dtype=np.float64)
+    region[:, 10:] = 100.0  # Kante zwischen Spalte 9 und 10
+    gradient = _sobel_gradient_magnitude(region)
+    # c0=6 ist absichtlich 3-4px zu weit links von der echten Kante entfernt.
+    refined = _refine_run_edges({2: (6, 20)}, gradient, row0=0, col0=0, search_radius=3)
+    assert refined[2][0] == 9  # naeher an der echten Kante (9/10) als die urspruengliche 6
+    # c1=20 liegt an der rechten Box-Kante selbst -- kein Gradient im
+    # Suchfenster dort (reiner Hintergrund rechts von der Probe in diesem
+    # Test), bleibt also unveraendert.
+    assert refined[2][1] == 20
+    # search_radius<=0 -> unveraendert (Default-sicher, siehe Docstring).
+    assert _refine_run_edges({2: (6, 20)}, gradient, row0=0, col0=0, search_radius=0) == {2: (6, 20)}
 
 
 def test_track_sample_blob_recovers_shrinking_area_independently_per_frame():
@@ -4037,6 +4171,89 @@ def test_crosssection_image_line_visible_only_while_tab_active(loaded_main_windo
 
 
 # ------------------------------------------------------- Mehrfach-Querschnitte
+
+def test_crosssection_entries_panel_buttons_come_before_the_list(loaded_main_window):
+    # Bugreport: die "+ Horizontal"/"+ Vertikal"-Knoepfe standen bisher
+    # UNTER der Liste, die sich ueber ihren Stretch-Faktor 1 trotzdem auf
+    # die volle verfuegbare Seitenhoehe zog -- man musste scrollen, um die
+    # Knoepfe zu erreichen, selbst bei leerer Liste. Jetzt VOR der Liste.
+    mw = loaded_main_window
+    layout = mw._crosssection_entries_groupbox.layout()
+    items = [layout.itemAt(i) for i in range(layout.count())]
+    list_index = next(i for i, item in enumerate(items) if item.widget() is mw.crosssection_entry_list)
+
+    def contains_add_buttons(item) -> bool:
+        lay = item.layout()
+        if lay is None:
+            return False
+        return any(
+            lay.itemAt(j).widget() is mw.btn_add_crosssection_horizontal for j in range(lay.count())
+        )
+
+    button_row_index = next(i for i, item in enumerate(items) if contains_add_buttons(item))
+    assert button_row_index < list_index, "Knoepfe muessen vor der Liste stehen, nicht danach"
+
+
+def test_crosssection_entry_hover_preview_line_follows_mouse_while_armed(loaded_main_window):
+    # Bugfix: der einzelne Hover/Pin-Querschnitt (crosssection_ops.py)
+    # blockierte den Live-Vorschau-Hover fuer das "+ Horizontal"/
+    # "+ Vertikal"-Platzieren-Werkzeug, sobald er selbst bereits fixiert war
+    # (_handle_crosssection_hover kehrt dann sofort zurueck) -- keine Linie
+    # folgte der Maus beim Platzieren eines NEUEN Eintrags. _on_scene_mouse_
+    # moved behandelt das armierte Platzieren-Werkzeug jetzt mit hoeherer
+    # Prioritaet, unabhaengig vom Pin-Zustand des einzelnen Querschnitts.
+    mw = loaded_main_window
+    mw.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+    mw.view_box.mapSceneToView = lambda pos: pos
+
+    mw._set_active_layer_tab("querschnitt")
+    mw._set_crosssection_position(3, 3, pin=True)
+    assert mw._crosssection_pinned is True
+
+    assert mw._start_crosssection_entry_tool("horizontal") is True
+    assert mw.crosssection_entry_preview_line.isVisible() is False
+
+    mw._on_scene_mouse_moved(QtCore.QPointF(4.5, 6.5))
+    assert mw.crosssection_entry_preview_line.isVisible() is True
+    assert mw.crosssection_entry_preview_line.angle == 0
+    assert mw.crosssection_entry_preview_line.value() == 6.5  # Zeile 6 (+0.5 Pixel-Mitte)
+
+    mw._cancel_crosssection_entry_tool()
+    assert mw.crosssection_entry_preview_line.isVisible() is False
+
+
+def test_temporary_crosssection_content_toggles_exactly_the_selected_curves(loaded_main_window):
+    # Punkt 6: _temporary_crosssection_content (export_visuals.py) ist das
+    # Gegenstueck zu _temporary_graph_content (Zeitverlauf-ROIs) fuer
+    # Querschnitt-Linien -- waehrend des Context-Managers duerfen NUR die
+    # gewaehlten Kurven sichtbar sein, danach exakt der vorherige Zustand.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    entry1 = mw._add_crosssection_entry("horizontal", 2)
+    entry2 = mw._add_crosssection_entry("vertical", 3)
+    mw._set_crosssection_position(1, 1, pin=True)
+
+    prev1 = entry1.curve.isVisible()
+    prev2 = entry2.curve.isVisible()
+    prev_pinned = mw.crosssection_curve.isVisible()
+
+    with mw._temporary_crosssection_content({entry1.number}, False):
+        assert entry1.curve.isVisible() is True
+        assert entry2.curve.isVisible() is False
+        assert mw.crosssection_curve.isVisible() is False
+
+    assert entry1.curve.isVisible() == prev1
+    assert entry2.curve.isVisible() == prev2
+    assert mw.crosssection_curve.isVisible() == prev_pinned
+
+    with mw._temporary_crosssection_content(set(), True):
+        assert entry1.curve.isVisible() is False
+        assert entry2.curve.isVisible() is False
+        assert mw.crosssection_curve.isVisible() is True
+
+    assert entry1.curve.isVisible() == prev1
+    assert entry2.curve.isVisible() == prev2
+    assert mw.crosssection_curve.isVisible() == prev_pinned
+
 
 def test_add_crosssection_entry_creates_entry_and_computes_profile(loaded_main_window):
     mw = _make_gradient_recording_window(loaded_main_window)

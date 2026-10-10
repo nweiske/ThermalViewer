@@ -130,18 +130,13 @@ class _CrosssectionEntryMixin:
         info.setStyleSheet("color:#6b7280;")
         layout.addWidget(info)
 
-        # Anders als sample_height_ops.py (Liste dort TEILT sich die Seite
-        # mit der Schwindungsmessung-Box, braucht also eine feste Hoehen-
-        # grenze) hat diese Liste eine EIGENE Panel-Seite fuer sich allein
-        # (siehe roi_panel_build.py, analog zu "Maßstab") -- Bugreport: bei
-        # vielen Eintraegen musste trotz sichtbar freiem Platz in der Seite
-        # manuell gescrollt werden. KEINE Maximalhoehe mehr, stattdessen
-        # Stretch-Faktor 1 unten, damit die Liste den gesamten verfuegbaren
-        # Platz der Seite einnimmt (siehe auch crosssection_entries_page_
-        # layout in roi_panel_build.py, das dafuer ebenfalls angepasst ist).
-        self.crosssection_entry_list = QtWidgets.QListWidget()
-        layout.addWidget(self.crosssection_entry_list, 1)
-
+        # Bugreport: mit den Knoepfen UNTER der Liste rutschten sie bei
+        # leerer/kurzer Liste trotzdem aus dem sichtbaren Dock-Bereich
+        # (die Liste beansprucht ueber ihren Stretch-Faktor 1 unten
+        # weiterhin den gesamten verfuegbaren Platz der Seite, siehe
+        # Kommentar bei crosssection_entry_list) -- man musste scrollen, um
+        # sie zu erreichen. Jetzt VOR der Liste, damit sie unabhaengig von
+        # deren Groesse immer sofort erreichbar sind.
         add_row = QtWidgets.QHBoxLayout()
         self.btn_add_crosssection_horizontal = QtWidgets.QPushButton("+ Horizontal")
         self.btn_add_crosssection_horizontal.setCheckable(True)
@@ -164,6 +159,18 @@ class _CrosssectionEntryMixin:
         )
         add_row.addWidget(self.btn_add_crosssection_vertical)
         layout.addLayout(add_row)
+
+        # Anders als sample_height_ops.py (Liste dort TEILT sich die Seite
+        # mit der Schwindungsmessung-Box, braucht also eine feste Hoehen-
+        # grenze) hat diese Liste eine EIGENE Panel-Seite fuer sich allein
+        # (siehe roi_panel_build.py, analog zu "Maßstab") -- Bugreport: bei
+        # vielen Eintraegen musste trotz sichtbar freiem Platz in der Seite
+        # manuell gescrollt werden. KEINE Maximalhoehe mehr, stattdessen
+        # Stretch-Faktor 1 unten, damit die Liste den gesamten verfuegbaren
+        # Platz der Seite einnimmt (siehe auch crosssection_entries_page_
+        # layout in roi_panel_build.py, das dafuer ebenfalls angepasst ist).
+        self.crosssection_entry_list = QtWidgets.QListWidget()
+        layout.addWidget(self.crosssection_entry_list, 1)
 
     def _update_crosssection_entry_curve(self, entry: CrosssectionEntry) -> None:
         """Zeichnet das Temperaturprofil DES AKTUELL ANGEZEIGTEN Bildes an
@@ -348,11 +355,32 @@ class _CrosssectionEntryMixin:
 
     def _cancel_crosssection_entry_tool(self) -> None:
         self._crosssection_entry_armed_direction = None
+        self.crosssection_entry_preview_line.setVisible(False)
         for btn in (self.btn_add_crosssection_horizontal, self.btn_add_crosssection_vertical):
             if btn.isChecked():
                 btn.blockSignals(True)
                 btn.setChecked(False)
                 btn.blockSignals(False)
+
+    def _handle_crosssection_entry_hover(self, scene_pos) -> None:
+        """Reines Maus-Hover waehrend "+ Horizontal"/"+ Vertikal" armiert ist
+        (siehe mouse_ops.py:_on_scene_mouse_moved, dort mit derselben
+        Prioritaet VOR dem Dock-Tab-Hover behandelt wie der Klick-Handler) --
+        laesst die Vorschau-Linie der Maus folgen, UNABHAENGIG vom Pin-
+        Zustand des einzelnen Hover/Pin-Querschnitts (siehe ui_build.py fuer
+        die Begruendung)."""
+        row_col = self._pixel_at_scene_pos(scene_pos)
+        if row_col is None:
+            self.crosssection_entry_preview_line.setVisible(False)
+            return
+        row, col = row_col
+        if self._crosssection_entry_armed_direction == "horizontal":
+            self.crosssection_entry_preview_line.setAngle(0)
+            self.crosssection_entry_preview_line.setPos(row + 0.5)
+        else:
+            self.crosssection_entry_preview_line.setAngle(90)
+            self.crosssection_entry_preview_line.setPos(col + 0.5)
+        self.crosssection_entry_preview_line.setVisible(True)
 
     def _handle_crosssection_entry_click(self, event) -> None:
         if event.button() != QtCore.Qt.LeftButton:

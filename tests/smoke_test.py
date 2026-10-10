@@ -814,6 +814,92 @@ check(
 )
 
 
+def test_dragging_the_ruler_line_body_moves_its_label_along_with_it():
+    # Bugfix (Nutzer-Bugreport): zieht man die Maßstab-Linie an ihrem KOERPER
+    # (statt an einem Endpunkt-Handle), blieb die mm-Beschriftung bisher an
+    # der ALTEN Stelle haengen -- Ursache: pg.LineSegmentROI.listPoints()
+    # liefert Handle-Positionen nur relativ zur ROI selbst (deren eigenes
+    # pos() bleibt bei reinem Handle-Ziehen (0,0), aendert sich aber bei
+    # einem Koerper-Zug); _update_ruler_text_position/_clamp_ruler_label_pos
+    # rechneten bisher mit diesem veralteten, nicht auf pos() bezogenen Wert
+    # (siehe measurement.py:line_roi_endpoints). translate() loest (anders
+    # als movePoint()) dieselben sigRegionChange*-Signale wie ein echter
+    # Koerper-Zug per Maus aus (siehe ROI.setPos()).
+    win._start_ruler_tool()
+    p1 = win.view_box.mapViewToScene(QtCore.QPointF(2, 2))
+    p2 = win.view_box.mapViewToScene(QtCore.QPointF(22, 2))
+    win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p1))
+    with ruler_length_input(20.0):
+        win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p2))
+    try:
+        text_pos_before = QtCore.QPointF(win._ruler_text.pos())
+        px_to_mm_before = win._px_to_mm
+
+        dx, dy = 5.0, -3.0
+        win._ruler_line.translate((dx, dy))
+
+        text_pos_after = win._ruler_text.pos()
+        assert abs(text_pos_after.x() - (text_pos_before.x() + dx)) < 1e-6, (
+            "Beschriftung ist der am Koerper gezogenen Linie nicht gefolgt"
+        )
+        assert abs(text_pos_after.y() - (text_pos_before.y() + dy)) < 1e-6
+        # Reine Verschiebung aendert den Pixel-Abstand der Endpunkte nicht --
+        # die Kalibrierung muss unveraendert bleiben.
+        assert abs(win._px_to_mm - px_to_mm_before) < 1e-9
+    finally:
+        win._clear_ruler_scale()
+
+
+check(
+    "dragging the ruler line's body (not an endpoint) moves its mm label along with it instead of "
+    "leaving it behind",
+    test_dragging_the_ruler_line_body_moves_its_label_along_with_it,
+)
+
+
+def test_dragging_a_measurement_line_body_moves_its_label_along_with_it():
+    # Gegenstueck zu test_dragging_the_ruler_line_body_moves_its_label_
+    # along_with_it fuer eine einzelne Messung (MeasurementEntry) -- nutzt
+    # denselben line_roi_endpoints()-Fix (measurement.py).
+    win._start_ruler_tool()
+    rp1 = win.view_box.mapViewToScene(QtCore.QPointF(0, 0))
+    rp2 = win.view_box.mapViewToScene(QtCore.QPointF(10, 0))
+    win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, rp1))
+    with ruler_length_input(10.0):
+        win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, rp2))
+    try:
+        win._start_measurement_tool()
+        mp1 = win.view_box.mapViewToScene(QtCore.QPointF(3, 3))
+        mp2 = win.view_box.mapViewToScene(QtCore.QPointF(13, 3))
+        win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, mp1))
+        win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, mp2))
+        entry = win.measurements[-1]
+        try:
+            text_pos_before = QtCore.QPointF(entry.text.pos())
+            mm_value_before = entry.mm_value
+
+            dx, dy = -4.0, 6.0
+            entry.line.translate((dx, dy))
+
+            text_pos_after = entry.text.pos()
+            assert abs(text_pos_after.x() - (text_pos_before.x() + dx)) < 1e-6, (
+                "Beschriftung ist der am Koerper gezogenen Mess-Strecke nicht gefolgt"
+            )
+            assert abs(text_pos_after.y() - (text_pos_before.y() + dy)) < 1e-6
+            assert abs(entry.mm_value - mm_value_before) < 1e-9
+        finally:
+            win._remove_measurement(entry)
+    finally:
+        win._clear_ruler_scale()
+
+
+check(
+    "dragging a measurement line's body (not an endpoint) moves its mm label along with it instead of "
+    "leaving it behind",
+    test_dragging_a_measurement_line_body_moves_its_label_along_with_it,
+)
+
+
 def test_measurement_tool_uses_scale_without_modifying_it():
     # Nutzerwunsch (Folgeanfrage zu Punkt 12): "ich will keinen neuen
     # Maßstab setzen können, sondern wirklich nur messen" -- das Mess-
@@ -5178,6 +5264,69 @@ def test_end_to_end_export_state_restoration_with_dynamic_roi_selection():
 check(
     "graphic + image-stack export restore ROI-curve/live-curve visibility exactly, even for a partial selection",
     test_end_to_end_export_state_restoration_with_dynamic_roi_selection,
+)
+
+
+def test_export_respects_dynamically_selected_crosssection_lines():
+    # Punkt 6 (Nutzerwunsch): "der Querschnittsgraph kann nur exportiert
+    # werden/eine Linie darin, wenn die zugehoerige Querschnittslinie im
+    # Thermobild zu sehen ist ... analog wie bei den ROIs/Messungen der
+    # Länge dem User die Möglichkeit geben, gezielt Linien anzuzeigen/
+    # auszublenden" -- CrosssectionContentSelector (dialogs/graph_selector.py)
+    # bietet fuer Querschnitt-Linien (benannte Eintraege + der einzelne
+    # Hover/Pin-Querschnitt) dieselbe Art Auswahl wie GraphContentSelector
+    # fuer den Zeitverlauf (ROIs/Live-Cursor) -- End-to-End-Gegenstueck zu
+    # test_end_to_end_export_state_restoration_with_dynamic_roi_selection.
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    entry1 = win._add_crosssection_entry("horizontal", 3)
+    entry2 = win._add_crosssection_entry("vertical", 4)
+    win._set_crosssection_position(5, 5, pin=True)
+    assert win._crosssection_pinned is True
+
+    prev_entry1_visible = entry1.curve.isVisible()
+    prev_entry2_visible = entry2.curve.isVisible()
+    prev_pinned_visible = win.crosssection_curve.isVisible()
+
+    out_png = OUT / "crosssection_dynamic_selection_export.png"
+
+    def fake_exec(self):
+        self.chk_graph_querschnitt.setChecked(True)
+        selector = self._crosssection_content_selector
+        for number, chk in selector.checks.items():
+            chk.setChecked(number == entry1.number)
+        selector.chk_pinned.setChecked(False)
+        return (self.accept(), QtWidgets.QDialog.DialogCode.Accepted)[1]
+
+    orig_save = QtWidgets.QFileDialog.getSaveFileName
+    try:
+        with temp_dialog_exec(GraphicExportDialog, fake_exec):
+            QtWidgets.QFileDialog.getSaveFileName = staticmethod(
+                lambda *a, **k: (str(out_png), "PNG-Bild (*.png)")
+            )
+            win._export_graphic()
+        assert out_png.exists()
+        assert entry1.curve.isVisible() == prev_entry1_visible, (
+            "Sichtbarkeit von Eintrag 1 nach Export nicht wiederhergestellt"
+        )
+        assert entry2.curve.isVisible() == prev_entry2_visible, (
+            "Sichtbarkeit von Eintrag 2 nach Export nicht wiederhergestellt"
+        )
+        assert win.crosssection_curve.isVisible() == prev_pinned_visible, (
+            "Sichtbarkeit des einzelnen Pin-Querschnitts nach Export nicht wiederhergestellt"
+        )
+    finally:
+        QtWidgets.QFileDialog.getSaveFileName = orig_save
+        for entry in (entry1, entry2):
+            if entry in win._crosssection_entries:
+                win._on_crosssection_entry_remove_clicked(win._crosssection_entries.index(entry))
+        win._crosssection_pinned = False
+
+
+check(
+    "graphic export respects a dynamically selected subset of crosssection entry lines + the pinned "
+    "single crosssection, and restores curve visibility afterwards",
+    test_export_respects_dynamically_selected_crosssection_lines,
 )
 
 

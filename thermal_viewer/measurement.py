@@ -18,6 +18,31 @@ MAX_MEASUREMENT_COUNT = 500
 MEASUREMENT_PREVIEW_COLOR = "#2dd4bf"
 
 
+def line_roi_endpoints(roi: pg.LineSegmentROI) -> tuple[pg.Point, pg.Point]:
+    """Liefert die beiden Endpunkte einer LineSegmentROI in VIEW-Koordinaten,
+    als pg.Point (nicht als rohes QPointF) -- Aufrufer im ganzen Projekt
+    rechnen mit Point-spezifischen Methoden wie .length() auf der Differenz
+    zweier Endpunkte (z.B. "(p2 - p1).length()"), die ein reines QPointF
+    nicht kennt (Bugfix-Regression: roi.mapToView() liefert QPointF, nicht
+    Point -- ohne den Point(...)-Wrap hier schlug JEDE bestehende .length()-
+    Verwendung mit AttributeError fehl).
+
+    Bugfix (Nutzer-Bugreport: "verschiebe ich die Linie, bleibt die Textbox
+    an Ort und Stelle"): roi.listPoints() liefert die Handle-Positionen nur
+    im LOKALEN Koordinatensystem der ROI selbst (relativ zu deren eigenem
+    pos()) -- siehe pyqtgraph ROI.movePoint()/LineSegmentROI.listPoints().
+    Solange nur ein Endpunkt-Handle gezogen wird, bleibt roi.pos() bei
+    (0,0), lokale und View-Koordinaten fallen dann zufaellig zusammen. Wird
+    aber der gesamte Linienkoerper gezogen (von der ROI-Basisklasse
+    automatisch unterstuetzt, kein gesondertes movable=False gesetzt),
+    aendert sich roi.pos() selbst, waehrend die lokalen Handle-Positionen
+    unveraendert bleiben -- rohes listPoints() liefert dann einen
+    veralteten Wert. mapToView() wendet den vollen ROI-Transform (inkl.
+    pos()-Offset) an und liefert die tatsaechliche, aktuelle Position."""
+    p1, p2 = roi.listPoints()
+    return pg.Point(roi.mapToView(p1)), pg.Point(roi.mapToView(p2))
+
+
 def clamp_label_offset(offset: QtCore.QPointF, line_length: float) -> QtCore.QPointF:
     """Begrenzt den Versatz einer Maßstab-/Messungs-Beschriftung zum
     Linien-Mittelpunkt auf die naehere Umgebung der Linie (Nutzerwunsch:
@@ -178,7 +203,7 @@ class MeasurementEntry:
             )
 
     def endpoints(self) -> tuple[QtCore.QPointF, QtCore.QPointF]:
-        return self.line.listPoints()
+        return line_roi_endpoints(self.line)
 
     def _clamp_label_pos(self, raw_pos: QtCore.QPointF) -> QtCore.QPointF:
         """clamp_fn fuer self.text (siehe DraggableTextItem.mouseMoveEvent) --

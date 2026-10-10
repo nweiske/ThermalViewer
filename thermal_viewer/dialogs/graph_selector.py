@@ -88,6 +88,84 @@ class GraphContentSelector:
         return bool(self.included_numbers()) or self.include_live()
 
 
+class CrosssectionContentSelector:
+    """Ankreuzliste, welche Querschnitt-Linien in den exportierten
+    Querschnitt-Graphen aufgenommen werden -- gemeinsam genutzt von
+    GraphicExportDialog und VideoExportDialog, analog zu
+    GraphContentSelector (dort: Messbereiche + Live-Cursor), hier: benannte
+    CrosssectionEntry-Linien (crosssection_entry_ops.py) + der einzelne
+    Hover/Pin-Querschnitt (crosssection_ops.py). Zwei getrennte Konzepte
+    statt EINER gemeinsamen Nummer-Menge, da der einzelne Querschnitt kein
+    CrosssectionEntry ist (keine eigene Nummer/kein eigener Name).
+
+    Nutzerwunsch: "der Querschnittsgraph kann nur exportiert werden/eine
+    Linie darin, wenn die zugehörige Querschnittslinie im Thermobild zu
+    sehen ist" -- die tatsaechliche Sichtbarkeits-Pruefung (Ebenen-Tab +
+    je-Linie-Haekchen) passiert bereits in der Hauptfenster-UI (siehe
+    crosssection_entry_ops.py:CrosssectionEntry.enabled); diese Auswahl hier
+    entscheidet nur, welche der (im Hauptfenster bereits sichtbar
+    geschalteten) Linien zusaetzlich ins EXPORTIERTE Bild/Video aufgenommen
+    werden -- Standard: alle an, analog zu GraphContentSelector."""
+
+    def __init__(
+        self,
+        crosssection_entries: list[tuple[int, str]],
+        pinned_available: bool,
+        default_pinned_checked: bool = True,
+    ) -> None:
+        self.group_box = QtWidgets.QGroupBox("Querschnitt-Inhalt")
+        outer = QtWidgets.QVBoxLayout(self.group_box)
+
+        select_row = QtWidgets.QHBoxLayout()
+        btn_all = QtWidgets.QPushButton("Alle auswählen")
+        btn_none = QtWidgets.QPushButton("Keine auswählen")
+        select_row.addWidget(btn_all)
+        select_row.addWidget(btn_none)
+        select_row.addStretch(1)
+        outer.addLayout(select_row)
+
+        self.checks: dict[int, QtWidgets.QCheckBox] = {}
+        if crosssection_entries:
+            grid = QtWidgets.QGridLayout()
+            grid.setHorizontalSpacing(16)
+            cols = 3
+            for i, (number, name) in enumerate(crosssection_entries):
+                chk = QtWidgets.QCheckBox(name)
+                chk.setChecked(True)
+                self.checks[number] = chk
+                grid.addWidget(chk, i // cols, i % cols)
+            outer.addLayout(grid)
+        else:
+            outer.addWidget(QtWidgets.QLabel("(Keine benannten Querschnitte vorhanden.)"))
+
+        self.chk_pinned = QtWidgets.QCheckBox("Einzelner Querschnitt (fixiert/zuletzt gezeigt)")
+        self.chk_pinned.setChecked(default_pinned_checked and pinned_available)
+        self.chk_pinned.setEnabled(pinned_available)
+        self.chk_pinned.setToolTip(
+            "Der eine, der Maus folgende/fixierbare Querschnitt (Tab „Querschnitt“)."
+            if pinned_available else
+            "Noch nie fixiert -- auf welcher Zeile/Spalte würde sonst exportiert?"
+        )
+        outer.addWidget(self.chk_pinned)
+
+        btn_all.clicked.connect(partial(self._select_all, True))
+        btn_none.clicked.connect(partial(self._select_all, False))
+
+    def _select_all(self, checked: bool) -> None:
+        for chk in self.checks.values():
+            chk.setChecked(checked)
+        self.chk_pinned.setChecked(checked and self.chk_pinned.isEnabled())
+
+    def included_numbers(self) -> set[int]:
+        return {number for number, chk in self.checks.items() if chk.isChecked()}
+
+    def include_pinned(self) -> bool:
+        return self.chk_pinned.isChecked()
+
+    def has_any_selected(self) -> bool:
+        return bool(self.included_numbers()) or self.include_pinned()
+
+
 class _CursorCurveLink:
     """Koppelt "Cursor-Position im Bild anzeigen" mit der Live-Cursor-Kurve
     im Graphen (Nutzerwunsch: "beides soll unabhängig voneinander möglich

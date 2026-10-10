@@ -64,7 +64,30 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         root_layout.addLayout(left_column, 3)
 
         # -- RECHTS: Steuerelemente -------------------------------------
-        right_column = QtWidgets.QVBoxLayout()
+        # Bugfix (Ursache des zweifach gemeldeten "lbl_summary springt"-
+        # Reports -- die eigentliche Wurzel, nicht nur ein Symptom davon):
+        # die feste Dialoggroesse (680px hoch) reicht fuer den vollen
+        # Inhalt dieser Spalte (Referenzpunkte-Box + Mittelungsbereich +
+        # Bereinigungs-Zeilen + Zusammenfassung + Kandidatenliste) auch MIT
+        # allen Mindesthoehen-Fixes NICHT aus -- Qt quetscht dann irgendein
+        # Widget mit "Quetsch"-Reserve unterhalb seiner eigentlichen
+        # Mindestgroesse zusammen, je nachdem, welches gerade die groesste
+        # Differenz zwischen sizeHint und minimumSizeHint hat (wechselt mit
+        # dem Inhalt -- daher wirkte es wie ein wandernder Sprung an
+        # wechselnden Stellen). right_column bekommt daher ein eigenes
+        # Scrollfeld (analog zum rechten Panel des Hauptfensters, siehe
+        # roi_panel_build.py) -- reicht der Platz nicht, wird gescrollt statt
+        # dass Qt Widgets gegen ihre eigene Mindestgroesse zusammenquetscht.
+        # "Schließen" bleibt bewusst AUSSERHALB des Scrollfelds (analog zu
+        # _wrap_in_scroll_area in _base.py), damit er immer erreichbar ist.
+        right_outer = QtWidgets.QVBoxLayout()
+        right_scroll = QtWidgets.QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        right_content = QtWidgets.QWidget()
+        right_column = QtWidgets.QVBoxLayout(right_content)
+        right_scroll.setWidget(right_content)
+        right_outer.addWidget(right_scroll, 1)
 
         intro = QtWidgets.QLabel(
             "Erkennt einzelne Ausreißer-Bilder (z.B. durch eine kurze Kamera-/Übertragungsstörung) "
@@ -98,6 +121,20 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         )
         logic_hint.setWordWrap(True)
         logic_hint.setStyleSheet("color:#6b7280;")
+        # Bugfix (Ursache des zweifach gemeldeten "lbl_summary springt"-
+        # Reports, erst hier gefunden): ohne Mindesthoehe hat dieser
+        # wortumbrechende Hinweistext eine riesige "Quetsch"-Reserve
+        # (minimumSizeHint fast nur die Hoehe EINER Zeile, sizeHint aber
+        # mehrzeilig) -- wann immer irgendein ANDERES Widget in derselben
+        # Spalte (z.B. lbl_summary beim ersten Referenzpunkt) mehr Hoehe
+        # braucht, als das fest auf 680px hohe Dialogfenster insgesamt
+        # hergibt, quetscht Qts Layout-Engine BEVORZUGT genau dieses Label
+        # zusammen (es hat mit Abstand die groesste Differenz zwischen
+        # sizeHint und minimumSizeHint) -- sichtbar als abgeschnittener,
+        # unlesbarer Text UND als Positions-"Sprung" aller nachfolgenden
+        # Widgets. Feste Mindesthoehe (analog zu points_list/candidates_area
+        # oben/unten, derselbe etablierte Fix) verhindert das Quetschen.
+        logic_hint.setMinimumHeight(logic_hint.heightForWidth(480))
         points_layout.addWidget(logic_hint)
 
         # Mittelungsbereich + Anzeige in EINER kompakten Zeile statt zwei
@@ -178,6 +215,26 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         range_row.addStretch(1)
         right_column.addLayout(range_row)
 
+        # Zusammenfassungszeile VOR der Kandidatenliste (nicht danach) --
+        # Bugfix (Nutzer-Bugreport, zweimal reproduziert): candidates_area
+        # direkt darunter ist die EINZIGE Komponente mit Stretch-Faktor 1 in
+        # right_column. Stand die Zusammenfassung bisher UNTER ihr, musste
+        # candidates_area bei jeder Aenderung von lbl_summary.setText() (z.B.
+        # "Noch keine Referenzpunkte markiert." -> mehrzeiliger Zaehler-Text)
+        # exakt um die neue Hoehendifferenz schrumpfen/wachsen, wodurch sich
+        # die Zusammenfassung selbst sichtbar verschob -- rein strukturell,
+        # kein Repaint-Timing-Problem (layout().activate()/processEvents()
+        # unten loesen deshalb ein ANDERES Problem, nicht dieses). Hier VOR
+        # candidates_area hat lbl_summary eine feste Position direkt unter
+        # den Eingabefeldern und waechst/schrumpft nur noch nach UNTEN.
+        self.lbl_summary = QtWidgets.QLabel()
+        # Bugfix: ohne Zeilenumbruch sprengt der lange Text nach dem ersten
+        # Referenzpunkt (statt des kurzen Platzhalters "Noch keine...") die
+        # Mindestbreite der rechten Spalte -- das Dialogfenster wurde dadurch
+        # sichtbar breiter. Analog zu intro/logic_hint oben.
+        self.lbl_summary.setWordWrap(True)
+        right_column.addWidget(self.lbl_summary)
+
         self.candidates_area = QtWidgets.QScrollArea()
         self.candidates_area.setWidgetResizable(True)
         self.candidates_area.setMinimumHeight(140)
@@ -188,22 +245,13 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         right_column.addWidget(self.candidates_area, 1)
         self._candidate_checks: dict[int, QtWidgets.QCheckBox] = {}
 
-        # Zusammenfassungszeile ganz unten, direkt vor den Knoepfen.
-        self.lbl_summary = QtWidgets.QLabel()
-        # Bugfix: ohne Zeilenumbruch sprengt der lange Text nach dem ersten
-        # Referenzpunkt (statt des kurzen Platzhalters "Noch keine...") die
-        # Mindestbreite der rechten Spalte -- das Dialogfenster wurde dadurch
-        # sichtbar breiter. Analog zu intro/logic_hint oben.
-        self.lbl_summary.setWordWrap(True)
-        right_column.addWidget(self.lbl_summary)
-
         buttons = QtWidgets.QDialogButtonBox()
         self.btn_close = buttons.addButton("Schließen", QtWidgets.QDialogButtonBox.ButtonRole.RejectRole)
         self.btn_close.clicked.connect(self.close)
         _disable_enter_auto_accept(buttons)
-        right_column.addWidget(buttons)
+        right_outer.addWidget(buttons)
 
-        root_layout.addLayout(right_column, 2)
+        root_layout.addLayout(right_outer, 2)
 
         self._on_manual_frame_changed(self.spin_manual_frame.value())
 

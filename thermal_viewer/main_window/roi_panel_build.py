@@ -445,9 +445,14 @@ class _RoiPanelBuildMixin:
         crosssection_entries_page = QtWidgets.QWidget()
         crosssection_entries_page_layout = QtWidgets.QVBoxLayout(crosssection_entries_page)
         crosssection_entries_page_layout.setContentsMargins(0, 0, 0, 0)
-        crosssection_entries_page_layout.setAlignment(QtCore.Qt.AlignTop)
-        crosssection_entries_page_layout.addWidget(self._crosssection_entries_groupbox)
-        crosssection_entries_page_layout.addStretch(1)
+        # Bewusst OHNE AlignTop/addStretch (anders als die uebrigen Seiten
+        # hier) -- diese Seite hat nur EIN Widget (die Gruppe mit der
+        # wachsenden Liste darin), das die GESAMTE Seitenhoehe einnehmen
+        # soll (Bugreport: Liste blieb trotz freiem Platz in der Seite auf
+        # eine feste Hoehe begrenzt, musste bei vielen Eintraegen gescrollt
+        # werden). addStretch(1) wuerde sich die uebrige Hoehe sonst zu
+        # gleichen Teilen mit der Gruppe teilen statt sie ihr zu ueberlassen.
+        crosssection_entries_page_layout.addWidget(self._crosssection_entries_groupbox, 1)
         self.panel_tab_widget.addTab(crosssection_entries_page, "Querschnitte")
 
         # Klick auf einen Panel-Tab haelt die oberen Bild-Ebenen-Tabs

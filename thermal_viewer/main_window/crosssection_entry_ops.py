@@ -130,9 +130,17 @@ class _CrosssectionEntryMixin:
         info.setStyleSheet("color:#6b7280;")
         layout.addWidget(info)
 
+        # Anders als sample_height_ops.py (Liste dort TEILT sich die Seite
+        # mit der Schwindungsmessung-Box, braucht also eine feste Hoehen-
+        # grenze) hat diese Liste eine EIGENE Panel-Seite fuer sich allein
+        # (siehe roi_panel_build.py, analog zu "Maßstab") -- Bugreport: bei
+        # vielen Eintraegen musste trotz sichtbar freiem Platz in der Seite
+        # manuell gescrollt werden. KEINE Maximalhoehe mehr, stattdessen
+        # Stretch-Faktor 1 unten, damit die Liste den gesamten verfuegbaren
+        # Platz der Seite einnimmt (siehe auch crosssection_entries_page_
+        # layout in roi_panel_build.py, das dafuer ebenfalls angepasst ist).
         self.crosssection_entry_list = QtWidgets.QListWidget()
-        self.crosssection_entry_list.setMaximumHeight(180)
-        layout.addWidget(self.crosssection_entry_list)
+        layout.addWidget(self.crosssection_entry_list, 1)
 
         add_row = QtWidgets.QHBoxLayout()
         self.btn_add_crosssection_horizontal = QtWidgets.QPushButton("+ Horizontal")

@@ -405,18 +405,23 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # scene_clicked) -- lbl_summary.setText() mit wordWrap aendert bei
         # geaenderter Hoehe nur ueber ein GEQUEUTES LayoutRequest-Event die
         # tatsaechliche Geometrie (QWidget.updateGeometry() postet, wendet
-        # nicht sofort an). Ohne diesen Aufruf wird der naechste Repaint-
-        # Frame mit bereits aktualisierter Vorschau (links, synchron neu
-        # gezeichnet) aber noch ALTER Layout-Geometrie rechts gemalt, bis ein
-        # weiteres Event (z.B. ein Klick) die Queue abarbeitet (Bugreport:
-        # Text "springt" kurz an die falsche Stelle). activate() loest die
-        # Geometrie-Neuberechnung sofort synchron aus. Bewusst KEIN
-        # processEvents() -- siehe smoke_test.py:
-        # test_scaled_export_visuals_touches_only_legend_font fuer einen
-        # bestehenden Regressionstest, der processEvents() in Layout-Faellen
-        # wegen eines frueheren Flacker-Bugs an anderer Stelle explizit
-        # verbietet.
+        # nicht sofort an). activate() loest die Geometrie-Neuberechnung
+        # zwar sofort SYNCHRON aus, der dadurch noetige Repaint bleibt aber
+        # selbst weiterhin nur ein GEPLANTER (update(), kein repaint())
+        # Qt-Event -- auf Windows blieb dadurch (Nutzer-Bugreport, auch nach
+        # dem activate()-Fix noch reproduziert) ein einzelner Frame mit der
+        # ALTEN Geometrie sichtbar, bis irgendein anderes Event (z.B. ein
+        # Klick) den naechsten Repaint anstiess. processEvents() erzwingt
+        # genau diesen ausstehenden Repaint sofort -- derselbe, im Projekt
+        # etablierte Ansatz wie in shrinkage_ops.py (Statuszeile vor einer
+        # langen Berechnung) und import_ops.py, NICHT derselbe Fall wie der
+        # Regressionstest smoke_test.py:
+        # test_scaled_export_visuals_touches_only_legend_font (der verbietet
+        # processEvents() ausschliesslich INNERHALB von _scaled_export_
+        # visuals(), wegen eines dortigen, unabhaengigen Flacker-Bugs beim
+        # wiederholten Hoch-/Herunterskalieren waehrend des Exports).
         self.layout().activate()
+        QtWidgets.QApplication.processEvents()
 
     def _on_candidate_checkbox_toggled(self, checked: bool) -> None:
         """Jeder Checkbox-Klick wirkt SOFORT auf Viewer/Kurven/Export -- kein

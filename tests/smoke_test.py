@@ -2932,13 +2932,13 @@ def test_timeseries_dock_title_bar_hidden_but_still_toggleable_via_menu():
     # offensichtlich sein, was gemeint ist) -- die sichtbare Titelleiste wird
     # daher ausgeblendet (leeres Platzhalter-Widget), waehrend windowTitle()
     # fuer den "Ansicht"-Menuepunkt (Ein-/Ausblenden) weiterhin gesetzt ist.
-    # Bugfix: "Zeitverlauf" -> "Graphen" umbenannt, da das Dock auch die
-    # Schwindung-/Querschnitt-Tabs enthaelt (Nutzerwunsch).
-    assert win.timeseries_dock.windowTitle() == "Graphen"
+    # Bugfix: "Zeitverlauf" -> "Graphen" -> "Temperaturverlauf" umbenannt
+    # (Nutzerwunsch, nach erneutem Ueberdenken).
+    assert win.timeseries_dock.windowTitle() == "Temperaturverlauf"
     title_bar = win.timeseries_dock.titleBarWidget()
     assert title_bar is not None, "leeres Widget statt der Standard-Titelleiste erwartet"
     assert type(title_bar) is QtWidgets.QWidget, "muss ein schlichtes, leeres Platzhalter-Widget sein"
-    assert win.timeseries_dock.toggleViewAction().text() == "Graphen"
+    assert win.timeseries_dock.toggleViewAction().text() == "Temperaturverlauf"
 
 
 check(
@@ -7144,6 +7144,55 @@ check(
     "Start/Ende buttons, range-exclude), panel tabs (incl. shrinkage back in its own tab), "
     "excluded frame hidden, Werkzeuge dock title bar blanked, Schwindung tab present from the start",
     test_end_to_end_cleaning_dialog_and_panel_tabs,
+)
+
+
+def test_switching_away_from_querschnitt_tab_unblocks_ruler_click():
+    # End-to-End-Regression (Bugreport: "Wenn unten rechts der Tab
+    # 'Querschnitt' aktiv ist, dann kann ich im gleichen Atemzug keinen
+    # Maßstab setzen, da ich dann noch die Platzierung der Querschnittslinie
+    # aktiv habe") -- vorher blieb der untere, tabifizierte Querschnitt-
+    # Graph-Dock-Tab nach einem Panel-Tab-Wechsel faelschlich weiter im
+    # Vordergrund, sodass mouse_ops.py:_on_scene_mouse_clicked jeden
+    # Bildklick weiterhin an den Querschnitt-Handler statt an das gerade
+    # armierte Maßstab-Werkzeug weiterreichte. Braucht ein ECHTES, gezeigtes
+    # Fenster (anders als test_main_window.py, siehe dortiger Kommentar) --
+    # _crosssection_tab_active() haengt an visibleRegion().
+    win._set_active_layer_tab("querschnitt")
+    assert win._crosssection_tab_active() is True
+
+    win._start_ruler_tool()
+    assert win._ruler_armed is True
+    assert win._crosssection_tab_active() is False, (
+        "Wechsel auf 'Maßstab' haette den Querschnitt-Dock-Tab in den Hintergrund schieben muessen"
+    )
+
+    # view_box.sceneBoundingRect()/mapSceneToView() durch die Identitaet
+    # ersetzt (gleiches Muster wie test_main_window.py:_FakeSceneClickEvent)
+    # -- bei diesem Test ganz am Ende der Datei haengt sonst faelschlich ab,
+    # ob eine der hunderten vorherigen Tests die Bild-ViewBox zwischenzeitlich
+    # gezoomt/verschoben hat; die eigentliche Pruefung hier gilt ausschliess-
+    # lich der HANDLER-Weiterleitung (Maßstab statt Querschnitt), nicht der
+    # Bildschirm-Geometrie.
+    orig_scene_bounding_rect = win.view_box.sceneBoundingRect
+    orig_map_scene_to_view = win.view_box.mapSceneToView
+    win.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+    win.view_box.mapSceneToView = lambda pos: pos
+    try:
+        win._on_scene_mouse_clicked(FakeEvent(QtCore.Qt.LeftButton, QtCore.QPointF(3.5, 4.5)))
+        assert win._ruler_start == (3.5, 4.5), "Klick haette vom Maßstab-Werkzeug verarbeitet werden muessen"
+    finally:
+        win.view_box.sceneBoundingRect = orig_scene_bounding_rect
+        win.view_box.mapSceneToView = orig_map_scene_to_view
+
+    win._cancel_ruler_tool()
+    win._set_active_layer_tab("all")
+
+
+check(
+    "switching the panel from 'Querschnitte' to 'Maßstab' lowers the Querschnitt graph-dock-tab again, "
+    "unblocking ruler/Maßstab clicks",
+    test_switching_away_from_querschnitt_tab_unblocks_ruler_click,
 )
 
 print()

@@ -3308,6 +3308,49 @@ def test_layer_tab_switches_panel_tab_widget_pages(loaded_main_window):
     assert mw.panel_tab_widget.currentIndex() == unchanged_index
 
 
+def test_layer_tab_switch_raises_matching_graph_dock_tab(loaded_main_window, monkeypatch):
+    """Nutzerwunsch: "Wenn ich oben rechts auf Querschnitt druecke, dann
+    soll sich auch unten der Graphtab entsprechend anpassen... Gilt fuer
+    die anderen Funktionalitaeten natuerlich genauso". Vorher musste der
+    untere, tabifizierte Graphen-Dock-Tab (Temperaturverlauf/Schwindung/
+    Querschnitt, siehe ui_build.py) manuell zusaetzlich angeklickt werden.
+
+    _crosssection_tab_active() selbst haengt an visibleRegion(), die ohne
+    ein echtes, gezeigtes Fenster (loaded_main_window ruft bewusst nie
+    .show() auf, siehe conftest.py) immer leer bleibt -- ein End-to-End-Test
+    dafuer lebt daher in smoke_test.py (dort laeuft ein echtes, gezeigtes
+    Fenster). Hier wird stattdessen direkt geprueft, WELCHER Dock raise_()
+    bekommt (siehe layer_tabs_ops.py:_LAYER_TAB_GRAPH_DOCK)."""
+    mw = loaded_main_window
+    raised: list[str] = []
+    for name in ("timeseries_dock", "shrinkage_dock", "crosssection_dock"):
+        monkeypatch.setattr(getattr(mw, name), "raise_", lambda n=name: raised.append(n))
+
+    mw._set_active_layer_tab("querschnitt")
+    assert raised[-1] == "crosssection_dock"
+
+    mw._set_active_layer_tab("shrinkage")
+    assert raised[-1] == "shrinkage_dock"
+
+    # Kernszenario aus dem Bugreport: von "Querschnitte" auf "Maßstab"
+    # wechseln muss den Querschnitt-Dock wieder in den Hintergrund schieben
+    # (Maßstab hat selbst keinen eigenen Graphen, faellt auf den
+    # Temperaturverlauf-Dock zurueck) -- sonst haette mouse_ops.py:
+    # _on_scene_mouse_clicked den Querschnitt-Klick-Vorrang weiterhin
+    # faelschlich vor dem Maßstab-Platzieren bevorzugt (Bugreport: "kann ich
+    # im gleichen Atemzug keinen Maßstab setzen").
+    mw._set_active_layer_tab("querschnitt")
+    assert raised[-1] == "crosssection_dock"
+    mw._set_active_layer_tab("scale")
+    assert raised[-1] == "timeseries_dock"
+
+    mw._set_active_layer_tab("roi")
+    assert raised[-1] == "timeseries_dock"
+
+    mw._set_active_layer_tab("all")
+    assert raised[-1] == "timeseries_dock"
+
+
 def test_shrinkage_groupbox_lives_in_its_own_panel_tab(loaded_main_window):
     """Die Schwindungs-Einstellungen haengen wieder fest im rechten Panel
     (eigener Reiter "Schwindungsmessung") -- nicht mehr in einem
@@ -3348,12 +3391,21 @@ def test_shrinkage_plot_lives_in_own_tabified_dock_not_timeseries_widget(loaded_
 def test_panel_tab_pages_are_top_left_anchored_not_centered(loaded_main_window):
     """Nutzerfeedback: Inhalt der Registerkarten soll oben LINKS beginnen
     (nicht horizontal zentriert) -- vorherige Runde hatte faelschlich
-    AlignHCenter ergaenzt."""
+    AlignHCenter ergaenzt.
+
+    Ausnahme "Querschnitte": diese Seite hat bewusst KEIN AlignTop (siehe
+    roi_panel_build.py) -- ihr einziges Kind-Widget (die Liste der
+    Querschnitte) soll die GESAMTE Seitenhoehe ausfuellen (Bugreport: Liste
+    musste trotz freiem Platz manuell gescrollt werden), AlignTop wuerde
+    das Kind stattdessen auf seine Mindesthoehe zusammenstauchen."""
     mw = loaded_main_window
     for i in range(mw.panel_tab_widget.count()):
+        tab_text = mw.panel_tab_widget.tabText(i)
         alignment = mw.panel_tab_widget.widget(i).layout().alignment()
-        assert alignment == QtCore.Qt.AlignTop, mw.panel_tab_widget.tabText(i)
-        assert not (alignment & QtCore.Qt.AlignHCenter), mw.panel_tab_widget.tabText(i)
+        if tab_text == "Querschnitte":
+            continue
+        assert alignment == QtCore.Qt.AlignTop, tab_text
+        assert not (alignment & QtCore.Qt.AlignHCenter), tab_text
 
 
 def test_control_dock_title_bar_is_blanked(loaded_main_window):
@@ -3368,14 +3420,13 @@ def test_control_dock_title_bar_is_blanked(loaded_main_window):
     assert isinstance(title_bar, QtWidgets.QWidget)
 
 
-def test_timeseries_dock_renamed_to_graphen_with_view_menu_tooltips(loaded_main_window):
-    # Bugfix: "Zeitverlauf" -> "Graphen" (das Dock enthaelt auch Schwindung-/
-    # Querschnitt-Tabs, nicht nur Zeitverlauf), ausserdem bekommen beide
-    # "Ansicht"-Menue-Eintraege jetzt einen erklaerenden Tooltip (Nutzerwunsch:
-    # "deutlicher machen").
+def test_timeseries_dock_renamed_to_temperaturverlauf_with_view_menu_tooltips(loaded_main_window):
+    # Bugfix: "Zeitverlauf" -> "Graphen" -> (nach erneutem Nutzerwunsch)
+    # "Temperaturverlauf", ausserdem bekommen beide "Ansicht"-Menue-Eintraege
+    # einen erklaerenden Tooltip (Nutzerwunsch: "deutlicher machen").
     mw = loaded_main_window
-    assert mw.timeseries_dock.windowTitle() == "Graphen"
-    assert mw.timeseries_dock.toggleViewAction().text() == "Graphen"
+    assert mw.timeseries_dock.windowTitle() == "Temperaturverlauf"
+    assert mw.timeseries_dock.toggleViewAction().text() == "Temperaturverlauf"
     assert mw.timeseries_dock.toggleViewAction().toolTip()
     assert mw.control_dock.toggleViewAction().toolTip()
 
@@ -4039,6 +4090,17 @@ def test_crosssection_entry_max_count_enforced(loaded_main_window, monkeypatch):
 
     assert mw._start_crosssection_entry_tool("horizontal") is False
     assert len(mw._crosssection_entries) == MAX_CROSSSECTION_ENTRY_COUNT
+
+
+def test_crosssection_entry_list_has_no_height_cap(loaded_main_window):
+    """Bugreport: die Liste blieb trotz sichtbar freiem Platz in ihrer
+    eigenstaendigen Panel-Seite (wie "Maßstab") auf eine feste Hoehe
+    begrenzt, musste bei vielen Eintraegen manuell gescrollt werden. Fix:
+    kein eigener maximumHeight()-Cap mehr (siehe crosssection_entry_ops.py),
+    QWIDGETSIZE_MAX (16777215) ist Qts eingebauter Standardwert ohne
+    jegliche eigene Begrenzung."""
+    mw = loaded_main_window
+    assert mw.crosssection_entry_list.maximumHeight() == 16777215
 
 
 def test_crosssection_entries_visibility_follows_own_layer_tab(loaded_main_window):

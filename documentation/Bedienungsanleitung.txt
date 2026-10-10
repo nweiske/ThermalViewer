@@ -1778,26 +1778,37 @@ wären für eine andere Messreihe bedeutungslos.
 ================================================================
 
 Je mehr Werkzeuge gleichzeitig genutzt werden (Messbereiche, Schwindungs-
-messung, Maßstab/Messungen), desto voller wird das Thermobild. Vier
-Registerkarten direkt OBERHALB des Thermobilds lösen das: "Alle" /
-"Temperatur-Messung" / "Schwindungsmessung" / "Maßstab" -- sie blenden NUR
-die zur gewählten Ebene gehörigen Bereiche im BILD ein (ROI-Boxen,
-Schwindungs-Boxen, Maßstab/Messungen). "Alle" zeigt -- wie das bisherige
-Verhalten -- wieder alles gleichzeitig im Bild. Die Rohdaten-Bereinigung
-(Abschnitt 17) hat KEINEN eigenen Tab hier -- sie setzt ihre Referenzpunkte
-seit dem Umbau ausschließlich in ihrer eigenen, modalen Bildvorschau, nicht
-mehr im Thermobild selbst.
+messung, Maßstab/Messungen, Querschnitte), desto voller wird das Thermobild.
+Fünf Registerkarten direkt OBERHALB des Thermobilds lösen das: "Alle" /
+"Temperatur-Messung" / "Schwindungsmessung" / "Maßstab" / "Querschnitte" --
+sie blenden NUR die zur gewählten Ebene gehörigen Bereiche im BILD ein
+(ROI-Boxen, Schwindungs-Boxen, Maßstab/Messungen, Querschnitt-Linien).
+"Alle" zeigt -- wie das bisherige Verhalten -- wieder alles gleichzeitig im
+Bild. Die Rohdaten-Bereinigung (Abschnitt 17) hat KEINEN eigenen Tab hier --
+sie setzt ihre Referenzpunkte seit dem Umbau ausschließlich in ihrer
+eigenen, modalen Bildvorschau, nicht mehr im Thermobild selbst.
 
 Das RECHTE PANEL ("Werkzeuge") ist zusätzlich SELBST als Registerkarten
-organisiert -- mit vier Reitern: "Legende" / "Temperatur-Messung" /
-"Schwindungsmessung" / "Maßstab" (kein eigener Reiter für "Alle", siehe
-unten). Ein Wechsel des oberen Bild-Ebenen-Tabs auf "Temperatur-Messung",
-"Schwindungsmessung" oder "Maßstab" schaltet automatisch auch den
-passenden Panel-Reiter mit um (und umgekehrt: ein Klick auf einen dieser
-Panel-Reiter schaltet auch den oberen Bild-Tab mit) -- beide Leisten
-bleiben für diese drei gemeinsamen Kategorien synchron. "Alle" oben hat
-keinen eigenen Panel-Reiter und lässt das Panel beim Wechsel dorthin
-unverändert auf seinem zuletzt gewählten Reiter stehen.
+organisiert -- mit fünf Reitern: "Legende" / "Temperatur-Messung" /
+"Schwindungsmessung" / "Maßstab" / "Querschnitte" (kein eigener Reiter für
+"Alle", siehe unten). Ein Wechsel des oberen Bild-Ebenen-Tabs auf
+"Temperatur-Messung", "Schwindungsmessung", "Maßstab" oder "Querschnitte"
+schaltet automatisch auch den passenden Panel-Reiter mit um (und
+umgekehrt: ein Klick auf einen dieser Panel-Reiter schaltet auch den
+oberen Bild-Tab mit) -- beide Leisten bleiben für diese vier gemeinsamen
+Kategorien synchron. "Alle" oben hat keinen eigenen Panel-Reiter und lässt
+das Panel beim Wechsel dorthin unverändert auf seinem zuletzt gewählten
+Reiter stehen.
+
+Derselbe Wechsel zieht AUSSERDEM den passenden Reiter im unteren
+Graphen-Dock (Abschnitt 8: "Temperaturverlauf" / "Schwindung" /
+"Querschnitt", die drei sind dort tabifiziert) automatisch mit um --
+"Temperatur-Messung"/"Schwindungsmessung"/"Maßstab" bringen
+"Temperaturverlauf" nach vorn (Maßstab hat keinen eigenen Graphen),
+"Querschnitte" bringt "Querschnitt" nach vorn. So ist z.B. beim Platzieren
+einer neuen Querschnitt-Linie (siehe Abschnitt 22) sofort auch deren
+Vorschau-Linie im Bild sichtbar, ohne den Graphen-Reiter unten zusätzlich
+von Hand anzuklicken.
 
 Zuordnung:
 
@@ -1812,6 +1823,9 @@ Zuordnung:
   - "Maßstab": die Maßstab-Linie und alle Freihand-Messungen im Bild sowie
     deren Panel-Reiter (Abschnitt 11) -- wirkt zusätzlich zur "Anzeigen"-
     Checkbox dort.
+  - "Querschnitte": alle benannten Querschnitt-Linien im Bild sowie deren
+    Panel-Reiter (Abschnitt 22) -- wirkt zusätzlich zum Aktiv-Haken jedes
+    einzelnen Eintrags in der Liste.
 
 Die "Legende" (Farbverlauf/Level-Modus, Abschnitt 7) hat einen EIGENEN
 Panel-Reiter (statt auf jedem Tab gleichzeitig sichtbar zu bleiben) -- da
@@ -1821,12 +1835,14 @@ Graph (Abschnitt 8) bleibt unverändert und zeigt immer alle Kurven,
 unabhängig vom gewählten Tab.
 
 AUTOMATISCHES UMSCHALTEN: wird ein Werkzeug über seinen eigenen Knopf
-gestartet, springt die Tab-Auswahl (oben UND im Panel) von selbst dorthin
--- "+ Messbereich" wechselt auf "Temperatur-Messung", die "Aktivieren"-
-Checkbox der Schwindungsmessung UND "+ Probenhöhe" auf "Schwindungsmessung"
-(nur beim Anschalten, nicht beim Abschalten), "Festlegen…"/"Messmodus" auf
-"Maßstab". So landet man beim Start einer Aktion automatisch auf der dazu
-passenden Ansicht, ohne den Tab von Hand mitziehen zu müssen.
+gestartet, springt die Tab-Auswahl (oben, im Panel UND im unteren
+Graphen-Dock) von selbst dorthin -- "+ Messbereich" wechselt auf
+"Temperatur-Messung", die "Aktivieren"-Checkbox der Schwindungsmessung UND
+"+ Probenhöhe" auf "Schwindungsmessung" (nur beim Anschalten, nicht beim
+Abschalten), "Festlegen…"/"Messmodus" auf "Maßstab", "+ Horizontal"/
+"+ Vertikal" (Abschnitt 22) auf "Querschnitte". So landet man beim Start
+einer Aktion automatisch auf der dazu passenden Ansicht, ohne einen der
+drei Tabs von Hand mitziehen zu müssen.
 
 UMGEKEHRT -- ein noch scharf gestelltes Werkzeug wird beim Tab-Wechsel
 ABGEBROCHEN: ein gerade armiertes Platzier-/Mess-Werkzeug (Messbereich

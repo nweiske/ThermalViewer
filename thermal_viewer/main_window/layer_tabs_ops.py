@@ -37,6 +37,24 @@ _LAYER_TAB_LABELS = {
 # Entsprechung, daher auch keine Zeile in _LAYER_TAB_ORDER).
 _PANEL_TAB_ORDER = ["legende", "roi", "shrinkage", "scale", "querschnitt"]
 
+# Welcher GRAPH-DOCK-Tab (unten rechts, tabifiziert: timeseries_dock/
+# shrinkage_dock/crosssection_dock, siehe ui_build.py) zu welchem oberen
+# Ebenen-/Panel-Tab gehoert -- siehe _set_active_layer_tab fuer die
+# Synchronisation (Nutzerwunsch: "Wenn ich oben rechts auf Querschnitt
+# druecke, dann soll sich auch unten der Graphtab entsprechend anpassen...
+# Gilt fuer die anderen Funktionalitaeten natuerlich genauso"). "scale" hat
+# KEINEN eigenen Graphen -- faellt auf "Temperaturverlauf" zurueck, u.a.
+# DAMIT ein zuvor aktiver Querschnitt-Dock-Tab beim Wechsel auf Maßstab
+# wieder in den Hintergrund tritt (sonst blockiert dessen Klick-Vorrang in
+# mouse_ops.py:_on_scene_mouse_clicked weiterhin das Maßstab-Platzieren).
+_LAYER_TAB_GRAPH_DOCK = {
+    "all": "timeseries_dock",
+    "roi": "timeseries_dock",
+    "shrinkage": "shrinkage_dock",
+    "scale": "timeseries_dock",
+    "querschnitt": "crosssection_dock",
+}
+
 
 class _LayerTabsMixin:
     def _build_layer_tab_bar(self) -> QtWidgets.QTabBar:
@@ -95,6 +113,11 @@ class _LayerTabsMixin:
             self.panel_tab_widget.blockSignals(True)
             self.panel_tab_widget.setCurrentIndex(_PANEL_TAB_ORDER.index(tab))
             self.panel_tab_widget.blockSignals(False)
+        # Unteren Graph-Dock-Tab mitziehen (siehe _LAYER_TAB_GRAPH_DOCK) --
+        # raise_() auf einen tabifizierten QDockWidget bringt ihn in den
+        # Vordergrund und schiebt die Geschwister-Docks automatisch in den
+        # Hintergrund, exakt wie ein manueller Klick auf dessen Tab-Reiter.
+        getattr(self, _LAYER_TAB_GRAPH_DOCK[tab]).raise_()
         self._apply_layer_tab_visibility()
 
     def _on_panel_tab_widget_changed(self, index: int) -> None:

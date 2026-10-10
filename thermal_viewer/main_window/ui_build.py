@@ -751,15 +751,17 @@ class _UIBuildMixin:
         self.control_dock.setTitleBarWidget(QtWidgets.QWidget())
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.control_dock)
 
-        # Bugfix: hiess frueher "Zeitverlauf", obwohl dieses Dock laengst auch
-        # die Schwindung-/Querschnitt-Tabs enthaelt -- "Graphen" beschreibt
-        # den Inhalt zutreffender (Nutzerwunsch). Der einzelne Graph-TYP
+        # Bugfix: hiess zwischenzeitlich "Graphen" (davor "Zeitverlauf"),
+        # Nutzer hat sich nach mehrfachem Hin und Her nun endgueltig fuer
+        # "Temperaturverlauf" entschieden -- beschreibt den primaeren Inhalt
+        # (die Temperaturkurven) trotz der mit-tabifizierten Schwindung-/
+        # Querschnitt-Docks weiterhin treffend. Der einzelne Graph-TYP
         # "Zeitverlauf" (z.B. in den Export-Dialogen) bleibt davon unberuehrt.
-        self.timeseries_dock = QtWidgets.QDockWidget("Graphen", self)
+        self.timeseries_dock = QtWidgets.QDockWidget("Temperaturverlauf", self)
         self.timeseries_dock.setWidget(self.timeseries_widget)
         self.timeseries_dock.setAllowedAreas(side_areas)
         self.timeseries_dock.setFeatures(dock_features)
-        # Der Name "Graphen" bleibt als windowTitle() erhalten (fuer den
+        # Der Name "Temperaturverlauf" bleibt als windowTitle() erhalten (fuer den
         # Ein-/Ausblenden-Menuepunkt im "Ansicht"-Menue, siehe _build_menu),
         # die eigentliche Titelzeile ueber dem Graphen selbst blendet ein
         # leeres Platzhalter-Widget aus (Nutzerfeedback: "sollte offensicht-

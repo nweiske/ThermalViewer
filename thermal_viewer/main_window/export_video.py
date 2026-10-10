@@ -53,6 +53,7 @@ class _VideoExportMixin:
             measurement_entries=[(e.number, e.name) for e in self.measurements],
             has_excluded_frames=bool(self._excluded_frame_indices),
             shrinkage_available=self._shrinkage_result is not None,
+            querschnitt_available=self._crosssection_pinned or bool(self._crosssection_entries),
         )
         dialog.enable_preview(lambda: self._render_export_preview_image(dialog))
         # Schleife statt einmaligem exec() (Punkt 3): bricht der Nutzer den
@@ -329,6 +330,7 @@ class _VideoExportMixin:
                      if "zeitverlauf" in selected_keys and overlay_mode == "both"
                      else self._temporary_time_display_mode(graph_time_axis_mode)), \
                     self._paused_background_timers(), \
+                    self._temporary_best_legend_placement(), \
                     self._scaled_export_visuals(scale):
                 # Jeden ausgewaehlten Graphen EINMAL kurz in den Vordergrund
                 # holen (siehe export_image.py:_export_combined_image fuer

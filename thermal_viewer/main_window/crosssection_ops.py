@@ -230,7 +230,13 @@ class _CrossSectionMixin:
         """Zentrale Aktualisierung -- aufgerufen bei jeder Positionsaenderung
         (Klick/Pfeiltaste/Spinbox), jedem Frame-Wechsel (siehe mouse_ops.py:
         _update_status_bar) UND jedem Ebenen-Tab-Wechsel (siehe
-        layer_tabs_ops.py). No-op-sicher ohne Aufnahme/Position."""
+        layer_tabs_ops.py). No-op-sicher ohne Aufnahme/Position.
+
+        Aktualisiert zusaetzlich alle benannten Querschnitte (siehe
+        crosssection_entry_ops.py) -- deren Kurven sind ebenfalls Pro-Bild-
+        Momentaufnahmen (kein Zeitverlauf), muessen also bei denselben
+        Ereignissen neu gezeichnet werden wie dieser einzelne Querschnitt."""
+        self._update_all_crosssection_entries()
         for item in self._crosssection_markers:
             self.crosssection_plot.removeItem(item)
         self._crosssection_markers = []

@@ -21,12 +21,13 @@ from __future__ import annotations
 
 from qtpy import QtWidgets
 
-_LAYER_TAB_ORDER = ["all", "roi", "shrinkage", "scale"]
+_LAYER_TAB_ORDER = ["all", "roi", "shrinkage", "scale", "querschnitt"]
 _LAYER_TAB_LABELS = {
     "all": "Alle",
     "roi": "Temperatur-Messung",
     "shrinkage": "Schwindungsmessung",
     "scale": "Maßstab",
+    "querschnitt": "Querschnitte",
 }
 
 # Eigenes Tab-Set des RECHTEN PANELS (siehe roi_panel_build.py:
@@ -34,7 +35,7 @@ _LAYER_TAB_LABELS = {
 # (bei echten, sich ausschliessenden Tabs ergibt "alles gleichzeitig zeigen"
 # keinen Sinn mehr), dafuer zusaetzlich "legende" (hat keine Bild-Overlay-
 # Entsprechung, daher auch keine Zeile in _LAYER_TAB_ORDER).
-_PANEL_TAB_ORDER = ["legende", "roi", "shrinkage", "scale"]
+_PANEL_TAB_ORDER = ["legende", "roi", "shrinkage", "scale", "querschnitt"]
 
 
 class _LayerTabsMixin:
@@ -79,6 +80,8 @@ class _LayerTabsMixin:
                 self._cancel_measurement_tool()
             if tab != "shrinkage" and self._sample_height_armed:
                 self._cancel_sample_height_tool()
+            if tab != "querschnitt" and self._crosssection_entry_armed_direction is not None:
+                self._cancel_crosssection_entry_tool()
         self._active_layer_tab = tab
         self.layer_tab_bar.blockSignals(True)
         self.layer_tab_bar.setCurrentIndex(_LAYER_TAB_ORDER.index(tab))
@@ -127,6 +130,7 @@ class _LayerTabsMixin:
         _set_active_layer_tab/_on_panel_tab_widget_changed)."""
         self._apply_roi_and_shrinkage_visibility()
         self._apply_scale_visuals_visibility()
+        self._apply_crosssection_entries_visibility()
 
     def _apply_roi_and_shrinkage_visibility(self) -> None:
         """Der ROI-/Schwindungs-Teil von _apply_layer_tab_visibility() --

@@ -400,6 +400,24 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             self._candidate_checks[idx] = chk
             self._candidates_layout.insertWidget(self._candidates_layout.count() - 1, chk)
 
+        # Bugfix: dieser ganze Methodenaufruf laeuft synchron INNERHALB des
+        # pyqtgraph-Mausklick-Handlers (siehe CleaningPreviewViewer._on_
+        # scene_clicked) -- lbl_summary.setText() mit wordWrap aendert bei
+        # geaenderter Hoehe nur ueber ein GEQUEUTES LayoutRequest-Event die
+        # tatsaechliche Geometrie (QWidget.updateGeometry() postet, wendet
+        # nicht sofort an). Ohne diesen Aufruf wird der naechste Repaint-
+        # Frame mit bereits aktualisierter Vorschau (links, synchron neu
+        # gezeichnet) aber noch ALTER Layout-Geometrie rechts gemalt, bis ein
+        # weiteres Event (z.B. ein Klick) die Queue abarbeitet (Bugreport:
+        # Text "springt" kurz an die falsche Stelle). activate() loest die
+        # Geometrie-Neuberechnung sofort synchron aus. Bewusst KEIN
+        # processEvents() -- siehe smoke_test.py:
+        # test_scaled_export_visuals_touches_only_legend_font fuer einen
+        # bestehenden Regressionstest, der processEvents() in Layout-Faellen
+        # wegen eines frueheren Flacker-Bugs an anderer Stelle explizit
+        # verbietet.
+        self.layout().activate()
+
     def _on_candidate_checkbox_toggled(self, checked: bool) -> None:
         """Jeder Checkbox-Klick wirkt SOFORT auf Viewer/Kurven/Export -- kein
         separater "Anwenden"-Knopf. Baut die Ausschluss-Menge komplett aus

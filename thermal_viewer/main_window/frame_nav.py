@@ -48,6 +48,7 @@ class _FrameNavMixin:
         # Ladevorgang hinweg erhalten, statt (wie hier fuer alles andere)
         # vollstaendig verworfen zu werden.
         self._clear_all_sample_heights_for_new_recording()
+        self._clear_all_crosssection_entries_for_new_recording()
         self._armed_entry = None
         self._roi_next_number = 1
         self._measurement_next_number = 1
@@ -210,6 +211,7 @@ class _FrameNavMixin:
         # Neuberechnung liest sonst noch den (evtl. zu grossen) current_index
         # der VORHERIGEN Aufnahme fuer die Polaritaets-Erkennung.
         self._reset_sample_heights_for_recording()
+        self._reset_crosssection_entries_for_recording()
 
         self.view_box.setRange(xRange=(0, cols), yRange=(0, rows), padding=0.02)
         # defer_display=True (Nutzerwunsch): nach "Ordner öffnen…" MUSS die

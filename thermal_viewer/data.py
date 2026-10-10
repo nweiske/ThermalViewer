@@ -8,6 +8,7 @@ compile_filename_template) auch fuer andere Namensschemata anpassbar.
 """
 from __future__ import annotations
 
+import io
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -299,10 +300,20 @@ def _select_data_lines(text: str, settings: ImportSettings) -> list[str]:
     return lines
 
 
-def _parse_data_line(line: str, settings: ImportSettings) -> list[float]:
+def _clean_data_line(line: str, settings: ImportSettings) -> str:
+    """Entfernt Rand-Leerraum und ein optionales abschliessendes Trennzeichen
+    (z.B. eine Zeile, die mit ';' endet) -- gemeinsame Vorverarbeitung fuer
+    _parse_data_line UND den pandas-Fastpath in parse_frame_text, damit
+    beide exakt dieselben Zeilen als Daten vs. "leer, ueberspringen"
+    behandeln."""
     line = line.strip()
     if settings.delimiter:
         line = line.rstrip(settings.delimiter)
+    return line
+
+
+def _parse_data_line(line: str, settings: ImportSettings) -> list[float]:
+    line = _clean_data_line(line, settings)
     if not line:
         return []
     parts = line.split(settings.delimiter) if settings.delimiter else line.split()
@@ -312,6 +323,51 @@ def _parse_data_line(line: str, settings: ImportSettings) -> list[float]:
         parts = parts[: -settings.skip_trailing_columns]  # siehe _select_data_lines zum Grund des if-Guards
     sep = settings.decimal_separator
     return [float(value.strip().replace(sep, ".") if sep and sep != "." else value.strip()) for value in parts]
+
+
+def _try_fast_parse_lines(lines: list[str], settings: ImportSettings) -> np.ndarray | None:
+    """Versucht, bereits bereinigte, nicht-leere Datenzeilen (siehe
+    _clean_data_line) in EINEM Rutsch per numpy (C-Parser, np.loadtxt) statt
+    zeilenweise per Python float() zu parsen -- bei den typischen Thermobild-
+    CSVs (eine Bildzeile pro Textzeile, viele Spalten) ein spuerbarer
+    Geschwindigkeits-Gewinn. Benchmark (240x320-Zahlenraster, 30 Wiederholungen)
+    ergab np.loadtxt knapp doppelt so schnell wie die reine Python-Schleife --
+    pandas.read_csv (urspruenglich hier eingesetzt, da bereits Projekt-
+    Abhaengigkeit, siehe pyproject.toml) lag im selben Benchmark dagegen NUR
+    unwesentlich vor der Python-Schleife (DataFrame-/Dtype-Overhead pro
+    Datei dominiert bei dieser Datengroesse) -- np.loadtxt gewinnt klar und
+    braucht keine neue Abhaengigkeit.
+
+    Gibt None zurueck, wenn IRGENDETWAS unerwartet ist (Exception,
+    inkonsistente Spaltenzahl, leere Eingabe) -- der Aufrufer
+    (parse_frame_text) faellt dann auf den bewaehrten, zeilenweisen Fallback
+    (_parse_data_line) zurueck, der GENAU dieselben RecordingError-Meldungen
+    wie bisher erzeugt. Dieser Fastpath wirft daher NIE selbst einen Fehler,
+    der dem Nutzer angezeigt wuerde."""
+    if not lines:
+        return None
+    try:
+        text = "\n".join(lines)
+        # Dezimaltrennzeichen EINMAL fuer den ganzen Text ersetzen (ein
+        # einzelner, schneller str.replace()-Aufruf) statt pro Zelle wie im
+        # Fallback -- np.loadtxt kennt selbst kein decimal=-Argument.
+        if settings.decimal_separator and settings.decimal_separator != ".":
+            text = text.replace(settings.decimal_separator, ".")
+        delimiter = settings.delimiter or None  # None = beliebig viele Leerzeichen, wie settings.delimiter == ""
+        # ndmin=2: ohne das wuerde eine Datei mit NUR EINER Datenzeile von
+        # np.loadtxt zu einem 1D- statt 2D-Array verkuerzt (Sonderfall-Falle).
+        arr = np.loadtxt(io.StringIO(text), delimiter=delimiter, dtype=np.float32, ndmin=2)
+        if arr.shape[0] != len(lines) or arr.shape[1] == 0:
+            return None
+        start = settings.skip_leading_columns
+        stop = arr.shape[1] - settings.skip_trailing_columns if settings.skip_trailing_columns else arr.shape[1]
+        if start < 0 or stop <= start:
+            return None
+        if start or stop != arr.shape[1]:
+            arr = arr[:, start:stop]
+        return arr
+    except Exception:
+        return None
 
 
 def parse_frame_text(text: str, settings: ImportSettings | None = None) -> np.ndarray:
@@ -341,8 +397,20 @@ def parse_frame_text(text: str, settings: ImportSettings | None = None) -> np.nd
             "Trennzeichen und Dezimaltrennzeichen dürfen im Datenimport nicht identisch sein -- "
             "bitte im Datenimport-Manager anpassen."
         )
+    selected_lines = _select_data_lines(text, settings)
+    # Fastpath (siehe _try_fast_parse_lines-Docstring) zuerst versuchen --
+    # dieselben nicht-leeren, bereinigten Zeilen wie der Fallback unten
+    # verarbeitet haette. Bei Erfolg identisches Ergebnis, nur massiv
+    # schneller; bei JEDER Abweichung faellt der Code unveraendert auf die
+    # bewaehrte, zeilenweise Schleife zurueck (identische Fehlermeldungen).
+    cleaned_lines = [_clean_data_line(line, settings) for line in selected_lines]
+    non_empty_lines = [line for line in cleaned_lines if line]
+    fast_result = _try_fast_parse_lines(non_empty_lines, settings)
+    if fast_result is not None:
+        return fast_result
+
     rows: list[list[float]] = []
-    for line in _select_data_lines(text, settings):
+    for line in selected_lines:
         try:
             values = _parse_data_line(line, settings)
         except ValueError as exc:

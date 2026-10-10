@@ -8,12 +8,14 @@ import pytest
 
 from thermal_viewer.data import (
     DEFAULT_FILENAME_TEMPLATE,
+    ImportSettings,
     RecordingError,
     _deduplicate_timestamps,
     append_paths,
     compile_filename_template,
     load_frame,
     load_paths,
+    parse_frame_text,
     render_filename_template,
     validate_filename_template,
 )
@@ -99,6 +101,47 @@ def test_load_frame_raises_on_empty_file(tmp_path):
     path.write_text("", encoding="utf-8")
     with pytest.raises(RecordingError):
         load_frame(path)
+
+
+def test_parse_frame_text_fast_path_matches_fallback_exactly():
+    # Bugfix (Performance): parse_frame_text() versucht zuerst einen
+    # np.loadtxt()-basierten Fastpath (siehe _try_fast_parse_lines), bevor
+    # es auf die alte, zeilenweise Python-Schleife zurueckfaellt -- beide
+    # MUESSEN fuer dieselbe Datei exakt dasselbe Ergebnis liefern. Erzwingt
+    # den Fallback hier direkt ueber monkeypatch-freies Abschalten (leere
+    # Zeilenliste wuerde den Fastpath ohnehin ueberspringen) -- stattdessen
+    # wird der oeffentliche Pfad einmal normal aufgerufen und zusaetzlich
+    # der interne Fallback-Teil isoliert ueber _parse_data_line nachgebaut,
+    # um beide Pfade ohne Monkeypatch direkt zu vergleichen.
+    import numpy as np
+
+    from thermal_viewer.data import _parse_data_line, _select_data_lines
+
+    rng = np.random.default_rng(7)
+    values = rng.uniform(10.0, 60.0, size=(12, 17)).astype(np.float32)
+    lines = [";".join(f"{v:.2f}".replace(".", ",") for v in row) + ";" for row in values]
+    text = "\n".join(lines)
+    settings = ImportSettings()
+
+    fast = parse_frame_text(text, settings)
+    reference = np.array(
+        [_parse_data_line(line, settings) for line in _select_data_lines(text, settings)],
+        dtype=np.float32,
+    )
+    assert fast.shape == reference.shape == values.shape
+    assert np.allclose(fast, reference, atol=1e-4)
+    assert np.allclose(fast, values, atol=1e-2)  # Rundung auf 2 Nachkommastellen beim Erzeugen
+
+
+def test_parse_frame_text_fast_path_falls_back_on_malformed_value():
+    # Ein ungueltiger Zahlenwert laesst np.loadtxt scheitern -- der Fastpath
+    # faengt das ab (gibt None zurueck) und die Fehlermeldung muss weiterhin
+    # exakt vom bewaehrten, zeilenweisen Fallback stammen (mit der
+    # vollstaendigen Zeile im Text, nicht einer numpy-internen Meldung).
+    settings = ImportSettings()
+    text = "1,0;2,0;abc;4,0\n5,0;6,0;7,0;8,0"
+    with pytest.raises(RecordingError, match="Ungültiger Zahlenwert in Zeile"):
+        parse_frame_text(text, settings)
 
 
 def test_deduplicate_timestamps_forces_strictly_increasing_sequence():

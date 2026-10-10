@@ -62,6 +62,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         ruler_available: bool = False,
         measurement_entries: list[tuple[int, str]] | None = None,
         shrinkage_available: bool = True,
+        querschnitt_available: bool = True,
     ):
         super().__init__(parent)
         self.setWindowTitle("Grafik exportieren")
@@ -109,11 +110,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             left_col.addWidget(graphs_box)
             # Bugfix: ein Graph ohne jede Daten liess sich bisher trotzdem
             # anhaken und exportierte dann ein leeres Koordinatensystem --
-            # Zeitverlauf/Schwindung jetzt gesperrt, wenn es nichts zu zeigen
-            # gibt. Querschnitt bleibt bewusst IMMER waehlbar: er zeigt
-            # (anders als Zeitverlauf/Schwindung) immer ein Profil der
-            # aktuellen Position, auch ohne manuelle Fixierung (siehe
-            # crosssection_ops.py -- Position startet auf der Bildmitte).
+            # alle drei jetzt gesperrt, wenn es nichts zu zeigen gibt.
             zeitverlauf_available = bool(roi_entries) or live_available
             if not zeitverlauf_available:
                 self.chk_graph_zeitverlauf.setChecked(False)
@@ -124,6 +121,13 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             if not shrinkage_available:
                 self.chk_graph_schwindung.setEnabled(False)
                 self.chk_graph_schwindung.setToolTip("Schwindungsmessung wurde noch nicht berechnet.")
+            if not querschnitt_available:
+                self.chk_graph_querschnitt.setChecked(False)
+                self.chk_graph_querschnitt.setEnabled(False)
+                self.chk_graph_querschnitt.setToolTip(
+                    "Kein Querschnitt fixiert/angelegt -- auf welcher Zeile/Spalte würde sonst "
+                    "exportiert?"
+                )
 
             self._content_selector = GraphContentSelector(
                 roi_entries or [], live_available, default_live_checked=False
@@ -593,6 +597,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         measurement_entries: list[tuple[int, str]] | None = None,
         has_excluded_frames: bool = False,
         shrinkage_available: bool = True,
+        querschnitt_available: bool = True,
     ):
         super().__init__(parent)
         self.setWindowTitle("Video / Bildstapel exportieren")
@@ -831,6 +836,12 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         if not shrinkage_available:
             self.chk_graph_schwindung.setEnabled(False)
             self.chk_graph_schwindung.setToolTip("Schwindungsmessung wurde noch nicht berechnet.")
+        if not querschnitt_available:
+            self.chk_graph_querschnitt.setChecked(False)
+            self.chk_graph_querschnitt.setEnabled(False)
+            self.chk_graph_querschnitt.setToolTip(
+                "Kein Querschnitt fixiert/angelegt -- auf welcher Zeile/Spalte würde sonst exportiert?"
+            )
 
         # Eingerueckt unter "Graph mit exportieren" -- Inhalt/Position sind
         # nur relevant, wenn ueberhaupt ein Graph exportiert wird. Der Cursor

@@ -26,6 +26,7 @@ from .export_common import _ExportCommonMixin
 from .export_visuals import _ExportVisualsMixin
 from .export_csv import _CsvExportMixin
 from .export_image import _ImageExportMixin
+from .crosssection_entry_ops import _CrosssectionEntryMixin
 from .crosssection_ops import _CrossSectionMixin
 from .data_cleaning_ops import _DataCleaningMixin
 from .export_video import _VideoExportMixin
@@ -67,6 +68,7 @@ class MainWindow(
     _ShrinkageMixin,
     _SampleHeightMixin,
     _CrossSectionMixin,
+    _CrosssectionEntryMixin,
     _MouseMixin,
     _UndoMixin,
     _ExportCommonMixin,
@@ -118,6 +120,13 @@ class MainWindow(
         # Rechtsklick loest wieder), aber EIGENSTAENDIG -- unabhaengig von
         # dessen Fixierung (_live_pinned) in den anderen Tabs.
         self._crosssection_pinned: bool = False
+        # Mehrere, benannte Querschnitte (siehe crosssection_entry_ops.py) --
+        # ERGAENZEN den obigen einzelnen Hover/Pin-Querschnitt, unabhaengige
+        # Ablage. _crosssection_entry_armed_direction: "horizontal"/
+        # "vertical", solange der jeweilige "+ ..."-Knopf aktiv ist, sonst None.
+        self._crosssection_entries: list = []
+        self._crosssection_entry_next_number = 1
+        self._crosssection_entry_armed_direction: str | None = None
         # Kantenlaenge (ungerade Pixelzahl) des um das Cursor-Pixel
         # gemittelten Bereichs fuer Live-Verlauf/-Anzeige (Werkzeuge-Menue
         # "Live-Cursor-Bereichsgröße") -- Standard: 5x5.

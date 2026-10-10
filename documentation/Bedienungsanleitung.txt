@@ -35,6 +35,7 @@ INHALT
 19. Ebenen-Tabs (Bereiche über dem Thermobild ein-/ausblenden)
 20. Rückgängig/Wiederholen
 21. Querschnitt-Graph
+22. Mehrfach-Querschnitte
 
 
 ================================================================
@@ -1951,3 +1952,42 @@ erscheinen alle, bei "Temperatur-Messung" nur die Messbereich-, bei
 "Schwindungsmessung" nur die Box-/Kontur-Markierungen. "Achsen
 zurücksetzen" setzt Zoom/Verschieben dieses Graphen zurück, genau wie bei
 den anderen Graphen.
+
+
+================================================================
+22. MEHRFACH-QUERSCHNITTE
+================================================================
+
+Ergänzt (ersetzt nicht) den obigen einzelnen, der Maus folgenden
+Querschnitt um beliebig viele (max. 10) dauerhafte, benannte Linien
+gleichzeitig -- jede mit eigener Farbe, fest horizontal ODER vertikal
+(bei der Erzeugung gewählt). Erreichbar über den eigenen Reiter
+"Querschnitte" im rechten Werkzeuge-Panel (wie "Maßstab" ein eigenständiger
+Reiter, nicht in eine andere Seite eingebettet).
+
+ANLEGEN: "+ Horizontal" bzw. "+ Vertikal" einschalten (Dauer-Modus, wie
+bei den Probenhöhen, Abschnitt 18) und dann beliebig oft ins Thermobild
+klicken -- jeder Klick platziert eine weitere Linie der gewählten
+Richtung, bis der Knopf erneut geklickt wird oder das Maximum (10, über
+beide Richtungen zusammen) erreicht ist. Pro Eintrag in der Liste
+verfügbar: Aktiv-Haken (blendet Linie + Kurve ein/aus), Name (frei
+editierbar), Position (Zeile bzw. Spalte, per Spinbox ODER direkt per
+Ziehen der zugehörigen Linie im Bild), Farbe (Klick auf das Farbfeld) und
+ein "×"-Knopf zum endgültigen Entfernen.
+
+Die Kurve jedes Eintrags erscheint zusätzlich zur bestehenden "Live"-Kurve
+im selben Querschnitt-Graphen (Abschnitt 21, jetzt mit Legende). Wie die
+"Live"-Kurve zeigt sie das Profil des AKTUELL angezeigten Bilds (kein
+Zeitverlauf) und aktualisiert sich automatisch bei jedem Frame-Wechsel.
+Die LINIEN im Thermobild folgen einem eigenen Ebenen-Tab ("Querschnitte",
+Abschnitt 19) -- nur sichtbar, während dieser (oder "Alle") aktiv ist; die
+Kurven selbst sind davon unabhängig, genau wie bei der "Live"-Kurve.
+
+Alle Einträge werden vollständig im Projekt gespeichert/geladen (Name,
+Farbe, Richtung, Position, Aktiv-Haken) und bleiben über Rückgängig/
+Wiederholen hinweg erhalten.
+
+EXPORT: Die Checkbox "Querschnitt" im Grafik-/Video-/Bildstapel-Export-
+Dialog ist gesperrt, solange weder der einzelne Querschnitt jemals
+fixiert noch ein benannter Eintrag angelegt wurde -- ohne das wäre
+unklar, auf welcher Zeile/Spalte überhaupt exportiert würde.

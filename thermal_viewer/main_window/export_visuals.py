@@ -94,6 +94,19 @@ class _ExportVisualsMixin:
         image_bg = QtGui.QColor(self._image_bg)
         bg = QtGui.QColor(self._graph_bg)
         fg = QtGui.QColor(self._graph_fg)
+        # Bugfix: die Vorschau baute _dual_time_axis_export/_temporary_time_
+        # display_mode bisher gar nicht mit auf -- bei "Beide Zeitachsen"
+        # fehlte dadurch die obere Achse in der Vorschau, obwohl die
+        # tatsaechliche Export-Datei (_export_combined_image) sie korrekt
+        # zeigt. Nur GraphicExportDialog kennt time_axis_mode() (siehe
+        # export_dialogs.py) -- VideoExportDialog hat ein eigenes, von der
+        # "Zeitanzeige im Bild"-Option abgeleitetes Zeitachsen-Konzept (siehe
+        # export_video.py), das hier unberuehrt bleibt.
+        time_axis_mode = export_dialog.time_axis_mode() if hasattr(export_dialog, "time_axis_mode") else "clock"
+        time_axis_ctx = (
+            self._dual_time_axis_export(self.timeseries_plot) if time_axis_mode == "both"
+            else self._temporary_time_display_mode(time_axis_mode)
+        )
         try:
             # Bugfix: OHNE _frozen_ui_during_export() holt _widget_raised_for_
             # export fuer jeden ausgewaehlten, tabifizierten Graphen (Zeitverlauf/
@@ -106,7 +119,9 @@ class _ExportVisualsMixin:
             with self._frozen_ui_during_export(), \
                     self._maybe_hidden_live_cursor(include_cursor), \
                     self._temporary_export_layers(layer_categories), \
-                    self._temporary_graph_content(selected_numbers, include_live):
+                    time_axis_ctx, \
+                    self._temporary_graph_content(selected_numbers, include_live), \
+                    self._temporary_best_legend_placement():
                 for key in selected_keys:
                     with self._widget_raised_for_export(self._export_graph_widget(key)):
                         QtWidgets.QApplication.processEvents()
@@ -238,6 +253,66 @@ class _ExportVisualsMixin:
             self.live_frame_marker.setPen(_dash_pen(1))
             for lg, t in zip_strict(legends, old_legend_transforms):
                 lg.setTransform(t)
+
+    @staticmethod
+    def _best_legend_corner(plot_item) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+        """Waehlt die Ecke des aktuell sichtbaren Wertebereichs mit den
+        WENIGSTEN Kurven-Datenpunkten (Nutzerwunsch: die Legende liegt im
+        Export oft mitten auf den Kurven, soll stattdessen "da hin, wo sie
+        am wenigsten stoert") -- zaehlt dazu grob, wie viele Punkte jeder
+        sichtbaren Kurve in jedes der 4 Viertel des ViewBox-Bereichs fallen,
+        und gibt die (itemPos, parentPos, offset)-Argumente fuer
+        LegendItem.anchor() zurueck (siehe pyqtgraph-Doku: (0,0)=oben links,
+        (1,1)=unten rechts relativ zum Eltern-Item)."""
+        view_box = plot_item.getViewBox()
+        (x0, x1), (y0, y1) = view_box.viewRange()
+        x_mid, y_mid = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        counts = {"tl": 0, "tr": 0, "bl": 0, "br": 0}
+        for curve in plot_item.listDataItems():
+            xs, ys = curve.getData()
+            if xs is None or len(xs) == 0:
+                continue
+            xs, ys = np.asarray(xs), np.asarray(ys)
+            in_range = (xs >= x0) & (xs <= x1) & (ys >= y0) & (ys <= y1)
+            xs, ys = xs[in_range], ys[in_range]
+            left, top = xs <= x_mid, ys >= y_mid
+            counts["tl"] += int(np.count_nonzero(left & top))
+            counts["tr"] += int(np.count_nonzero(~left & top))
+            counts["bl"] += int(np.count_nonzero(left & ~top))
+            counts["br"] += int(np.count_nonzero(~left & ~top))
+        best = min(counts, key=counts.get)
+        return {
+            "tl": ((0, 0), (0, 0), (10, 10)),
+            "tr": ((1, 0), (1, 0), (-10, 10)),
+            "bl": ((0, 1), (0, 1), (10, -10)),
+            "br": ((1, 1), (1, 1), (-10, -10)),
+        }[best]
+
+    @contextlib.contextmanager
+    def _temporary_best_legend_placement(self):
+        """Verschiebt timeseries_legend/shrinkage_legend waehrend eines
+        Exports in die jeweils leerste Ecke ihres Plots (siehe
+        _best_legend_corner) und setzt sie danach auf die Standard-Position
+        (oben links, wie beim urspruenglichen addLegend(offset=(10,10)))
+        zurueck. Legenden sind in dieser App nicht dauerhaft per Ziehen
+        positionierbar/gespeichert -- "oben links" ist daher IMMER die
+        korrekte Ausgangsposition, keine verlorene Nutzer-Anpassung."""
+        pairs = [
+            (self.timeseries_legend, self.timeseries_plot),
+            (self.shrinkage_legend, self.shrinkage_plot),
+            (self.crosssection_legend, self.crosssection_plot),
+        ]
+        for legend, plot_widget in pairs:
+            if legend is None:
+                continue
+            item_pos, parent_pos, offset = self._best_legend_corner(plot_widget.getPlotItem())
+            legend.anchor(item_pos, parent_pos, offset=offset)
+        try:
+            yield
+        finally:
+            for legend, _plot_widget in pairs:
+                if legend is not None:
+                    legend.anchor((0, 0), (0, 0), offset=(10, 10))
 
     @contextlib.contextmanager
     def _temporary_scale_visuals(self, include_ruler: bool, selected_numbers: set[int]):

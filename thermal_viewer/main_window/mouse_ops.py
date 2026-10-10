@@ -10,6 +10,18 @@ class _MouseMixin:
         if self.recording is None:
             return
 
+        if self._crosssection_entry_armed_direction is not None:
+            # VOR dem crosssection_tab_active()-Check unten (analog zu dessen
+            # eigener Prioritaets-Begruendung dort): ein explizit ueber "+
+            # Horizontal"/"+ Vertikal" armiertes Platzieren-Werkzeug ist eine
+            # aktuellere, spezifischere Nutzerabsicht als der blosse Fokus
+            # auf dem "Querschnitt"-Graph-Dock-Tab -- ohne diese Prioritaet
+            # wuerde ein Klick bei gleichzeitig sichtbarem Querschnitt-Tab
+            # faelschlich nur das Hover/Pin-Fadenkreuz verschieben statt eine
+            # neue Querschnitt-Linie zu platzieren.
+            self._handle_crosssection_entry_click(event)
+            return
+
         if self._crosssection_tab_active():
             # Nutzerwunsch: waehrend der "Querschnitt"-Tab im Vordergrund
             # ist, verhaelt sich ein Linksklick ins Bild komplett anders

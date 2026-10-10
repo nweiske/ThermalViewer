@@ -23,6 +23,7 @@ from ..roi_entry import (
     MAX_ROI_COUNT,
     RoiEntry,
 )
+from .crosssection_entry_ops import MAX_CROSSSECTION_ENTRY_COUNT, _crosssection_entry_color
 from .sample_height_ops import MAX_SAMPLE_HEIGHT_COUNT, _sample_height_color
 from .shrinkage_ops import _SHRINKAGE_METRIC_LABELS
 
@@ -225,8 +226,28 @@ class _ProjectMixin:
             # Daten), sondern beim Laden aus Zeile+Box-Spaltenbereich neu
             # berechnet (siehe _load_project_sample_heights).
             "probenhoehen": self._sample_heights_state_list(),
+            # Mehrere, benannte Querschnitte (siehe crosssection_entry_
+            # ops.py) -- ERGAENZEN den einzelnen Hover/Pin-Querschnitt
+            # (dessen Position/Richtung bewusst NICHT gespeichert wird: eine
+            # reine Anzeige-/Bedien-Bequemlichkeit, kein eigenstaendiges
+            # Mess-Ergebnis, anders als diese benannten Eintraege). Kein
+            # Ergebnis-Array zu speichern (anders als Probenhöhen) -- die
+            # Kurve ist eine reine Pro-Bild-Momentaufnahme, wird beim Laden
+            # einfach aus dem aktuellen Bild neu gezeichnet.
+            "querschnitte": self._crosssection_entries_state_list(),
         }
         return data
+
+    def _crosssection_entries_state_list(self) -> list:
+        """Baut die "querschnitte"-Liste aus dem AKTUELLEN Live-Zustand --
+        siehe _shrinkage_state_dict()."""
+        return [
+            {
+                "nummer": entry.number, "name": entry.name, "farbe": entry.color,
+                "richtung": entry.direction, "position": entry.position, "aktiv": entry.enabled,
+            }
+            for entry in self._crosssection_entries
+        ]
 
     def _shrinkage_state_dict(self) -> dict:
         """Baut das "schwindung"-Teil-dict aus dem AKTUELLEN Live-Zustand --
@@ -310,6 +331,7 @@ class _ProjectMixin:
         self._load_project_cleaning(data)
         self._load_project_shrinkage(data)
         self._load_project_sample_heights(data)
+        self._load_project_crosssection_entries(data)
         # Ebenen-Tabs (layer_tabs_ops.py): Messbereiche koennen waehrend des
         # Ladens neu platziert worden sein (entry.place() setzt dabei seine
         # eigene Sichtbarkeit OHNE Kenntnis der aktuell aktiven Ebene) --
@@ -355,6 +377,7 @@ class _ProjectMixin:
         self._load_project_cleaning(data)
         self._load_project_shrinkage(data, recompute=False)
         self._load_project_sample_heights(data, recompute=False)
+        self._load_project_crosssection_entries(data)
         self._apply_layer_tab_visibility()
 
     def _load_project_resolve_recording(self, data: dict) -> bool:
@@ -1030,6 +1053,57 @@ class _ProjectMixin:
             for entry in self._sample_height_entries:
                 self._update_sample_height_label_pos(entry)
         self._apply_sample_height_visibility()
+
+    def _load_project_crosssection_entries(self, data: dict) -> None:
+        """Mehrere, benannte Querschnitte (siehe crosssection_entry_ops.py)
+        aus der Projektdatei übernehmen -- verwirft ALLE bestehenden
+        Einträge und baut sie komplett neu auf (wie Probenhöhen, full_
+        replace), konsistent für "Projekt laden" UND Undo/Redo. Anders als
+        Schwindung/Probenhöhen OHNE recompute-Parameter/Kurzschluss: die
+        Kurve ist eine reine Pro-Bild-Momentaufnahme (kein Zeitverlauf,
+        siehe Moduldocstring crosssection_entry_ops.py) -- das Neuzeichnen
+        ist ein einfaches Array-Slicing, zu billig, um eine eigene
+        Kurzschluss-Logik zu rechtfertigen."""
+        for entry in self._crosssection_entries:
+            entry.remove_from_view(self.view_box, self.crosssection_plot)
+        self._crosssection_entries = []
+
+        entries_data = data.get("querschnitte")
+        if isinstance(entries_data, list) and self.recording is not None:
+            rows, cols = self.recording.shape
+            max_number = 0
+            for item in entries_data[:MAX_CROSSSECTION_ENTRY_COUNT]:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    number = int(item["nummer"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                direction = item.get("richtung")
+                if direction not in ("horizontal", "vertical"):
+                    continue
+                color = item.get("farbe")
+                if not (isinstance(color, str) and QtGui.QColor(color).isValid()):
+                    color = _crosssection_entry_color(number)
+                entry = self._create_crosssection_entry(number, color, direction)
+                name = item.get("name")
+                entry.set_name(name if isinstance(name, str) and name.strip() else f"Querschnitt {number}")
+                try:
+                    position_val = int(float(item.get("position", 0)))
+                except (TypeError, ValueError):
+                    position_val = 0
+                limit = rows if direction == "horizontal" else cols
+                entry.position = max(0, min(limit - 1, position_val))
+                enabled = item.get("aktiv")
+                entry.enabled = enabled if isinstance(enabled, bool) else True
+                self._update_crosssection_entry_line_pos(entry)
+                self._crosssection_entries.append(entry)
+                max_number = max(max_number, number)
+            self._crosssection_entry_next_number = max_number + 1
+
+        self._refresh_crosssection_entry_rows()
+        self._update_all_crosssection_entries()
+        self._apply_crosssection_entries_visibility()
 
     def _load_paths(
         self, paths: list[Path], pattern: re.Pattern | None = None, strptime_fmt: str | None = None,

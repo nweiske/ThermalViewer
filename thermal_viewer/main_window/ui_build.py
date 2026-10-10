@@ -607,7 +607,13 @@ class _UIBuildMixin:
         self.crosssection_plot.setLabel("left", "Temperatur", units="°C")
         self.crosssection_plot.showGrid(x=True, y=True, alpha=0.3)
         self.crosssection_plot.getPlotItem().getViewBox().setDefaultPadding(0.08)
-        self.crosssection_curve = self.crosssection_plot.plot(pen=pg.mkPen("#38bdf8", width=2))
+        # Legende (Nutzerwunsch: mehrere gleichzeitige Querschnitte, siehe
+        # crosssection_entry_ops.py) -- bisher kein Legenden-Bedarf, da immer
+        # nur genau EINE Kurve auf diesem Graphen lag. "Live" benennt den
+        # bestehenden, der Maus folgenden Hover/Pin-Querschnitt, damit er in
+        # der Legende neben den neuen, benannten Eintraegen unterscheidbar ist.
+        self.crosssection_legend = self.crosssection_plot.addLegend(offset=(10, 10))
+        self.crosssection_curve = self.crosssection_plot.plot(pen=pg.mkPen("#38bdf8", width=2), name="Live")
         self._trim_plot_context_menu(self.crosssection_plot)
 
         self.lbl_crosssection_position = QtWidgets.QLabel(

@@ -1441,6 +1441,77 @@ def test_render_export_preview_image_reflects_selected_graphs(roi_and_live_windo
         dlg.close()
 
 
+def test_render_export_preview_image_shows_both_time_axes(roi_and_live_window):
+    # Bugfix: "Beide Zeitachsen" wurde beim ECHTEN Export schon korrekt
+    # angewendet (_dual_time_axis_export), die Vorschau (_render_export_
+    # preview_image) baute diesen Context-Manager bisher gar nicht mit auf
+    # -- die obere Achse fehlte dadurch in der Vorschau trotz passender
+    # Dialog-Auswahl, obwohl die tatsaechliche Exportdatei sie zeigte.
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    mw = roi_and_live_window
+    dlg = GraphicExportDialog(
+        mw, mw._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=True,
+        roi_entries=[(e.number, e.name) for e in mw.roi_entries if e.placed],
+    )
+    try:
+        idx = dlg.combo_time_axis.findData("both")
+        dlg.combo_time_axis.setCurrentIndex(idx)
+
+        observed = {}
+        orig_render_widget_image = mw._render_widget_image
+
+        def spying_render_widget_image(widget, *args, **kwargs):
+            if widget is mw.timeseries_plot and "top_visible" not in observed:
+                observed["top_visible"] = mw.timeseries_plot.getPlotItem().getAxis("top").isVisible()
+            return orig_render_widget_image(widget, *args, **kwargs)
+
+        mw._render_widget_image = spying_render_widget_image
+        try:
+            image = mw._render_export_preview_image(dlg)
+        finally:
+            mw._render_widget_image = orig_render_widget_image
+
+        assert image is not None and not image.isNull()
+        assert observed.get("top_visible") is True
+        # Nach der Vorschau muss die obere Achse wieder ausgeblendet sein
+        # (temporaer, wie beim echten Export).
+        assert mw.timeseries_plot.getPlotItem().getAxis("top").isVisible() is False
+    finally:
+        dlg.close()
+
+
+def test_best_legend_corner_picks_quadrant_with_fewest_points(loaded_main_window):
+    # Nutzerwunsch: die Legende soll nicht auf den Kurven liegen -- siehe
+    # _best_legend_corner (export_visuals.py).
+    import pyqtgraph as pg
+
+    mw = loaded_main_window
+    plot_widget = pg.PlotWidget()
+    try:
+        plot_item = plot_widget.getPlotItem()
+        # Viele Punkte oben links, keine in den anderen drei Vierteln.
+        plot_item.plot(x=[0, 1, 2, 3], y=[8, 8.5, 9, 9.5])
+        plot_item.getViewBox().setRange(xRange=(0, 10), yRange=(0, 10), padding=0)
+
+        item_pos, _parent_pos, _offset = mw._best_legend_corner(plot_item)
+        assert item_pos != (0, 0), "oben links ist voll besetzt, darf nicht gewaehlt werden"
+    finally:
+        plot_widget.deleteLater()
+
+
+def test_temporary_best_legend_placement_moves_and_restores(roi_and_live_window):
+    mw = roi_and_live_window
+    original_pos = mw.timeseries_legend.pos()
+    with mw._temporary_best_legend_placement():
+        pass  # Verschieben/Zuruecksetzen passiert beim Betreten/Verlassen.
+    restored_pos = mw.timeseries_legend.pos()
+    assert (restored_pos.x(), restored_pos.y()) == pytest.approx((original_pos.x(), original_pos.y()))
+
+
 def test_video_export_dialog_graph_checkboxes_default_to_none_selected(qapp):
     # Anders als GraphicExportDialog war der bisherige Standard hier "kein
     # Graph" (chk_show_graph startete unangehakt) -- bleibt so.
@@ -3875,3 +3946,206 @@ def test_crosssection_image_line_visible_only_while_tab_active(loaded_main_windo
     monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
     mw._update_crosssection_image_line()
     assert mw.crosssection_image_line.isVisible() is True
+
+
+# ------------------------------------------------------- Mehrfach-Querschnitte
+
+def test_add_crosssection_entry_creates_entry_and_computes_profile(loaded_main_window):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    entry = mw._add_crosssection_entry("horizontal", 5)
+
+    assert entry.name == "Querschnitt 1"
+    assert entry.direction == "horizontal"
+    assert entry.position == 5
+    assert mw._crosssection_entries == [entry]
+    xs, ys = entry.curve.getData()
+    assert list(xs) == list(range(30))
+    assert np.allclose(ys, mw.recording.frames[0, 5, :])
+
+    entry2 = mw._add_crosssection_entry("vertical", 7)
+    assert entry2.name == "Querschnitt 2"
+    xs2, ys2 = entry2.curve.getData()
+    assert list(xs2) == list(range(20))
+    assert np.allclose(ys2, mw.recording.frames[0, :, 7])
+
+
+def test_crosssection_entry_curve_updates_on_frame_change(loaded_main_window):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    entry = mw._add_crosssection_entry("horizontal", 5)
+    mw._show_frame(2)
+    _xs, ys = entry.curve.getData()
+    assert np.allclose(ys, mw.recording.frames[2, 5, :])
+
+
+def test_crosssection_entry_click_to_place_mode(loaded_main_window, monkeypatch):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (3, 4))
+
+    mw.btn_add_crosssection_horizontal.setChecked(True)
+    assert mw._crosssection_entry_armed_direction == "horizontal"
+
+    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
+    assert len(mw._crosssection_entries) == 1
+    entry = mw._crosssection_entries[0]
+    assert entry.direction == "horizontal"
+    assert entry.position == 3  # Zeile
+    # Dauer-Modus: bleibt armiert, ein zweiter Klick platziert eine weitere Linie.
+    assert mw.btn_add_crosssection_horizontal.isChecked()
+
+    mw.btn_add_crosssection_horizontal.setChecked(False)
+    assert mw._crosssection_entry_armed_direction is None
+
+
+def test_crosssection_entry_click_takes_priority_over_hover_pin_while_armed(loaded_main_window, monkeypatch):
+    # Bugfix (siehe mouse_ops.py): ein armiertes "+ Horizontal"/"+ Vertikal"
+    # darf nicht durch den crosssection_tab_active()-Vorrang des einzelnen
+    # Hover/Pin-Querschnitts blockiert werden, auch wenn dessen Graph-Tab
+    # gerade im Vordergrund ist.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (2, 9))
+
+    mw.btn_add_crosssection_vertical.setChecked(True)
+    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
+
+    assert len(mw._crosssection_entries) == 1
+    assert mw._crosssection_entries[0].direction == "vertical"
+    assert mw._crosssection_entries[0].position == 9  # Spalte
+    # Der einzelne Hover/Pin-Querschnitt darf dadurch NICHT bewegt worden sein.
+    assert mw._crosssection_pinned is False
+
+
+def test_crosssection_entry_remove(loaded_main_window):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._add_crosssection_entry("horizontal", 1)
+    mw._add_crosssection_entry("vertical", 2)
+    assert len(mw._crosssection_entries) == 2
+
+    mw._on_crosssection_entry_remove_clicked(0)
+    assert len(mw._crosssection_entries) == 1
+    assert mw._crosssection_entries[0].name == "Querschnitt 2"
+
+
+def test_crosssection_entry_max_count_enforced(loaded_main_window, monkeypatch):
+    from thermal_viewer.main_window.crosssection_entry_ops import MAX_CROSSSECTION_ENTRY_COUNT
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    mw = _make_gradient_recording_window(loaded_main_window)
+    for i in range(MAX_CROSSSECTION_ENTRY_COUNT):
+        mw._add_crosssection_entry("horizontal", i % mw.recording.shape[0])
+    assert len(mw._crosssection_entries) == MAX_CROSSSECTION_ENTRY_COUNT
+    assert not mw.btn_add_crosssection_horizontal.isEnabled()
+    assert not mw.btn_add_crosssection_vertical.isEnabled()
+
+    assert mw._start_crosssection_entry_tool("horizontal") is False
+    assert len(mw._crosssection_entries) == MAX_CROSSSECTION_ENTRY_COUNT
+
+
+def test_crosssection_entries_visibility_follows_own_layer_tab(loaded_main_window):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    entry = mw._add_crosssection_entry("horizontal", 4)
+
+    mw._set_active_layer_tab("roi")
+    assert entry.line.isVisible() is False
+
+    mw._set_active_layer_tab("querschnitt")
+    assert entry.line.isVisible() is True
+
+    mw._set_active_layer_tab("all")
+    assert entry.line.isVisible() is True
+
+    # Die Kurve selbst ist bewusst UNABHAENGIG vom Ebenen-Tab (wie der
+    # bestehende einzelne Hover/Pin-Querschnitt).
+    mw._set_active_layer_tab("roi")
+    assert entry.curve.isVisible() is True
+
+
+def test_crosssection_entries_project_save_load_roundtrip(loaded_main_window, tmp_path, monkeypatch):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._add_crosssection_entry("horizontal", 6)
+    entry2 = mw._add_crosssection_entry("vertical", 9)
+    entry2.set_name("Rand rechts")
+    entry2.set_color("#123456")
+    entry2.enabled = False
+    mw._refresh_crosssection_entry_rows()
+
+    proj_path = tmp_path / "crosssections.tvproj"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(proj_path), "")),
+    )
+    mw._save_project()
+    assert proj_path.exists()
+
+    mw._clear_all_crosssection_entries_for_new_recording()
+    assert mw._crosssection_entries == []
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(proj_path), "")),
+    )
+    mw._load_project()
+
+    assert len(mw._crosssection_entries) == 2
+    restored_1, restored_2 = mw._crosssection_entries
+    assert restored_1.direction == "horizontal" and restored_1.position == 6
+    assert restored_2.direction == "vertical" and restored_2.position == 9
+    assert restored_2.name == "Rand rechts"
+    assert restored_2.color == "#123456"
+    assert restored_2.enabled is False
+
+
+def test_graphic_export_dialog_disables_querschnitt_checkbox_when_nothing_set(loaded_main_window):
+    # Bugfix (Folgeanfrage): "ist keiner gesetzt, soll kein Graph exportiert
+    # werden können" -- gilt jetzt auch fuer Querschnitt, seit es ein
+    # echtes "nichts gesetzt"-Konzept gibt (weder der einzelne Querschnitt
+    # je fixiert, noch ein benannter Eintrag angelegt).
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    dlg = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=True, roi_entries=[(1, "ROI 1")],
+        querschnitt_available=False,
+    )
+    try:
+        assert dlg.chk_graph_querschnitt.isEnabled() is False
+        assert dlg.chk_graph_querschnitt.isChecked() is False
+    finally:
+        dlg.close()
+
+    dlg2 = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=True, roi_entries=[(1, "ROI 1")],
+        querschnitt_available=True,
+    )
+    try:
+        assert dlg2.chk_graph_querschnitt.isEnabled() is True
+    finally:
+        dlg2.close()
+
+
+def test_export_graphic_computes_querschnitt_available_from_pinned_or_entries(loaded_main_window, monkeypatch):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    captured = {}
+
+    class FakeDialog:
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+
+        def enable_preview(self, _fn):
+            pass
+
+        def exec(self):
+            return QtWidgets.QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(mwmod, "GraphicExportDialog", FakeDialog)
+    mw._export_graphic()
+    assert captured["querschnitt_available"] is False
+
+    mw._set_crosssection_position(3, 3)
+    mw._export_graphic()
+    assert captured["querschnitt_available"] is True

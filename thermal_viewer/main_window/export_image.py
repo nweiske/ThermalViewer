@@ -57,6 +57,7 @@ class _ImageExportMixin:
             ruler_available=self._px_to_mm is not None,
             measurement_entries=[(e.number, e.name) for e in self.measurements],
             shrinkage_available=self._shrinkage_result is not None,
+            querschnitt_available=self._crosssection_pinned or bool(self._crosssection_entries),
         )
         export_dialog.enable_preview(lambda: self._render_export_preview_image(export_dialog))
         # Schleife statt einmaligem exec() (Punkt 3): bricht der Nutzer den
@@ -231,6 +232,7 @@ class _ImageExportMixin:
                     self._temporary_scale_visuals(include_scale_ruler, selected_scale_numbers), \
                     self._temporary_export_layers(layer_categories), \
                     (self._rebased_time_axis(widget) if is_svg else contextlib.nullcontext()), \
+                    self._temporary_best_legend_placement(), \
                     self._scaled_export_visuals(scale, pen_scale):
                 width, height = self._save_single_part(widget, path_obj, scale, bg, is_svg)
         except Exception as exc:
@@ -367,6 +369,7 @@ class _ImageExportMixin:
                     self._temporary_export_layers(layer_categories), \
                     time_axis_ctx, \
                     self._paused_background_timers(), \
+                    self._temporary_best_legend_placement(), \
                     self._scaled_export_visuals(scale, pen_scale):
                 # Jeden ausgewaehlten Graphen EINMAL kurz in den Vordergrund
                 # holen (siehe _widget_raised_for_export -- ein noch nie

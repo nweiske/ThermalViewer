@@ -327,6 +327,7 @@ class _RoiPanelBuildMixin:
         # dem allgemeinen Dunkelmodus-Schalter, an den sie inhaltlich gehoert.
         self._build_shrinkage_panel()
         self._build_sample_height_panel()
+        self._build_crosssection_entries_panel()
         # Der Spaltenbereich ALLER Probenhöhen haengt an dieser Box (siehe
         # sample_height_ops.py:_sample_height_col_range) -- ein
         # Verschieben/Groessenaendern derselben macht eine Neuberechnung
@@ -436,6 +437,18 @@ class _RoiPanelBuildMixin:
         scale_page_layout.addWidget(scale_box)
         scale_page_layout.addStretch(1)
         self.panel_tab_widget.addTab(scale_page, "Maßstab")
+
+        # Mehrere, benannte Querschnitte (siehe crosssection_entry_ops.py) --
+        # eigenstaendiger Tab, analog zu "Maßstab", in Ergaenzung zum
+        # einzelnen Hover/Pin-Querschnitt (eigener Graph-Dock-Tab, siehe
+        # crosssection_ops.py).
+        crosssection_entries_page = QtWidgets.QWidget()
+        crosssection_entries_page_layout = QtWidgets.QVBoxLayout(crosssection_entries_page)
+        crosssection_entries_page_layout.setContentsMargins(0, 0, 0, 0)
+        crosssection_entries_page_layout.setAlignment(QtCore.Qt.AlignTop)
+        crosssection_entries_page_layout.addWidget(self._crosssection_entries_groupbox)
+        crosssection_entries_page_layout.addStretch(1)
+        self.panel_tab_widget.addTab(crosssection_entries_page, "Querschnitte")
 
         # Klick auf einen Panel-Tab haelt die oberen Bild-Ebenen-Tabs
         # synchron (siehe layer_tabs_ops.py:_on_panel_tab_widget_changed) --

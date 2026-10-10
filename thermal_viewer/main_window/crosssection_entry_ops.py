@@ -1,10 +1,11 @@
-"""Querschnitte (Plural): beliebig viele (max. 10) benannte, farbige
-Querschnitt-Linien gleichzeitig -- ERGAENZT (ersetzt nicht) den bestehenden
-EINZELNEN, der Maus folgenden Hover/Pin-Querschnitt in crosssection_ops.py
-(Nutzerwunsch: "ein neuer Tab ... in Ergänzung zu Querschnitt ... ähnlich wie
-Maßstab ... eine Liste/Übersicht über alle Querschnitte ... mehr als nur
-einen Querschnitt auf einmal setzen ... mit unterschiedlichen Farben ... mit
-der Option eine Linie zu löschen").
+"""Querschnitte: beliebig viele (max. 10) benannte, farbige Querschnitt-
+Linien gleichzeitig (Nutzerwunsch: "ein neuer Tab ... ähnlich wie Maßstab
+... eine Liste/Übersicht über alle Querschnitte ... mehr als nur einen
+Querschnitt auf einmal setzen ... mit unterschiedlichen Farben ... mit der
+Option eine Linie zu löschen"). Ersetzt den fruehren einzelnen, der Maus
+folgenden Hover/Pin-Querschnitt vollstaendig (Folgeanfrage: "da ich ja jetzt
+einen eigenen Tab habe, brauche ich die urspruengliche Querschnittsfunktion
+... nicht mehr").
 
 Jede Querschnitt-Linie ist FEST horizontal ODER vertikal (bei der Erzeugung
 gewaehlt, siehe die zwei "+ Horizontal"/"+ Vertikal"-Knoepfe -- eine
@@ -14,23 +15,29 @@ analog zu einer Probenhöhe (sample_height_ops.py), aber ohne deren Kanten-
 Erkennung -- hier zaehlt nur das rohe Temperaturprofil, keine Breiten-
 Messung.
 
-Die Kurve jeder Querschnitt-Linie liegt auf DEMSELBEN Graphen wie der
-bestehende Einzel-Querschnitt (self.crosssection_plot) -- X-Achse ist in
-beiden Faellen der Pixel-Index entlang der gewaehlten Zeile/Spalte (die
-Achsenbeschriftung "Bildbreite bzw. Höhe (px)" ist bereits generisch genug
-fuer gemischte Richtungen, siehe crosssection_ops.py). Anders als die
+Die Kurve jeder Querschnitt-Linie liegt auf dem gemeinsamen Graphen
+self.crosssection_plot (siehe ui_build.py) -- X-Achse ist der Pixel-Index
+entlang der gewaehlten Zeile/Spalte (die Achsenbeschriftung "Bildbreite bzw.
+Höhe (px)" ist generisch genug fuer gemischte Richtungen). Anders als die
 Probenhöhen- ODER Schwindungs-Kurven (die ueber die ZEIT verlaufen) zeigt
 diese Kurve das Profil des AKTUELLEN Bildes -- muss also bei JEDEM
 Frame-Wechsel neu gezeichnet werden (siehe _update_all_crosssection_entries,
-von crosssection_ops.py:_update_crosssection_plot aus aufgerufen, das
-bereits bei jedem Frame-/Positions-/Ebenen-Tab-Wechsel laeuft).
+aufgerufen von mouse_ops.py:_update_status_bar bei jedem Frame-/
+Positions-Wechsel UND von layer_tabs_ops.py bei jedem Ebenen-Tab-Wechsel).
 
 Die Linien im Thermobild folgen einem EIGENEN Ebenen-Tab ("Querschnitte",
 siehe layer_tabs_ops.py) -- wie ROI-Boxen/Schwindungsbox nur sichtbar,
 waehrend dieser Tab aktiv ist. Die KURVEN selbst sind davon bewusst
-UNABHAENGIG (immer sichtbar, sofern aktiv) -- exakt wie beim bestehenden
-Einzel-Querschnitt, dessen Kurve ebenfalls nicht an einen Ebenen-Tab
-gekoppelt ist."""
+UNABHAENGIG (immer sichtbar, sofern aktiv).
+
+Y-Achse (Folgeanfrage): standardmaessig an die aktuelle Farbskala/"Legende"
+gekoppelt (self.image_item.getLevels(), siehe _update_crosssection_y_axis)
+-- dieselbe Temperaturskala wie im Thermobild, unabhaengig davon, welche
+Werte die gerade sichtbaren Querschnitt-Kurven annehmen (KEIN Fit-auf-
+Kurvendaten wie pyqtgraphs eigenes autoRange). Per "Y-Achse einstellen…"
+(ui_build.py) manuell ueberschreibbar -- analog zu AxisSettingsDialog bei
+den anderen Graphen, aber bewusst nur Y (ein Pixel-Index als X-Achse hat
+keine sinnvolle "Achsen einstellen"-Entsprechung)."""
 from __future__ import annotations
 
 import colorsys
@@ -119,11 +126,10 @@ class _CrosssectionEntryMixin:
         layout = QtWidgets.QVBoxLayout(box)
 
         info = QtWidgets.QLabel(
-            "Ergänzt den einzelnen, der Maus folgenden Querschnitt (Tab „Querschnitt“) um beliebig "
-            "viele (max. 10) dauerhafte, benannte Linien gleichzeitig -- jede mit eigener Farbe. "
-            "„+ Horizontal“/„+ Vertikal“ einschalten und dann beliebig oft ins Bild klicken, um "
-            "weitere Linien zu platzieren (wie bei den Probenhöhen). Die Kurven erscheinen im "
-            "selben Querschnitt-Graphen."
+            "Beliebig viele (max. 10) dauerhafte, benannte Querschnitt-Linien gleichzeitig -- "
+            "jede mit eigener Farbe. „+ Horizontal“/„+ Vertikal“ einschalten und dann beliebig "
+            "oft ins Bild klicken, um weitere Linien zu platzieren (wie bei den Probenhöhen). "
+            "Die Kurven erscheinen gemeinsam im Querschnitt-Graphen (Tab „Querschnitt“)."
         )
         info.setWordWrap(True)
         info.setAlignment(QtCore.Qt.AlignJustify)
@@ -198,6 +204,83 @@ class _CrosssectionEntryMixin:
     def _update_all_crosssection_entries(self) -> None:
         for entry in self._crosssection_entries:
             self._update_crosssection_entry_curve(entry)
+        self._update_crosssection_y_axis()
+
+    def _update_crosssection_y_axis(self) -> None:
+        """Y-Achse (Temperatur) folgt standardmaessig der aktuellen Farbskala/
+        "Legende" (self.image_item.getLevels()) -- bei jeder Frame-/Positions-
+        Aenderung neu angewendet (siehe _update_all_crosssection_entries),
+        damit z.B. "Automatisch: Pro Bild" (frame_nav.py:_level_mode) auch
+        hier live mitlaeuft, statt wie pyqtgraphs eigenes autoRange auf die
+        gerade sichtbaren KURVENWERTE zu passen. Eine manuell gesetzte
+        Y-Achse (siehe _open_crosssection_axis_settings) bleibt davon
+        unberuehrt, bis sie ueber "Achsen zuruecksetzen"
+        (_reset_crosssection_axes) wieder aufgehoben wird."""
+        plot_item = self.crosssection_plot.getPlotItem()
+        if self._crosssection_y_manual:
+            lo, hi = self._crosssection_y_range
+        else:
+            if self.recording is None:
+                return
+            levels = self.image_item.getLevels()
+            if levels is None:
+                return
+            lo, hi = levels
+        plot_item.setYRange(lo, hi, padding=0)
+        y_axis_item = plot_item.getAxis("left")
+        if self._crosssection_y_spacing is not None:
+            y_axis_item.setTickSpacing(major=self._crosssection_y_spacing, minor=self._crosssection_y_spacing / 5)
+        else:
+            y_axis_item.setTickSpacing()
+
+    def _reset_crosssection_axes(self) -> None:
+        """"Achsen zurücksetzen"-Knopf (ui_build.py): verwirft eine evtl.
+        gesetzte eigene Y-Achse (danach folgt sie wieder automatisch der
+        Farbskala/Legende, siehe _update_crosssection_y_axis) UND setzt die
+        X-Achse auf Autofit zurueck (analog zu _reset_plot_view bei den
+        anderen Graphen)."""
+        self._crosssection_y_manual = False
+        self._crosssection_y_range = None
+        self._crosssection_y_spacing = None
+        self.crosssection_plot.getPlotItem().enableAutoRange(x=True)
+        self._update_crosssection_y_axis()
+
+    def _open_crosssection_axis_settings(self) -> None:
+        """"Y-Achse einstellen…"-Knopf (ui_build.py, Folgeanfrage: "gib mir
+        zusätzlich die Option (wie bei den anderen Graphen) mir die Y-Achse
+        in einem Menü anzupassen") -- AxisSettingsDialog mit show_x=False
+        (ein Pixel-Index als X-Achse hat keine sinnvolle "Achsen
+        einstellen"-Entsprechung, siehe dessen Docstring)."""
+        if self._crosssection_y_manual:
+            current_min, current_max = self._crosssection_y_range
+        else:
+            levels = self.image_item.getLevels() if self.recording is not None else None
+            current_min, current_max = levels if levels is not None else (0.0, 50.0)
+
+        # Lokaler statt Modul-Import, siehe ui_build.py:_open_axis_settings
+        # fuer die volle Begruendung (Test-Monkeypatchbarkeit).
+        from . import AxisSettingsDialog
+
+        dialog = AxisSettingsDialog(
+            self,
+            current_x_min=0.0, current_x_max=1.0,
+            current_y_min=current_min, current_y_max=current_max,
+            y_manual_range=self._crosssection_y_manual,
+            y_spacing=self._crosssection_y_spacing,
+            show_x=False,
+        )
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+
+        if dialog.y_manual_range():
+            self._crosssection_y_manual = True
+            self._crosssection_y_range = dialog.y_range()
+        else:
+            self._crosssection_y_manual = False
+            self._crosssection_y_range = None
+        self._crosssection_y_spacing = dialog.y_spacing() if dialog.y_manual_spacing() else None
+        self._update_crosssection_y_axis()
+        self.statusBar().showMessage("Y-Achse des Querschnitt-Graphen aktualisiert.", 4000)
 
     def _update_crosssection_entry_line_pos(self, entry: CrosssectionEntry) -> None:
         entry.line.blockSignals(True)

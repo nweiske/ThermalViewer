@@ -118,7 +118,15 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     was beim Umrechnen verwirrend war. current_x_min/current_x_max/x_spacing
     werden weiterhin in SEKUNDEN uebergeben (wie von _gather_axis_state
     geliefert) -- nur die ANZEIGE/EINGABE hier passt sich runtime_unit an,
-    x_range()/x_spacing() geben weiterhin Sekunden zurueck (siehe dort)."""
+    x_range()/x_spacing() geben weiterhin Sekunden zurueck (siehe dort).
+
+    show_x=False (Folgeanfrage, Querschnitt-Graph): blendet die komplette
+    X-Achsen-Box aus -- fuer einen Graphen, dessen X-Achse ein Pixel-Index
+    statt einer Zeit ist, ergibt eine X-Achsen-Einstellung keinen Sinn
+    ("x-Achse macht hier ja wenig Sinn"). x_manual()/x_range()/
+    x_manual_spacing()/x_spacing() bleiben in diesem Fall nutzbare, aber
+    bedeutungslose Platzhalter (x_manual() liefert immer False) -- der
+    Aufrufer fragt sie fuer show_x=False ohnehin nicht ab."""
 
     def __init__(
         self,
@@ -133,9 +141,11 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         x_runtime_mode: bool = False,
         x_spacing: float | None = None,
         runtime_unit: str = "s",
+        show_x: bool = True,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Achsen einstellen")
+        self.setWindowTitle("Achsen einstellen" if show_x else "Y-Achse einstellen")
+        self._show_x = show_x
         # "hhmmss" (Uhrzeit-Anzeige im Hauptfenster) hat keine sinnvolle
         # Entsprechung als einzelner Zahlenwert hier -- faellt auf Sekunden
         # zurueck, wie zuvor.
@@ -146,48 +156,58 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
         layout = QtWidgets.QVBoxLayout(self)
 
-        x_box = QtWidgets.QGroupBox("X-Achse (Zeit)")
-        x_layout = QtWidgets.QVBoxLayout(x_box)
-        self.chk_x_manual = QtWidgets.QCheckBox("Wertebereich manuell festlegen")
-        x_layout.addWidget(self.chk_x_manual)
-        x_form = QtWidgets.QFormLayout()
-        self.spin_x_min = LocaleTolerantDoubleSpinBox()
-        self.spin_x_min.setRange(-1e12, 1e12)
-        self.spin_x_min.setDecimals(1)
-        self.spin_x_min.setSuffix(unit_suffix)
-        self.spin_x_min.setValue(current_x_min / divisor)
-        self.spin_x_max = LocaleTolerantDoubleSpinBox()
-        self.spin_x_max.setRange(-1e12, 1e12)
-        self.spin_x_max.setDecimals(1)
-        self.spin_x_max.setSuffix(unit_suffix)
-        self.spin_x_max.setValue(current_x_max / divisor)
-        x_form.addRow(f"Von ({unit_label} seit Aufnahmebeginn):", self.spin_x_min)
-        x_form.addRow(f"Bis ({unit_label} seit Aufnahmebeginn):", self.spin_x_max)
-        x_layout.addLayout(x_form)
+        # show_x=False (Querschnitt-Graph, siehe Klassendocstring): die
+        # komplette X-Achsen-Box entfaellt, alle zugehoerigen Attribute
+        # bleiben None -- x_manual()/x_range()/x_manual_spacing()/x_spacing()
+        # unten geben dafuer unschaedliche Platzhalterwerte zurueck.
+        self.chk_x_manual = None
+        self.chk_x_manual_spacing = None
+        self.spin_x_min = None
+        self.spin_x_max = None
+        self.spin_x_spacing = None
+        if show_x:
+            x_box = QtWidgets.QGroupBox("X-Achse (Zeit)")
+            x_layout = QtWidgets.QVBoxLayout(x_box)
+            self.chk_x_manual = QtWidgets.QCheckBox("Wertebereich manuell festlegen")
+            x_layout.addWidget(self.chk_x_manual)
+            x_form = QtWidgets.QFormLayout()
+            self.spin_x_min = LocaleTolerantDoubleSpinBox()
+            self.spin_x_min.setRange(-1e12, 1e12)
+            self.spin_x_min.setDecimals(1)
+            self.spin_x_min.setSuffix(unit_suffix)
+            self.spin_x_min.setValue(current_x_min / divisor)
+            self.spin_x_max = LocaleTolerantDoubleSpinBox()
+            self.spin_x_max.setRange(-1e12, 1e12)
+            self.spin_x_max.setDecimals(1)
+            self.spin_x_max.setSuffix(unit_suffix)
+            self.spin_x_max.setValue(current_x_max / divisor)
+            x_form.addRow(f"Von ({unit_label} seit Aufnahmebeginn):", self.spin_x_min)
+            x_form.addRow(f"Bis ({unit_label} seit Aufnahmebeginn):", self.spin_x_max)
+            x_layout.addLayout(x_form)
 
-        self.chk_x_manual_spacing = QtWidgets.QCheckBox("Tick-Abstand (Laufzeit-Modus) manuell festlegen")
-        x_layout.addWidget(self.chk_x_manual_spacing)
-        x_spacing_form = QtWidgets.QFormLayout()
-        self.spin_x_spacing = LocaleTolerantDoubleSpinBox()
-        self.spin_x_spacing.setRange(0.1, 1e7)
-        self.spin_x_spacing.setDecimals(1)
-        self.spin_x_spacing.setSuffix(unit_suffix)
-        self.spin_x_spacing.setValue(
-            x_spacing / divisor if x_spacing is not None
-            else _DEFAULT_X_SPACING_BY_UNIT[self._runtime_unit]
-        )
-        x_spacing_form.addRow("Hauptintervall:", self.spin_x_spacing)
-        x_layout.addLayout(x_spacing_form)
-        x_note = QtWidgets.QLabel(
-            "Hinweis: Der Tick-Abstand wirkt nur, solange die Zeitachse auf „Laufzeit“ "
-            "steht (Umschalter unter dem Graphen). Bei „Uhrzeit“ wählt sie weiterhin "
-            "automatisch gut lesbare Kalenderabstände."
-            if not x_runtime_mode
-            else "Zeitachse steht aktuell auf „Laufzeit“ -- der Tick-Abstand wirkt sofort."
-        )
-        x_note.setWordWrap(True)
-        x_layout.addWidget(x_note)
-        layout.addWidget(x_box)
+            self.chk_x_manual_spacing = QtWidgets.QCheckBox("Tick-Abstand (Laufzeit-Modus) manuell festlegen")
+            x_layout.addWidget(self.chk_x_manual_spacing)
+            x_spacing_form = QtWidgets.QFormLayout()
+            self.spin_x_spacing = LocaleTolerantDoubleSpinBox()
+            self.spin_x_spacing.setRange(0.1, 1e7)
+            self.spin_x_spacing.setDecimals(1)
+            self.spin_x_spacing.setSuffix(unit_suffix)
+            self.spin_x_spacing.setValue(
+                x_spacing / divisor if x_spacing is not None
+                else _DEFAULT_X_SPACING_BY_UNIT[self._runtime_unit]
+            )
+            x_spacing_form.addRow("Hauptintervall:", self.spin_x_spacing)
+            x_layout.addLayout(x_spacing_form)
+            x_note = QtWidgets.QLabel(
+                "Hinweis: Der Tick-Abstand wirkt nur, solange die Zeitachse auf „Laufzeit“ "
+                "steht (Umschalter unter dem Graphen). Bei „Uhrzeit“ wählt sie weiterhin "
+                "automatisch gut lesbare Kalenderabstände."
+                if not x_runtime_mode
+                else "Zeitachse steht aktuell auf „Laufzeit“ -- der Tick-Abstand wirkt sofort."
+            )
+            x_note.setWordWrap(True)
+            x_layout.addWidget(x_note)
+            layout.addWidget(x_box)
 
         y_box = QtWidgets.QGroupBox("Y-Achse (Temperatur)")
         y_layout = QtWidgets.QVBoxLayout(y_box)
@@ -220,8 +240,9 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         y_layout.addLayout(y_spacing_form)
         layout.addWidget(y_box)
 
-        self.chk_x_manual.toggled.connect(self._update_axis_range_enabled)
-        self.chk_x_manual_spacing.toggled.connect(self._update_axis_range_enabled)
+        if self.chk_x_manual is not None:
+            self.chk_x_manual.toggled.connect(self._update_axis_range_enabled)
+            self.chk_x_manual_spacing.toggled.connect(self._update_axis_range_enabled)
         self.chk_y_manual_range.toggled.connect(self._update_axis_range_enabled)
         self.chk_y_manual_spacing.toggled.connect(self._update_axis_range_enabled)
         # Checkboxen spiegeln den TATSAECHLICH gerade aktiven Achsen-Zustand
@@ -229,8 +250,9 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # zu starten) -- sonst wirkte ein zuvor gesetzter manueller Bereich
         # beim Wiederoeffnen faelschlich so, als waere er nie angewendet
         # worden.
-        self.chk_x_manual.setChecked(x_manual)
-        self.chk_x_manual_spacing.setChecked(x_spacing is not None)
+        if self.chk_x_manual is not None:
+            self.chk_x_manual.setChecked(x_manual)
+            self.chk_x_manual_spacing.setChecked(x_spacing is not None)
         self.chk_y_manual_range.setChecked(y_manual_range)
         self.chk_y_manual_spacing.setChecked(y_spacing is not None)
         self._update_axis_range_enabled()
@@ -244,15 +266,16 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         layout.addWidget(buttons)
 
     def _update_axis_range_enabled(self) -> None:
-        self.spin_x_min.setEnabled(self.chk_x_manual.isChecked())
-        self.spin_x_max.setEnabled(self.chk_x_manual.isChecked())
-        self.spin_x_spacing.setEnabled(self.chk_x_manual_spacing.isChecked())
+        if self.chk_x_manual is not None:
+            self.spin_x_min.setEnabled(self.chk_x_manual.isChecked())
+            self.spin_x_max.setEnabled(self.chk_x_manual.isChecked())
+            self.spin_x_spacing.setEnabled(self.chk_x_manual_spacing.isChecked())
         self.spin_y_min.setEnabled(self.chk_y_manual_range.isChecked())
         self.spin_y_max.setEnabled(self.chk_y_manual_range.isChecked())
         self.spin_y_spacing.setEnabled(self.chk_y_manual_spacing.isChecked())
 
     def _on_accept(self) -> None:
-        if self.chk_x_manual.isChecked() and self.spin_x_max.value() <= self.spin_x_min.value():
+        if self.chk_x_manual is not None and self.chk_x_manual.isChecked() and self.spin_x_max.value() <= self.spin_x_min.value():
             QtWidgets.QMessageBox.warning(
                 self, "Ungültiger Bereich", "Bei der X-Achse muss „Bis“ größer als „Von“ sein."
             )
@@ -265,16 +288,20 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.accept()
 
     def x_manual(self) -> bool:
-        return self.chk_x_manual.isChecked()
+        return self.chk_x_manual is not None and self.chk_x_manual.isChecked()
 
     def x_range(self) -> tuple[float, float]:
+        if self.chk_x_manual is None:
+            return 0.0, 0.0
         divisor = _RUNTIME_UNIT_DIVISORS[self._runtime_unit]
         return self.spin_x_min.value() * divisor, self.spin_x_max.value() * divisor
 
     def x_manual_spacing(self) -> bool:
-        return self.chk_x_manual_spacing.isChecked()
+        return self.chk_x_manual_spacing is not None and self.chk_x_manual_spacing.isChecked()
 
     def x_spacing(self) -> float:
+        if self.spin_x_spacing is None:
+            return 0.0
         return self.spin_x_spacing.value() * _RUNTIME_UNIT_DIVISORS[self._runtime_unit]
 
     def y_manual_range(self) -> bool:

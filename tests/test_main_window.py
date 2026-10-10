@@ -84,7 +84,7 @@ def test_apply_default_theme_sets_window_image_and_graph_together(main_window):
 
 
 def test_crosssection_plot_background_matches_other_curve_graphs(main_window):
-    # Bugfix: der Querschnitt-Graph (crosssection_ops.py) fehlte in
+    # Bugfix: der Querschnitt-Graph (crosssection_entry_ops.py) fehlte in
     # _apply_curve_colors und blieb dadurch immer beim pyqtgraph-Standard
     # (schwarz), unabhaengig vom gewaehlten Graph-Design -- wich damit
     # sichtbar von "Zeitverlauf"/"Schwindung" ab.
@@ -881,6 +881,59 @@ def test_cleaning_dialog_summary_label_position_does_not_jump_when_its_text_grow
         dlg.close()
 
 
+def test_cleaning_dialog_default_size_avoids_scrolling_for_typical_use(loaded_main_window):
+    # Folgeanfrage: "Versuche bei der Rohdatenbereinigung weitestgehend
+    # ohne Scrollframe auszukommen ... im Zweifel die Standard-
+    # Fenstergröße einfach größer machen (Breite, da ich auch ein
+    # horizontales Scrollframe habe)" -- mit der FRUEHEREN Standardgroesse
+    # (1050x680) war das rechte Scrollfeld (right_scroll) bei bereits
+    # wenigen Referenzpunkten praktisch immer aktiv (gemessen: ca. 696px
+    # Inhaltshoehe bei ca. 614px Viewport). Die jetzige, groesszuegigere
+    # Standardgroesse darf dafuer keine der beiden Scrollleisten mehr
+    # brauchen.
+    from thermal_viewer.dialogs import DataCleaningDialog
+
+    mw = loaded_main_window
+    dlg = DataCleaningDialog(mw)
+    try:
+        dlg.show()
+
+        dlg.preview.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+        dlg.preview.view_box.mapSceneToView = lambda pos: pos
+
+        class FakeEvent:
+            def __init__(self, x, y):
+                self._x, self._y = x, y
+
+            def button(self):
+                return QtCore.Qt.LeftButton
+
+            def scenePos(self):
+                return QtCore.QPointF(self._x, self._y)
+
+        for x, y in ((5, 5), (10, 10), (3, 3)):
+            dlg.preview._on_scene_clicked(FakeEvent(x, y))
+        dlg.layout().activate()
+        QtWidgets.QApplication.processEvents()
+
+        right_scroll = dlg.findChild(QtWidgets.QScrollArea)
+        assert right_scroll is not None and right_scroll is not dlg.candidates_area
+        # Nur vertikal hart geprueft -- das war der eigentliche, wiederholt
+        # gemeldete Missstand (siehe Kommentar bei resize() oben). Ob
+        # zusaetzlich horizontal gescrollt werden muss, haengt von der
+        # tatsaechlichen Systemschriftart ab (manche Texte, z.B. "Bild-Nr.
+        # (Vorschau links / manuell ausblenden):", sind unter einer
+        # breiteren Ersatzschrift wie der generischen "offscreen"-Test-
+        # Plattform schlicht breiter als unter der ueblichen UI-Schrift) --
+        # dafuer faellt QScrollArea bewusst robust auf eine Scrollbar
+        # zurueck, statt den Inhalt abzuschneiden.
+        assert right_scroll.verticalScrollBar().maximum() == 0, (
+            "rechtes Scrollfeld sollte bei wenigen Referenzpunkten nicht gebraucht werden"
+        )
+    finally:
+        dlg.close()
+
+
 def test_cleaning_preview_viewer_shows_any_frame_independent_of_main_window(loaded_main_window):
     """Punkt 3/5 (Nutzerwunsch): das Hauptfenster darf NIE ein ausgeblendetes
     Bild zeigen (siehe test_excluded_frames_are_skipped_during_stepping_and_
@@ -1204,15 +1257,18 @@ def test_graphic_export_dialog_organizes_controls_into_four_tabs(loaded_main_win
         current_level_mode="global", current_min=0.0, current_max=50.0,
         show_graph_source_choice=True, live_available=False,
         roi_entries=[(1, "ROI 1")], show_scale_choice=True, ruler_available=True,
-        crosssection_entries=[(1, "Querschnitt 1")], crosssection_pinned_available=True,
+        crosssection_entries=[(1, "Querschnitt 1")],
     )
     try:
         tab_labels = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
-        assert tab_labels == ["Graphen", "Bild & Maßstab", "Farbskala", "Ausgabe"]
+        # "&&" (nicht "&") ist das tatsaechlich gesetzte Tab-Label -- siehe
+        # Kommentar bei dessen Erzeugung in export_dialogs.py (ein einzelnes
+        # "&" wuerde der Fusion-Stil als sichtbaren Unterstrich rendern).
+        assert tab_labels == ["Graphen", "Bild && Maßstab", "Farbskala", "Ausgabe"]
         # Stichprobe: bekannte Steuerelemente muessen tatsaechlich als
         # Nachfahren der jeweils richtigen Tab-Seite auffindbar sein.
         assert dlg._tabs.widget(0).isAncestorOf(dlg.chk_graph_querschnitt), "gehoert auf den 'Graphen'-Tab"
-        assert dlg._tabs.widget(0).isAncestorOf(dlg._crosssection_content_selector.chk_pinned)
+        assert dlg._tabs.widget(0).isAncestorOf(dlg._crosssection_content_selector.group_box)
         assert dlg._tabs.widget(1).isAncestorOf(dlg._scale_selector.group_box), "gehoert auf 'Bild & Maßstab'"
         assert dlg._tabs.widget(2).isAncestorOf(dlg._color_panel.group_box), "gehoert auf 'Farbskala'"
         assert dlg._tabs.widget(3).isAncestorOf(dlg.spin_dpi), "gehoert auf 'Ausgabe'"
@@ -1229,12 +1285,60 @@ def test_video_export_dialog_organizes_controls_into_four_tabs(qapp):
     dlg = VideoExportDialog(
         parent=None, n_frames=5, colormaps=[("Grau", "grey")], current_colormap_index=0,
         current_invert=False, current_level_mode="global", current_min=0.0, current_max=100.0,
-        current_fps=5.0, crosssection_entries=[(1, "Querschnitt 1")], crosssection_pinned_available=True,
+        current_fps=5.0, crosssection_entries=[(1, "Querschnitt 1")],
     )
     try:
         tab_labels = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
-        assert tab_labels == ["Graphen", "Bild & Maßstab", "Farbskala", "Ausgabe"]
+        assert tab_labels == ["Graphen", "Bild && Maßstab", "Farbskala", "Ausgabe"]
         assert not dlg._tabs.isAncestorOf(dlg._preview_panel.group_box)
+    finally:
+        dlg.close()
+
+
+def _assert_graphen_tab_uses_2x2_grid_without_redundant_box(dlg) -> None:
+    """Punkt 4 (Folgeanfrage): "die Tab-Seite 'Graphen' ist noch recht
+    lang ... entweder ... in die Breite anordnen (2x2-Grid) ... Unnötige
+    Verschachtelungen entfernen" -- gemeinsame Pruefung fuer GraphicExport-
+    Dialog/VideoExportDialog: die "Graphen"-Tab-Seite enthaelt ein
+    QGridLayout (statt alles nur untereinander gestapelt), UND es gibt
+    KEINE eigene QGroupBox mit dem (gegenueber dem Tab-Reiter redundanten)
+    Titel "Graphen" mehr darauf."""
+    graphs_page = dlg._tabs.widget(0)
+    assert any(
+        isinstance(graphs_page.layout().itemAt(i).layout(), QtWidgets.QGridLayout)
+        for i in range(graphs_page.layout().count())
+    ), "Graphen-Tab sollte ein 2x2-Raster (QGridLayout) enthalten"
+    for box in graphs_page.findChildren(QtWidgets.QGroupBox):
+        assert box.title() != "Graphen", "redundante 'Graphen'-Box direkt unter dem gleichnamigen Tab-Reiter"
+
+
+def test_graphic_export_dialog_graphen_tab_uses_2x2_grid(loaded_main_window):
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    dlg = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=False,
+        roi_entries=[(1, "ROI 1")], show_scale_choice=True, ruler_available=True,
+        crosssection_entries=[(1, "Querschnitt 1")],
+    )
+    try:
+        _assert_graphen_tab_uses_2x2_grid_without_redundant_box(dlg)
+    finally:
+        dlg.close()
+
+
+def test_video_export_dialog_graphen_tab_uses_2x2_grid(qapp):
+    from thermal_viewer.dialogs import VideoExportDialog
+
+    dlg = VideoExportDialog(
+        parent=None, n_frames=5, colormaps=[("Grau", "grey")], current_colormap_index=0,
+        current_invert=False, current_level_mode="global", current_min=0.0, current_max=100.0,
+        current_fps=5.0, crosssection_entries=[(1, "Querschnitt 1")],
+    )
+    try:
+        _assert_graphen_tab_uses_2x2_grid_without_redundant_box(dlg)
     finally:
         dlg.close()
 
@@ -3486,12 +3590,12 @@ def test_layer_tab_switch_raises_matching_graph_dock_tab(loaded_main_window, mon
     untere, tabifizierte Graphen-Dock-Tab (Temperaturverlauf/Schwindung/
     Querschnitt, siehe ui_build.py) manuell zusaetzlich angeklickt werden.
 
-    _crosssection_tab_active() selbst haengt an visibleRegion(), die ohne
-    ein echtes, gezeigtes Fenster (loaded_main_window ruft bewusst nie
-    .show() auf, siehe conftest.py) immer leer bleibt -- ein End-to-End-Test
-    dafuer lebt daher in smoke_test.py (dort laeuft ein echtes, gezeigtes
-    Fenster). Hier wird stattdessen direkt geprueft, WELCHER Dock raise_()
-    bekommt (siehe layer_tabs_ops.py:_LAYER_TAB_GRAPH_DOCK)."""
+    Dock.visibleRegion() haengt an einem echten, gezeigten Fenster
+    (loaded_main_window ruft bewusst nie .show() auf, siehe conftest.py) --
+    ein End-to-End-Test fuer die tatsaechliche Sichtbarkeit lebt daher in
+    smoke_test.py (dort laeuft ein echtes, gezeigtes Fenster). Hier wird
+    stattdessen direkt geprueft, WELCHER Dock raise_() bekommt (siehe
+    layer_tabs_ops.py:_LAYER_TAB_GRAPH_DOCK)."""
     mw = loaded_main_window
     raised: list[str] = []
     for name in ("timeseries_dock", "shrinkage_dock", "crosssection_dock"):
@@ -3888,140 +3992,8 @@ def _make_gradient_recording_window(loaded_main_window):
     return mw
 
 
-def test_crosssection_shows_full_row_for_horizontal_direction(loaded_main_window):
-    mw = _make_gradient_recording_window(loaded_main_window)
-    mw._set_crosssection_position(5, 7)
-    xs, ys = mw.crosssection_curve.getData()
-    assert list(xs) == list(range(30))
-    assert np.allclose(ys, mw.recording.frames[0, 5, :])
-    assert "Zeile 5" in mw.lbl_crosssection_position.text()
-
-
-def test_crosssection_switches_to_vertical_direction(loaded_main_window):
-    mw = _make_gradient_recording_window(loaded_main_window)
-    mw._set_crosssection_position(5, 7)
-    mw.radio_crosssection_vertical.setChecked(True)
-    xs, ys = mw.crosssection_curve.getData()
-    assert list(xs) == list(range(20))
-    assert np.allclose(ys, mw.recording.frames[0, :, 7])
-    assert "Spalte 7" in mw.lbl_crosssection_position.text()
-
-
-def test_crosssection_updates_on_frame_change_without_position_change(loaded_main_window):
-    mw = _make_gradient_recording_window(loaded_main_window)
-    mw._set_crosssection_position(5, 7)
-    mw._show_frame(2)
-    _xs, ys = mw.crosssection_curve.getData()
-    assert np.allclose(ys, mw.recording.frames[2, 5, :])
-
-
-def test_crosssection_defaults_to_image_center_after_loading(loaded_main_window):
-    # Nutzerwunsch: die Position ist eine EIGENE Ablage, unabhaengig vom
-    # normalen (der Maus folgenden) Live-Cursor -- nach dem Laden zeigt der
-    # Graph daher sofort etwas (Bildmitte), statt auf eine Mausbewegung zu
-    # warten (die es in diesem Tab nicht mehr gibt, siehe Moduldocstring von
-    # crosssection_ops.py).
-    mw = _make_gradient_recording_window(loaded_main_window)
-    rows, cols = mw.recording.shape
-    assert mw._crosssection_row == rows // 2
-    assert mw._crosssection_col == cols // 2
-    xs, _ys = mw.crosssection_curve.getData()
-    assert len(xs) == cols
-
-
-def test_normal_live_cursor_ignores_mouse_move_while_crosssection_tab_active(loaded_main_window, monkeypatch):
-    # Nutzerwunsch: der normale, der Maus folgende Live-Cursor ist
-    # deaktiviert, waehrend der "Querschnitt"-Tab im Vordergrund ist --
-    # _hover_row/_hover_col (die eigene Position des Querschnitt-Grafen
-    # bleibt davon ohnehin unberuehrt, siehe crosssection_ops.py Moduldocstring)
-    # duerfen sich durch eine reine Mausbewegung nicht mehr aendern.
-    mw = _make_gradient_recording_window(loaded_main_window)
-    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (9, 12))
-
-    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
-    mw._on_scene_mouse_moved(QtCore.QPointF(50, 50))
-    assert mw._hover_row is None and mw._hover_col is None
-
-    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: False)
-    mw._on_scene_mouse_moved(QtCore.QPointF(50, 50))
-    assert (mw._hover_row, mw._hover_col) == (9, 12)
-
-
-def test_crosssection_left_click_sets_position_while_tab_active(loaded_main_window, monkeypatch):
-    mw = _make_gradient_recording_window(loaded_main_window)
-    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
-    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (9, 12))
-    event = _FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton)
-    mw._on_scene_mouse_clicked(event)
-    assert (mw._crosssection_row, mw._crosssection_col) == (9, 12)
-    assert mw._crosssection_pinned is True
-
-
-def test_crosssection_hover_follows_mouse_until_pinned_then_rightclick_resumes(loaded_main_window, monkeypatch):
-    # Nutzerwunsch: reines Hover (ohne Klick) soll die Position/Linie schon
-    # live der Maus folgen lassen; Linksklick fixiert (pinnt) sie, ein
-    # weiteres Hover aendert danach nichts mehr; Rechtsklick loest die
-    # Fixierung wieder und aktualisiert sofort auf die aktuelle Mausposition
-    # -- exaktes Gegenstueck-Muster zum normalen Live-Cursor der anderen Tabs.
-    mw = _make_gradient_recording_window(loaded_main_window)
-    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
-
-    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (9, 12))
-    mw._on_scene_mouse_moved(QtCore.QPointF(0, 0))
-    assert (mw._crosssection_row, mw._crosssection_col) == (9, 12)
-    assert mw._crosssection_pinned is False
-
-    left_click = _FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton)
-    mw._on_scene_mouse_clicked(left_click)
-    assert mw._crosssection_pinned is True
-
-    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (1, 2))
-    mw._on_scene_mouse_moved(QtCore.QPointF(0, 0))
-    assert (mw._crosssection_row, mw._crosssection_col) == (9, 12)  # weiterhin fixiert
-
-    right_click = _FakeSceneClickEvent(0, 0, button=QtCore.Qt.RightButton)
-    mw._on_scene_mouse_clicked(right_click)
-    assert mw._crosssection_pinned is False
-    assert (mw._crosssection_row, mw._crosssection_col) == (1, 2)  # sofort aktualisiert
-
-    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (3, 3))
-    mw._on_scene_mouse_moved(QtCore.QPointF(0, 0))
-    assert (mw._crosssection_row, mw._crosssection_col) == (3, 3)  # folgt wieder
-
-
-def test_crosssection_second_left_click_does_not_move_pinned_position(loaded_main_window, monkeypatch):
-    # Bugfix: ein zweiter Linksklick an anderer Stelle durfte die bereits
-    # fixierte Position bisher trotzdem verschieben -- nur ein Rechtsklick
-    # darf die Fixierung loesen (siehe crosssection_ops.py:
-    # _handle_crosssection_click).
-    mw = _make_gradient_recording_window(loaded_main_window)
-    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
-
-    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (9, 12))
-    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
-    assert (mw._crosssection_row, mw._crosssection_col) == (9, 12)
-    assert mw._crosssection_pinned is True
-
-    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (1, 2))
-    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
-    assert (mw._crosssection_row, mw._crosssection_col) == (9, 12), "zweiter Linksklick darf die Fixierung nicht verschieben"
-    assert mw._crosssection_pinned is True
-
-    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.RightButton))
-    assert mw._crosssection_pinned is False
-    assert (mw._crosssection_row, mw._crosssection_col) == (1, 2)
-
-    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (5, 5))
-    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
-    assert (mw._crosssection_row, mw._crosssection_col) == (5, 5)
-    assert mw._crosssection_pinned is True
-
-
 def test_live_cursor_second_left_click_does_not_move_pinned_cursor(loaded_main_window, monkeypatch):
-    # Bugfix: dasselbe wie bei der Querschnittslinie (siehe oben), hier fuer
-    # den normalen Live-Cursor (mouse_ops.py:_on_scene_mouse_clicked).
     mw = loaded_main_window
-    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: False)
 
     monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (4, 6))
     mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
@@ -4041,133 +4013,6 @@ def test_live_cursor_second_left_click_does_not_move_pinned_cursor(loaded_main_w
     mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
     assert (mw._hover_row, mw._hover_col) == (7, 8)
     assert mw._live_pinned is True
-
-
-def test_crosssection_image_line_drag_updates_position_and_pins(loaded_main_window):
-    # Echte Maus-Drag-Events sind im Test nicht simulierbar -- die Linie
-    # wird daher wie bei einem echten Drag manuell per setPos() bewegt,
-    # dann der sigDragged-Handler direkt aufgerufen (genau das, was
-    # pyqtgraph bei einem echten Drag ohnehin nur intern tut).
-    mw = _make_gradient_recording_window(loaded_main_window)
-    mw._set_crosssection_position(5, 5, pin=False)
-    assert mw.radio_crosssection_horizontal.isChecked()
-    mw.crosssection_image_line.setPos(8.5)
-    mw._on_crosssection_image_line_dragged(mw.crosssection_image_line)
-    assert mw._crosssection_row == 8
-    assert mw._crosssection_col == 5
-    assert mw._crosssection_pinned is True
-
-
-def test_crosssection_row_col_spinboxes_stay_in_sync_with_position(loaded_main_window):
-    mw = _make_gradient_recording_window(loaded_main_window)
-    mw._set_crosssection_position(3, 4)
-    assert mw.spin_crosssection_row.value() == 3
-    assert mw.spin_crosssection_col.value() == 4
-    mw.spin_crosssection_row.setValue(9)
-    assert mw._crosssection_row == 9
-    mw.spin_crosssection_col.setValue(11)
-    assert mw._crosssection_col == 11
-
-
-def test_arrow_keys_move_crosssection_position_only_while_tab_active(loaded_main_window, monkeypatch):
-    mw = _make_gradient_recording_window(loaded_main_window)
-    mw._set_crosssection_position(5, 5)
-
-    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: False)
-    frames_before = []
-    monkeypatch.setattr(mw, "_step_frame", lambda delta: frames_before.append(delta))
-    mw._on_key_step_col(1)
-    assert frames_before == [1]
-    assert (mw._crosssection_row, mw._crosssection_col) == (5, 5)  # unveraendert
-
-    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
-    mw._on_key_step_col(1)
-    mw._on_key_step_row(-1)
-    assert (mw._crosssection_row, mw._crosssection_col) == (4, 6)
-
-
-def test_crosssection_roi_marker_appears_only_when_row_intersects(loaded_main_window):
-    mw = _make_gradient_recording_window(loaded_main_window)
-    entry = mw.roi_entries[0]
-    entry.place(5, 5, 10, 10)  # deckt rows 5:15, cols 5:15 ab
-    mw._recompute_curves(entries=[entry])
-
-    mw._set_crosssection_position(8, 7)  # innerhalb der ROI-Zeile
-    assert len(mw._crosssection_markers) >= 2
-
-    mw._set_crosssection_position(18, 7)  # ausserhalb
-    assert len(mw._crosssection_markers) == 1  # nur noch der Cursor-Marker
-
-
-def test_crosssection_contour_marker_matches_shrinkage_spans(loaded_main_window):
-    mw = _make_gradient_recording_window(loaded_main_window)
-    # Box bewusst weit weg von den getesteten Zeilen 5/6 -- sonst wuerde der
-    # NEUE Bounding-Box-Marker (siehe folgender Test) die hier erwarteten
-    # Kontur-only-Zaehlungen verfaelschen.
-    mw.roi_shrink_area.setPos((0, 0), update=False)
-    mw.roi_shrink_area.setSize((1, 1))
-    mw._shrinkage_enabled = True
-    mw._shrinkage_result = {"spans": {0: {5: (2, 9)}}}
-
-    mw._set_crosssection_position(5, 7)
-    assert len(mw._crosssection_markers) >= 3  # Cursor + 2 Kontur-Raender
-
-    mw._set_crosssection_position(6, 7)  # Zeile 6 hat keine Kontur-Spans im Frame 0
-    assert len(mw._crosssection_markers) == 1
-
-
-def test_crosssection_shrinkage_box_marker_appears_only_when_enabled_and_intersecting(loaded_main_window):
-    # Nutzerwunsch: "Ich möchte im 'Querschnitt'-Graphen auch die
-    # Boundingbox sehen" -- die Schwindungsmessung-Box (roi_shrink_area),
-    # unabhaengig davon, ob "Berechnen" schon lief.
-    mw = _make_gradient_recording_window(loaded_main_window)
-    mw.roi_shrink_area.setPos((5, 5), update=False)
-    mw.roi_shrink_area.setSize((10, 10))  # deckt rows 5:15, cols 5:15 ab
-
-    mw._set_crosssection_position(8, 7)
-    assert len(mw._crosssection_markers) == 1  # nur Cursor -- Messung nicht aktiviert
-
-    mw._shrinkage_enabled = True
-    mw._set_crosssection_position(8, 7)
-    assert len(mw._crosssection_markers) == 3  # Cursor + 2 Box-Raender
-
-    mw._set_crosssection_position(18, 7)  # ausserhalb der Box
-    assert len(mw._crosssection_markers) == 1
-
-
-def test_crosssection_markers_follow_active_layer_tab(loaded_main_window):
-    # Nutzerwunsch: bei "Temperatur-Messung" nur ROI-Marker, bei
-    # "Schwindungsmessung" nur Kontur-Marker, statt (wie zuvor) immer beide
-    # gleichzeitig unabhaengig vom oben gewaehlten Ebenen-Tab.
-    mw = _make_gradient_recording_window(loaded_main_window)
-    entry = mw.roi_entries[0]
-    entry.place(5, 5, 10, 10)
-    mw._recompute_curves(entries=[entry])
-    # Box bewusst weit weg von Zeile 8 -- sonst wuerde der Bounding-Box-
-    # Marker die hier erwarteten ROI-/Kontur-only-Zaehlungen verfaelschen.
-    mw.roi_shrink_area.setPos((0, 0), update=False)
-    mw.roi_shrink_area.setSize((1, 1))
-    mw._shrinkage_enabled = True
-    mw._shrinkage_result = {"spans": {0: {8: (2, 9)}}}
-    mw._set_crosssection_position(8, 7)
-    assert len(mw._crosssection_markers) >= 5  # Cursor + ROI-Raender + Kontur-Raender
-
-    mw._set_active_layer_tab("roi")
-    assert len(mw._crosssection_markers) == 3  # Cursor + 2 ROI-Raender, KEINE Kontur
-
-    mw._set_active_layer_tab("shrinkage")
-    assert len(mw._crosssection_markers) == 3  # Cursor + 2 Kontur-Raender, KEIN ROI
-
-
-def test_crosssection_image_line_visible_only_while_tab_active(loaded_main_window, monkeypatch):
-    mw = _make_gradient_recording_window(loaded_main_window)
-    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: False)
-    mw._update_crosssection_image_line()
-    assert mw.crosssection_image_line.isVisible() is False
-
-    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
-    mw._update_crosssection_image_line()
-    assert mw.crosssection_image_line.isVisible() is True
 
 
 # ------------------------------------------------------- Mehrfach-Querschnitte
@@ -4195,20 +4040,11 @@ def test_crosssection_entries_panel_buttons_come_before_the_list(loaded_main_win
 
 
 def test_crosssection_entry_hover_preview_line_follows_mouse_while_armed(loaded_main_window):
-    # Bugfix: der einzelne Hover/Pin-Querschnitt (crosssection_ops.py)
-    # blockierte den Live-Vorschau-Hover fuer das "+ Horizontal"/
-    # "+ Vertikal"-Platzieren-Werkzeug, sobald er selbst bereits fixiert war
-    # (_handle_crosssection_hover kehrt dann sofort zurueck) -- keine Linie
-    # folgte der Maus beim Platzieren eines NEUEN Eintrags. _on_scene_mouse_
-    # moved behandelt das armierte Platzieren-Werkzeug jetzt mit hoeherer
-    # Prioritaet, unabhaengig vom Pin-Zustand des einzelnen Querschnitts.
     mw = loaded_main_window
     mw.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
     mw.view_box.mapSceneToView = lambda pos: pos
 
     mw._set_active_layer_tab("querschnitt")
-    mw._set_crosssection_position(3, 3, pin=True)
-    assert mw._crosssection_pinned is True
 
     assert mw._start_crosssection_entry_tool("horizontal") is True
     assert mw.crosssection_entry_preview_line.isVisible() is False
@@ -4230,29 +4066,106 @@ def test_temporary_crosssection_content_toggles_exactly_the_selected_curves(load
     mw = _make_gradient_recording_window(loaded_main_window)
     entry1 = mw._add_crosssection_entry("horizontal", 2)
     entry2 = mw._add_crosssection_entry("vertical", 3)
-    mw._set_crosssection_position(1, 1, pin=True)
 
     prev1 = entry1.curve.isVisible()
     prev2 = entry2.curve.isVisible()
-    prev_pinned = mw.crosssection_curve.isVisible()
 
-    with mw._temporary_crosssection_content({entry1.number}, False):
+    with mw._temporary_crosssection_content({entry1.number}):
         assert entry1.curve.isVisible() is True
         assert entry2.curve.isVisible() is False
-        assert mw.crosssection_curve.isVisible() is False
 
     assert entry1.curve.isVisible() == prev1
     assert entry2.curve.isVisible() == prev2
-    assert mw.crosssection_curve.isVisible() == prev_pinned
 
-    with mw._temporary_crosssection_content(set(), True):
+    with mw._temporary_crosssection_content(set()):
         assert entry1.curve.isVisible() is False
         assert entry2.curve.isVisible() is False
-        assert mw.crosssection_curve.isVisible() is True
 
     assert entry1.curve.isVisible() == prev1
     assert entry2.curve.isVisible() == prev2
-    assert mw.crosssection_curve.isVisible() == prev_pinned
+
+
+def test_crosssection_y_axis_defaults_to_current_legend_levels(loaded_main_window):
+    # Folgeanfrage: "Richte die Y-Achse (min-/max) des Querschnittsgraphen
+    # standardmäßig nach den Einstellungen unter 'Legende'" -- ohne eigene
+    # Y-Achsen-Einstellung soll der Querschnitt-Graph immer dieselbe
+    # Temperaturskala wie das Thermobild zeigen (self.image_item.getLevels()),
+    # NICHT auf die gerade sichtbaren Kurvenwerte wie pyqtgraphs autoRange.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._add_crosssection_entry("horizontal", 5)
+    lo, hi = mw.crosssection_plot.getPlotItem().getViewBox().viewRange()[1]
+    img_lo, img_hi = mw.image_item.getLevels()
+    assert abs(lo - img_lo) < 1e-6 and abs(hi - img_hi) < 1e-6
+
+
+def test_crosssection_y_axis_follows_manual_legend_spin_edit_live(loaded_main_window):
+    # Ohne eigene Y-Achsen-Einstellung soll der Querschnitt-Graph der
+    # Legende auch dann SOFORT folgen, wenn der Nutzer "Manuell" min/max
+    # direkt aendert (nicht erst beim naechsten Frame-/Mauswechsel) --
+    # siehe frame_nav.py:_on_level_spin_changed.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._add_crosssection_entry("horizontal", 5)
+
+    mw._set_level_mode("manual")
+    mw.spin_level_min.setValue(7.0)
+    mw.spin_level_max.setValue(77.0)
+    mw._on_level_spin_changed()
+
+    lo, hi = mw.crosssection_plot.getPlotItem().getViewBox().viewRange()[1]
+    assert abs(lo - 7.0) < 1e-6 and abs(hi - 77.0) < 1e-6
+
+
+def test_crosssection_y_axis_manual_override_and_reset(loaded_main_window):
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._add_crosssection_entry("horizontal", 5)
+
+    mw._crosssection_y_manual = True
+    mw._crosssection_y_range = (1.0, 99.0)
+    mw._update_crosssection_y_axis()
+    lo, hi = mw.crosssection_plot.getPlotItem().getViewBox().viewRange()[1]
+    assert abs(lo - 1.0) < 1e-6 and abs(hi - 99.0) < 1e-6
+
+    # Eine Frame-/Positionsaenderung darf die manuelle Einstellung NICHT
+    # verwerfen (siehe _update_all_crosssection_entries).
+    mw._show_frame(1)
+    lo, hi = mw.crosssection_plot.getPlotItem().getViewBox().viewRange()[1]
+    assert abs(lo - 1.0) < 1e-6 and abs(hi - 99.0) < 1e-6
+
+    mw._reset_crosssection_axes()
+    assert mw._crosssection_y_manual is False
+    lo, hi = mw.crosssection_plot.getPlotItem().getViewBox().viewRange()[1]
+    img_lo, img_hi = mw.image_item.getLevels()
+    assert abs(lo - img_lo) < 1e-6 and abs(hi - img_hi) < 1e-6
+
+
+def test_crosssection_axis_settings_dialog_has_no_x_axis_box(loaded_main_window, monkeypatch):
+    # "x-Achse macht hier ja wenig Sinn" (Pixel-Index statt Zeit) --
+    # AxisSettingsDialog mit show_x=False blendet die X-Achsen-Box komplett
+    # aus, der Dialog-Titel wird zu "Y-Achse einstellen".
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._add_crosssection_entry("horizontal", 5)
+
+    orig_dialog = mwmod.AxisSettingsDialog
+    captured = {}
+
+    class CaptureAndAcceptDialog(orig_dialog):
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+            super().__init__(*args, **kwargs)
+
+        def exec(self):
+            assert self.chk_x_manual is None, "show_x=False darf keine X-Achsen-Box aufbauen"
+            self.chk_y_manual_range.setChecked(True)
+            self.spin_y_min.setValue(2.0)
+            self.spin_y_max.setValue(42.0)
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(mwmod, "AxisSettingsDialog", CaptureAndAcceptDialog)
+    mw._open_crosssection_axis_settings()
+
+    assert captured["show_x"] is False
+    assert mw._crosssection_y_manual is True
+    assert mw._crosssection_y_range == (2.0, 42.0)
 
 
 def test_add_crosssection_entry_creates_entry_and_computes_profile(loaded_main_window):
@@ -4303,11 +4216,9 @@ def test_crosssection_entry_click_to_place_mode(loaded_main_window, monkeypatch)
 
 def test_crosssection_entry_click_takes_priority_over_hover_pin_while_armed(loaded_main_window, monkeypatch):
     # Bugfix (siehe mouse_ops.py): ein armiertes "+ Horizontal"/"+ Vertikal"
-    # darf nicht durch den crosssection_tab_active()-Vorrang des einzelnen
-    # Hover/Pin-Querschnitts blockiert werden, auch wenn dessen Graph-Tab
-    # gerade im Vordergrund ist.
+    # muss den Klick in jedem Fall selbst bekommen, unabhaengig davon,
+    # welcher Graph-Dock-Tab gerade im Vordergrund ist.
     mw = _make_gradient_recording_window(loaded_main_window)
-    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
     monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (2, 9))
 
     mw.btn_add_crosssection_vertical.setChecked(True)
@@ -4316,8 +4227,6 @@ def test_crosssection_entry_click_takes_priority_over_hover_pin_while_armed(load
     assert len(mw._crosssection_entries) == 1
     assert mw._crosssection_entries[0].direction == "vertical"
     assert mw._crosssection_entries[0].position == 9  # Spalte
-    # Der einzelne Hover/Pin-Querschnitt darf dadurch NICHT bewegt worden sein.
-    assert mw._crosssection_pinned is False
 
 
 def test_crosssection_entry_remove(loaded_main_window):
@@ -4414,8 +4323,7 @@ def test_crosssection_entries_project_save_load_roundtrip(loaded_main_window, tm
 def test_graphic_export_dialog_disables_querschnitt_checkbox_when_nothing_set(loaded_main_window):
     # Bugfix (Folgeanfrage): "ist keiner gesetzt, soll kein Graph exportiert
     # werden können" -- gilt jetzt auch fuer Querschnitt, seit es ein
-    # echtes "nichts gesetzt"-Konzept gibt (weder der einzelne Querschnitt
-    # je fixiert, noch ein benannter Eintrag angelegt).
+    # echtes "nichts gesetzt"-Konzept gibt (kein benannter Eintrag angelegt).
     from thermal_viewer.dialogs import GraphicExportDialog
 
     dlg = GraphicExportDialog(
@@ -4444,7 +4352,7 @@ def test_graphic_export_dialog_disables_querschnitt_checkbox_when_nothing_set(lo
         dlg2.close()
 
 
-def test_export_graphic_computes_querschnitt_available_from_pinned_or_entries(loaded_main_window, monkeypatch):
+def test_export_graphic_computes_querschnitt_available_from_entries(loaded_main_window, monkeypatch):
     mw = _make_gradient_recording_window(loaded_main_window)
     captured = {}
 
@@ -4462,6 +4370,6 @@ def test_export_graphic_computes_querschnitt_available_from_pinned_or_entries(lo
     mw._export_graphic()
     assert captured["querschnitt_available"] is False
 
-    mw._set_crosssection_position(3, 3)
+    mw._add_crosssection_entry("horizontal", 3)
     mw._export_graphic()
     assert captured["querschnitt_available"] is True

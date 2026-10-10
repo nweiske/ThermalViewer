@@ -211,6 +211,18 @@ class _MeasurementMixin:
         )
         self._ruler_line.setZValue(11)
         self.view_box.addItem(self._ruler_line)
+        # Nutzerwunsch (Folgeanfrage): die Beschriftung soll der Linie schon
+        # WAEHREND des Ziehens live folgen, nicht erst nach dem Loslassen --
+        # sigRegionChanged (im Unterschied zu sigRegionChangeFinished unten)
+        # feuert bei JEDEM Bewegungsschritt, auch waehrend eines Body-Drags
+        # (siehe line_roi_endpoints()-Docstring). _update_ruler_text_position()
+        # liest dafuer nur die aktuelle Geometrie + den UNVERAENDERTEN
+        # self._ruler_mm_value neu aus -- die eigentliche Neukalibrierung
+        # (_px_to_mm, inkl. Degenerationsschutz) bleibt bewusst NUR an
+        # sigRegionChangeFinished gebunden (siehe _on_ruler_line_dragged),
+        # analog zum bereits etablierten Live-Muster bei ROI-Boxen
+        # (roi_panel_build.py:_on_roi_region_changed).
+        self._ruler_line.sigRegionChanged.connect(self._update_ruler_text_position)
         # sigRegionChangeStarted feuert einmal beim Beginn des Ziehens
         # (siehe undo_ops.py-Moduldocstring) -- EIN Snapshot pro Drag.
         self._ruler_line.sigRegionChangeStarted.connect(self._push_undo_snapshot)
@@ -510,6 +522,13 @@ class _MeasurementMixin:
             number, color, self.view_box, start, end, self._on_measurement_label_moved,
             on_drag_started=self._push_undo_snapshot,
         )
+        # Nutzerwunsch (Folgeanfrage): siehe _create_or_move_ruler_line fuer
+        # die volle Begruendung -- dieselbe Live-Verfolgung der Beschriftung
+        # waehrend des Ziehens, hier ueber die bereits vorhandene
+        # entry.update_text_position() (nutzt den noch UNVERAENDERTEN
+        # entry.mm_value, die eigentliche Neuberechnung bleibt an
+        # sigRegionChangeFinished/_on_measurement_line_dragged gebunden).
+        entry.line.sigRegionChanged.connect(entry.update_text_position)
         # sigRegionChangeStarted feuert einmal beim Beginn des Ziehens
         # (siehe undo_ops.py-Moduldocstring) -- EIN Snapshot pro Drag.
         entry.line.sigRegionChangeStarted.connect(self._push_undo_snapshot)

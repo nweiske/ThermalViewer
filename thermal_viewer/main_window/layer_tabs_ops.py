@@ -182,9 +182,3 @@ class _LayerTabsMixin:
         # mit _is_layer_tab_active, hier nur neu auswerten.
         self._apply_shrinkage_roi_visibility()
         self._apply_sample_height_visibility()
-        # Querschnitt-Graph (siehe crosssection_ops.py): dessen ROI-/Kontur-
-        # Markierungen sollen genau denselben Ebenen-Tabs folgen wie die
-        # Bild-Overlays selbst (Nutzerwunsch: bei "Temperatur-Messung" nur
-        # ROI-Marker, bei "Schwindungsmessung" nur die Kontur-Marker, statt
-        # immer alles gleichzeitig zu zeigen).
-        self._update_crosssection_plot()

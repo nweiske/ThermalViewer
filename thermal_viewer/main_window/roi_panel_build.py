@@ -444,9 +444,7 @@ class _RoiPanelBuildMixin:
         self.panel_tab_widget.addTab(scale_page, "Maßstab")
 
         # Mehrere, benannte Querschnitte (siehe crosssection_entry_ops.py) --
-        # eigenstaendiger Tab, analog zu "Maßstab", in Ergaenzung zum
-        # einzelnen Hover/Pin-Querschnitt (eigener Graph-Dock-Tab, siehe
-        # crosssection_ops.py).
+        # eigenstaendiger Tab, analog zu "Maßstab".
         crosssection_entries_page = QtWidgets.QWidget()
         crosssection_entries_page_layout = QtWidgets.QVBoxLayout(crosssection_entries_page)
         crosssection_entries_page_layout.setContentsMargins(0, 0, 0, 0)

@@ -194,33 +194,23 @@ class _FrameNavMixin:
             "Maus über das Bild bewegen, um den Temperaturverlauf am Cursor-Pixel live zu sehen. "
             "Linksklick fixiert die Stelle, Rechtsklick löst die Fixierung wieder."
         )
-        # Bugfix: muss VOR _reset_crosssection_state_for_recording() stehen --
-        # dessen sofortige Zentrierung berechnet bereits ein Bild
-        # (self.recording.frames[self.current_index]) und wuerde sonst noch
-        # den (evtl. viel groesseren) current_index der VORHERIGEN Aufnahme
-        # verwenden, was bei einer kuerzeren neuen Aufnahme zu einem
-        # IndexError fuehrt.
+        # Bugfix: muss VOR _reset_sample_heights_for_recording() unten stehen
+        # -- dessen sofortige Neuberechnung liest sonst noch den (evtl. viel
+        # groesseren) current_index der VORHERIGEN Aufnahme fuer die
+        # Polaritaets-Erkennung, was bei einer kuerzeren neuen Aufnahme zu
+        # einem IndexError fuehrt.
         self.current_index = 0
-        # Querschnitt-Graph (siehe crosssection_ops.py): eigene Position
-        # (_crosssection_row/_col), unabhaengig vom Live-Cursor oben --
-        # bezieht sich ebenso auf Pixel-Koordinaten der ALTEN Aufnahme und
-        # wird daher auf die Mitte der NEUEN Aufnahme zurueckgesetzt.
-        self._reset_crosssection_state_for_recording()
         # Probenhöhen (siehe sample_height_ops.py): _set_recording() wird
         # IMMER entweder beim allerersten Laden (noch keine Probenhöhen
         # vorhanden) oder NACH _reset_state_for_new_recording() oben
         # aufgerufen (das _sample_height_entries bereits vollstaendig
         # geleert hat) -- dieser Aufruf laeuft an dieser Stelle also stets
         # ueber eine LEERE Liste (reiner No-Op, bewusst trotzdem belassen,
-        # analog zu den Box-/Querschnitt-Resets oben, falls sich das
-        # kuenftig aendert). Die Live-Ordner-Ueberwachung (siehe
-        # import_ops.py:_apply_appended_recording) laeuft NICHT ueber
+        # falls sich das kuenftig aendert). Die Live-Ordner-Ueberwachung
+        # (siehe import_ops.py:_apply_appended_recording) laeuft NICHT ueber
         # _set_recording, sondern ruft fuer bestehende Probenhöhen direkt
-        # _recompute_all_sample_heights() auf.
-        # Bugfix: muss NACH "self.current_index = 0" stehen -- dieselbe
-        # Begruendung wie beim Querschnitt-Reset oben: die sofortige
-        # Neuberechnung liest sonst noch den (evtl. zu grossen) current_index
-        # der VORHERIGEN Aufnahme fuer die Polaritaets-Erkennung.
+        # _recompute_all_sample_heights() auf. Muss NACH "self.current_index
+        # = 0" oben stehen (siehe dortiger Bugfix-Kommentar).
         self._reset_sample_heights_for_recording()
         self._reset_crosssection_entries_for_recording()
 
@@ -740,8 +730,13 @@ class _FrameNavMixin:
             return
         self.histogram.setLevels(lo, hi)
         self.image_item.setLevels((lo, hi))
+        # Folgeanfrage: Y-Achse des Querschnitt-Graphen folgt der Legende
+        # live, nicht erst beim naechsten Frame-/Mauswechsel (siehe
+        # crosssection_entry_ops.py:_update_crosssection_y_axis).
+        self._update_crosssection_y_axis()
 
     def _on_histogram_levels_changed(self) -> None:
         lo, hi = self.histogram.getLevels()
         self._set_level_spins(lo, hi)
+        self._update_crosssection_y_axis()
 

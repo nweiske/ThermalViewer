@@ -20,7 +20,7 @@ from functools import partial
 from qtpy import QtCore, QtWidgets
 
 from ..widgets import LocaleTolerantDoubleSpinBox
-from ._base import _disable_enter_auto_accept, _NoEnterAutoAccept
+from ._base import _cap_initial_dialog_height, _disable_enter_auto_accept, _NoEnterAutoAccept
 from .data_cleaning_viewer import CleaningPreviewViewer
 
 
@@ -35,8 +35,23 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._refreshing_candidates = False
         self.setWindowTitle("Rohdaten säubern")
         self.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
-        self.setMinimumSize(900, 600)
-        self.resize(1050, 680)
+        # Nutzerwunsch: "weitestgehend ohne Scrollframe auskommen ... im
+        # Zweifel die Standard-Fenstergröße einfach größer machen (Breite, da
+        # ich auch ein horizontales Scrollframe habe)". Gemessen (volle
+        # rechte Spalte mit mehreren Referenzpunkten): bei der FRUEHEREN
+        # Standardgroesse (1050x680) brauchte die rechte Spalte bei ~409px
+        # Breite ca. 696px Hoehe -- mehr, als der damalige Viewport (614px)
+        # bot, das rechte Scrollfeld (siehe right_scroll unten) war also im
+        # Alltag so gut wie IMMER aktiv. Breiter UND hoeher behebt beides:
+        # eine breitere Spalte braucht WENIGER Hoehe (die wortumbrechenden
+        # Hinweistexte brechen seltener um), UND die zusaetzliche Hoehe
+        # deckt den Rest -- bei 1300x850 bleibt fuer den ueblichen Fall
+        # (wenige Referenzpunkte) keine der beiden Scrollleisten mehr aktiv.
+        # _cap_initial_dialog_height() unten faengt trotzdem kleinere
+        # Bildschirme ab (verkleinert NUR die Anfangsgroesse, nie unter
+        # setMinimumSize).
+        self.setMinimumSize(1100, 720)
+        self.resize(1300, 850)
 
         root_layout = QtWidgets.QHBoxLayout(self)
 
@@ -254,6 +269,11 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         root_layout.addLayout(right_outer, 2)
 
         self._on_manual_frame_changed(self.spin_manual_frame.value())
+        # Nur eine Sicherheitsbremse fuer kleinere Bildschirme (verkleinert
+        # die obige, bewusst grosszuegige Anfangsgroesse NUR, falls sie
+        # tatsaechlich nicht auf den Bildschirm passt -- nie unter
+        # setMinimumSize, siehe _base.py).
+        _cap_initial_dialog_height(self)
 
     # -------------------------------------------------------- Auswertung
     def _on_set_eval_start_clicked(self) -> None:

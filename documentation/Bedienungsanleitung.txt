@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-10-09
+Stand: 2026-10-10
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
@@ -35,7 +35,6 @@ INHALT
 19. Ebenen-Tabs (Bereiche über dem Thermobild ein-/ausblenden)
 20. Rückgängig/Wiederholen
 21. Querschnitt-Graph
-22. Mehrfach-Querschnitte
 
 
 ================================================================
@@ -743,19 +742,22 @@ die Temperatur dort entwickelt hat.
   1. "Graphen" -> per Checkbox waehlen, WELCHE Graphen ueberhaupt
      exportiert werden: "Zeitverlauf", "Schwindung" (Abschnitt 18) und/oder
      "Querschnitt" (Abschnitt 21) -- beliebig viele gleichzeitig, auch
-     alle drei (Standard: nur "Zeitverlauf" an, wie bisher). "Schwindung"/
-     "Querschnitt" werden dabei immer mit ihren AKTUELL im Hauptfenster
-     gezeigten Einstellungen (gewaehlte Kenngroesse bzw. Richtung)
-     exportiert -- dafuer gibt es keine eigenen Export-Einstellungen.
+     alle drei (Standard: nur "Zeitverlauf" an, wie bisher). "Schwindung"
+     wird dabei immer mit der AKTUELL im Hauptfenster gezeigten Kenngroesse
+     exportiert -- dafuer gibt es keine eigene Export-Einstellung.
      Darunter "Graph-Inhalt" -> nur relevant, solange "Zeitverlauf"
      angehakt ist: per Checkbox waehlen, welche Kurve(n) darin erscheinen
      -- JEDER platzierte Messbereich einzeln UND (sofern gerade verfuegbar,
      siehe Abschnitt 8) "Live-Cursor" -- "Alle auswaehlen"/"Keine
      auswaehlen" schalten ALLE davon (inklusive Live-Cursor) auf einmal um
      (Standard: nur die Messbereiche an, Live-Cursor aus). Alle angehakten
-     Kurven erscheinen gemeinsam IM SELBEN Zeitverlauf-Graphen. Mindestens
-     ein Graph muss angehakt sein (und, falls "Zeitverlauf" dabei ist,
-     mindestens eine Kurve darin). Darunter "Position:" legt fest, WO der
+     Kurven erscheinen gemeinsam IM SELBEN Zeitverlauf-Graphen. Analog
+     dazu "Querschnitt-Inhalt" (nur relevant, solange "Querschnitt"
+     angehakt ist): per Checkbox waehlen, welche der angelegten
+     Querschnitt-Linien (Abschnitt 21) mit exportiert werden -- Standard:
+     alle an. Mindestens ein Graph muss angehakt sein (und, falls
+     "Zeitverlauf"/"Querschnitt" dabei ist, mindestens eine Kurve/Linie
+     darin). Darunter "Position:" legt fest, WO der
      gesamte Graphen-Block relativ zum Thermobild sitzt: Unter/Über/Links/
      Rechts vom Bild (frei waehlbar, Standard: Rechts) -- nur im
      "Kombiniert"-Modus (siehe Punkt 4) wirksam; mehrere ausgewaehlte
@@ -1025,14 +1027,17 @@ Alle uebrigen Einstellungen im Dialog:
     oder "Querschnitt" (Abschnitt 21) -- beliebig viele gleichzeitig, auch
     alle drei (Standard: KEINER angehakt, wie bisher "Graph mit
     exportieren" aus). Der Zeitverlauf-Graph zeigt dabei dieselbe
-    wandernde Zeit-Markierungslinie wie im Hauptfenster; "Schwindung"/
-    "Querschnitt" werden immer mit ihren AKTUELL im Hauptfenster gezeigten
-    Einstellungen exportiert. "Graph-Inhalt" darunter ist nur relevant,
-    solange "Zeitverlauf" angehakt ist, und waehlt PER CHECKBOX, welche
+    wandernde Zeit-Markierungslinie wie im Hauptfenster; "Schwindung"
+    wird immer mit der AKTUELL im Hauptfenster gezeigten Kenngroesse
+    exportiert. "Graph-Inhalt" darunter ist nur relevant, solange
+    "Zeitverlauf" angehakt ist, und waehlt PER CHECKBOX, welche
     Kurve(n) darin erscheinen: jeder platzierte Messbereich einzeln
     (Standard: alle an) und/oder "Live-Cursor" (nur verfuegbar, wenn
     gerade ein Live-Cursor-Pixel vorliegt, siehe Abschnitt 8; Standard:
-    aus) -- genau wie beim Grafik-Export (Abschnitt 9). "Position:" legt
+    aus) -- genau wie beim Grafik-Export (Abschnitt 9). Analog dazu
+    "Querschnitt-Inhalt" (nur relevant, solange "Querschnitt" angehakt
+    ist): waehlt PER CHECKBOX, welche der angelegten Querschnitt-Linien
+    (Abschnitt 21) mit exportiert werden (Standard: alle an). "Position:" legt
     fest, WO der gesamte Graphen-Block relativ zum Thermobild sitzt:
     Unter/Über/Links/Rechts vom Bild (frei waehlbar, Standard: Rechts);
     mehrere ausgewaehlte Graphen reihen sich dabei stets entlang derselben
@@ -1731,9 +1736,9 @@ statt nur eine einzelne Gesamtfläche/-breite.
      unterscheidbare Standardpalette) und einem "×"-Knopf zum endgültigen
      Entfernen GENAU dieser einen Probenhöhe.
   3. Die zugehörige Linie im Thermobild (gestrichelt, waagerecht) lässt
-     sich ALTERNATIV auch direkt per Ziehen verschieben, ähnlich der
-     Querschnitt-Linie (Abschnitt 21) -- nur dauerhaft statt nur bei
-     Hover, und mit dem Namen direkt an der Linie beschriftet.
+     sich ALTERNATIV auch direkt per Ziehen verschieben, ähnlich einer
+     Querschnitt-Linie (Abschnitt 21) -- mit dem Namen direkt an der
+     Linie beschriftet.
 
 Die Breite wird an jeder Probenhöhen-Zeile automatisch per Otsu-
 Schwellenwert bestimmt (dieselbe Methode wie bei der Box, inklusive
@@ -1809,7 +1814,7 @@ Graphen-Dock (Abschnitt 8: "Temperaturverlauf" / "Schwindung" /
 "Temperatur-Messung"/"Schwindungsmessung"/"Maßstab" bringen
 "Temperaturverlauf" nach vorn (Maßstab hat keinen eigenen Graphen),
 "Querschnitte" bringt "Querschnitt" nach vorn. So ist z.B. beim Platzieren
-einer neuen Querschnitt-Linie (siehe Abschnitt 22) sofort auch deren
+einer neuen Querschnitt-Linie (siehe Abschnitt 21) sofort auch deren
 Vorschau-Linie im Bild sichtbar, ohne den Graphen-Reiter unten zusätzlich
 von Hand anzuklicken.
 
@@ -1827,7 +1832,7 @@ Zuordnung:
     deren Panel-Reiter (Abschnitt 11) -- wirkt zusätzlich zur "Anzeigen"-
     Checkbox dort.
   - "Querschnitte": alle benannten Querschnitt-Linien im Bild sowie deren
-    Panel-Reiter (Abschnitt 22) -- wirkt zusätzlich zum Aktiv-Haken jedes
+    Panel-Reiter (Abschnitt 21) -- wirkt zusätzlich zum Aktiv-Haken jedes
     einzelnen Eintrags in der Liste.
 
 Die "Legende" (Farbverlauf/Level-Modus, Abschnitt 7) hat einen EIGENEN
@@ -1843,7 +1848,7 @@ Graphen-Dock) von selbst dorthin -- "+ Messbereich" wechselt auf
 "Temperatur-Messung", die "Aktivieren"-Checkbox der Schwindungsmessung UND
 "+ Probenhöhe" auf "Schwindungsmessung" (nur beim Anschalten, nicht beim
 Abschalten), "Festlegen…"/"Messmodus" auf "Maßstab", "+ Horizontal"/
-"+ Vertikal" (Abschnitt 22) auf "Querschnitte". So landet man beim Start
+"+ Vertikal" (Abschnitt 21) auf "Querschnitte". So landet man beim Start
 einer Aktion automatisch auf der dazu passenden Ansicht, ohne einen der
 drei Tabs von Hand mitziehen zu müssen.
 
@@ -1920,69 +1925,11 @@ frei schwebenden Fenster heraustrennen). Der Graph-Hintergrund folgt wie
 bei "Zeitverlauf"/"Schwindung" dem unter "Ansicht > Graph-Farbschema"
 gewählten Design (Abschnitt 4).
 
-BEDIENUNG: Solange dieser Tab im Vordergrund ist, verhält sich das
-Thermobild bewusst ANDERS als sonst -- der normale Live-Cursor
-(Abschnitt 8) ist deaktiviert, seine Fixierung/Freigabe-Logik gilt statt
-dessen fuer eine EIGENE, unabhängige Fadenkreuz-Position:
-
-  - Maus über das Bild bewegen -- die Position (und die Linie im Bild)
-    folgt live der Maus, SOLANGE sie nicht fixiert ist (Standard direkt
-    nach dem Laden: nicht fixiert, auf der Bildmitte stehend, bis die
-    Maus das erste Mal über das Bild bewegt wird).
-  - Linksklick ins Thermobild -- fixiert Zeile UND Spalte gemeinsam auf
-    die angeklickte Stelle (die Position folgt danach nicht mehr der
-    Maus, bis sie wieder gelöst wird).
-  - Rechtsklick ins Thermobild -- löst eine bestehende Fixierung wieder,
-    die Position folgt danach sofort wieder der Maus.
-  - Direkt an der gestrichelten Linie im Thermobild ziehen (Drag & Drop)
-    -- verschiebt sie unmittelbar und fixiert sie dabei ebenfalls.
-  - Pfeiltasten (Links/Rechts verschiebt die Spalte, Hoch/Runter die
-    Zeile) -- pixelgenau, jeweils um 1 verschoben, fixiert die Position
-    ebenfalls. Ausserhalb dieses Tabs navigieren Links/Rechts wie gewohnt
-    Frame vor/zurück (Abschnitt 5); Hoch/Runter sind dort ohne Funktion.
-  - Die beiden Felder "Zeile (Y)"/"Spalte (X)" unterhalb des Graphen --
-    zum zahlenwertigen, zeilen-/spaltengenauen Ansteuern, fixiert die
-    Position ebenfalls.
-
-Alle Wege halten sich automatisch synchron. Die aktuelle Position wird
-zusätzlich als dünne, gestrichelte Linie direkt im Thermobild
-eingezeichnet (gleiche Strichdicke wie die Messbereich-Rahmen, gelb beim
-Drüberfahren mit der Maus als Zeichen, dass sie greifbar ist), solange
-der Tab sichtbar ist. Über "Richtung: Horizontal (Zeile) / Vertikal
-(Spalte)" wird gewählt, ob die komplette BildZEILE (X-Achse = Spalten-
-Index) oder die komplette BildSPALTE (X-Achse = Zeilen-Index) angezeigt
-wird -- die X-Achsen-Beschriftung selbst lautet in BEIDEN Fällen
-einheitlich "Bildbreite bzw. Höhe (px)" (statt separat "Spalte"/"Zeile"),
-da sie je nach Richtung tatsächlich jeweils eine andere Bildausdehnung
-meint. Der Graph aktualisiert sich zusätzlich automatisch beim Wechsel des
-angezeigten Bilds (Frame), auch ohne Positionsänderung.
-
-MARKIERUNGEN: liegt die aktuell gewählte Zeile/Spalte innerhalb eines
-platzierten (und nicht ausgeblendeten) Messbereichs, erscheinen dessen
-beide Ränder als gestrichelte, in seiner Farbe eingezeichnete
-Markierungslinien mit Namen. Ist eine Schwindungsmessung aktiviert (siehe
-Abschnitt 18), erscheinen ebenso die beiden Ränder ihrer Bounding-Box
-(in der Boxfarbe) -- unabhängig davon, ob bereits "Berechnen" geklickt
-wurde. Wurde zusätzlich bereits berechnet, erscheinen auch die beiden
-Ränder der für das aktuelle Bild erkannten Probenkontur (in der unter
-"Konturfarbe" gewählten Farbe). Alle Markierungsarten folgen dabei dem
-oben am Thermobild gewählten Ebenen-Tab (Abschnitt 19): bei "Alle"
-erscheinen alle, bei "Temperatur-Messung" nur die Messbereich-, bei
-"Schwindungsmessung" nur die Box-/Kontur-Markierungen. "Achsen
-zurücksetzen" setzt Zoom/Verschieben dieses Graphen zurück, genau wie bei
-den anderen Graphen.
-
-
-================================================================
-22. MEHRFACH-QUERSCHNITTE
-================================================================
-
-Ergänzt (ersetzt nicht) den obigen einzelnen, der Maus folgenden
-Querschnitt um beliebig viele (max. 10) dauerhafte, benannte Linien
+Beliebig viele (max. 10) dauerhafte, benannte Querschnitt-Linien
 gleichzeitig -- jede mit eigener Farbe, fest horizontal ODER vertikal
 (bei der Erzeugung gewählt). Erreichbar über den eigenen Reiter
-"Querschnitte" im rechten Werkzeuge-Panel (wie "Maßstab" ein eigenständiger
-Reiter, nicht in eine andere Seite eingebettet).
+"Querschnitte" im rechten Werkzeuge-Panel (wie "Maßstab" ein
+eigenständiger Reiter, nicht in eine andere Seite eingebettet).
 
 ANLEGEN: "+ Horizontal" bzw. "+ Vertikal" einschalten (Dauer-Modus, wie
 bei den Probenhöhen, Abschnitt 18) und dann beliebig oft ins Thermobild
@@ -1994,19 +1941,27 @@ editierbar), Position (Zeile bzw. Spalte, per Spinbox ODER direkt per
 Ziehen der zugehörigen Linie im Bild), Farbe (Klick auf das Farbfeld) und
 ein "×"-Knopf zum endgültigen Entfernen.
 
-Die Kurve jedes Eintrags erscheint zusätzlich zur bestehenden "Live"-Kurve
-im selben Querschnitt-Graphen (Abschnitt 21, jetzt mit Legende). Wie die
-"Live"-Kurve zeigt sie das Profil des AKTUELL angezeigten Bilds (kein
-Zeitverlauf) und aktualisiert sich automatisch bei jedem Frame-Wechsel.
-Die LINIEN im Thermobild folgen einem eigenen Ebenen-Tab ("Querschnitte",
-Abschnitt 19) -- nur sichtbar, während dieser (oder "Alle") aktiv ist; die
-Kurven selbst sind davon unabhängig, genau wie bei der "Live"-Kurve.
+Jeder Eintrag bekommt eine eigene Kurve im gemeinsamen Querschnitt-
+Graphen (mit Legende). Die Kurve zeigt das Profil des AKTUELL angezeigten
+Bilds (kein Zeitverlauf) und aktualisiert sich automatisch bei jedem
+Frame-Wechsel. Die LINIEN im Thermobild folgen einem eigenen Ebenen-Tab
+("Querschnitte", Abschnitt 19) -- nur sichtbar, während dieser (oder
+"Alle") aktiv ist; die Kurven selbst sind davon unabhängig.
 
 Alle Einträge werden vollständig im Projekt gespeichert/geladen (Name,
 Farbe, Richtung, Position, Aktiv-Haken) und bleiben über Rückgängig/
 Wiederholen hinweg erhalten.
 
+Y-ACHSE: folgt standardmäßig der aktuellen Farbskala/Legende (Abschnitt
+7) -- dieselbe Temperaturskala wie im Thermobild, unabhängig von den
+Werten der gerade sichtbaren Kurven. Über "Y-Achse einstellen…" lässt
+sich Wertebereich und/oder Schrittweite manuell festlegen, analog zu
+"Achsen einstellen…" bei den anderen Graphen (Abschnitt 8) -- die
+X-Achse (Pixel-Index entlang der gewählten Zeile/Spalte) hat dagegen
+keine eigene Einstellmöglichkeit, da sie keine Zeitachse ist. "Achsen
+zurücksetzen" verwirft eine eigene Y-Achse wieder (folgt danach wieder
+der Legende) und setzt Zoom/Verschiebung der X-Achse zurück.
+
 EXPORT: Die Checkbox "Querschnitt" im Grafik-/Video-/Bildstapel-Export-
-Dialog ist gesperrt, solange weder der einzelne Querschnitt jemals
-fixiert noch ein benannter Eintrag angelegt wurde -- ohne das wäre
-unklar, auf welcher Zeile/Spalte überhaupt exportiert würde.
+Dialog ist gesperrt, solange kein Eintrag angelegt wurde -- ohne das
+wäre unklar, auf welcher Zeile/Spalte überhaupt exportiert würde.

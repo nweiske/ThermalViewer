@@ -27,7 +27,6 @@ from .export_visuals import _ExportVisualsMixin
 from .export_csv import _CsvExportMixin
 from .export_image import _ImageExportMixin
 from .crosssection_entry_ops import _CrosssectionEntryMixin
-from .crosssection_ops import _CrossSectionMixin
 from .data_cleaning_ops import _DataCleaningMixin
 from .export_video import _VideoExportMixin
 from .frame_nav import _FrameNavMixin
@@ -67,7 +66,6 @@ class MainWindow(
     _LayerTabsMixin,
     _ShrinkageMixin,
     _SampleHeightMixin,
-    _CrossSectionMixin,
     _CrosssectionEntryMixin,
     _MouseMixin,
     _UndoMixin,
@@ -104,29 +102,19 @@ class MainWindow(
         self._live_pinned = False
         self._hover_row: int | None = None
         self._hover_col: int | None = None
-        # Querschnitt-Graph (siehe crosssection_ops.py) -- "horizontal"
-        # (Standard) oder "vertikal", per Radiobutton umschaltbar; die
-        # aktuell im Graphen gezeichneten Marker-Items (ROI-/Kontur-Raender,
-        # Cursor-Position), damit _update_crosssection_plot() sie vor jedem
-        # Neuaufbau vollstaendig entfernen kann. _crosssection_row/_col sind
-        # BEWUSST getrennt von _hover_row/_hover_col (dem normalen Live-
-        # Cursor) -- Nutzerwunsch, siehe Moduldocstring von crosssection_ops.py.
-        self._crosssection_direction = "horizontal"
-        self._crosssection_markers: list = []
-        self._crosssection_row: int | None = None
-        self._crosssection_col: int | None = None
-        # Nutzerwunsch: dasselbe Fixier-Verhalten wie der normale Live-
-        # Cursor (frei der Maus folgend, Linksklick/Drag fixiert,
-        # Rechtsklick loest wieder), aber EIGENSTAENDIG -- unabhaengig von
-        # dessen Fixierung (_live_pinned) in den anderen Tabs.
-        self._crosssection_pinned: bool = False
-        # Mehrere, benannte Querschnitte (siehe crosssection_entry_ops.py) --
-        # ERGAENZEN den obigen einzelnen Hover/Pin-Querschnitt, unabhaengige
-        # Ablage. _crosssection_entry_armed_direction: "horizontal"/
-        # "vertical", solange der jeweilige "+ ..."-Knopf aktiv ist, sonst None.
+        # Mehrere, benannte Querschnitte (siehe crosssection_entry_ops.py).
+        # _crosssection_entry_armed_direction: "horizontal"/"vertical",
+        # solange der jeweilige "+ ..."-Knopf aktiv ist, sonst None.
         self._crosssection_entries: list = []
         self._crosssection_entry_next_number = 1
         self._crosssection_entry_armed_direction: str | None = None
+        # Y-Achse des Querschnitt-Graphen (Folgeanfrage): folgt standardmaessig
+        # der aktuellen Farbskala/Legende (_crosssection_y_manual=False),
+        # kann aber per "Y-Achse einstellen…" fest ueberschrieben werden --
+        # siehe crosssection_entry_ops.py:_update_crosssection_y_axis.
+        self._crosssection_y_manual = False
+        self._crosssection_y_range: tuple[float, float] | None = None
+        self._crosssection_y_spacing: float | None = None
         # Kantenlaenge (ungerade Pixelzahl) des um das Cursor-Pixel
         # gemittelten Bereichs fuer Live-Verlauf/-Anzeige (Werkzeuge-Menue
         # "Live-Cursor-Bereichsgröße") -- Standard: 5x5.

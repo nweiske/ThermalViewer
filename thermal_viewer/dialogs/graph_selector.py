@@ -89,14 +89,11 @@ class GraphContentSelector:
 
 
 class CrosssectionContentSelector:
-    """Ankreuzliste, welche Querschnitt-Linien in den exportierten
-    Querschnitt-Graphen aufgenommen werden -- gemeinsam genutzt von
-    GraphicExportDialog und VideoExportDialog, analog zu
-    GraphContentSelector (dort: Messbereiche + Live-Cursor), hier: benannte
-    CrosssectionEntry-Linien (crosssection_entry_ops.py) + der einzelne
-    Hover/Pin-Querschnitt (crosssection_ops.py). Zwei getrennte Konzepte
-    statt EINER gemeinsamen Nummer-Menge, da der einzelne Querschnitt kein
-    CrosssectionEntry ist (keine eigene Nummer/kein eigener Name).
+    """Ankreuzliste, welche benannten Querschnitt-Linien (CrosssectionEntry,
+    siehe crosssection_entry_ops.py) in den exportierten Querschnitt-Graphen
+    aufgenommen werden -- gemeinsam genutzt von GraphicExportDialog und
+    VideoExportDialog, analog zu GraphContentSelector (dort: Messbereiche +
+    Live-Cursor).
 
     Nutzerwunsch: "der Querschnittsgraph kann nur exportiert werden/eine
     Linie darin, wenn die zugehörige Querschnittslinie im Thermobild zu
@@ -107,12 +104,7 @@ class CrosssectionContentSelector:
     geschalteten) Linien zusaetzlich ins EXPORTIERTE Bild/Video aufgenommen
     werden -- Standard: alle an, analog zu GraphContentSelector."""
 
-    def __init__(
-        self,
-        crosssection_entries: list[tuple[int, str]],
-        pinned_available: bool,
-        default_pinned_checked: bool = True,
-    ) -> None:
+    def __init__(self, crosssection_entries: list[tuple[int, str]]) -> None:
         self.group_box = QtWidgets.QGroupBox("Querschnitt-Inhalt")
         outer = QtWidgets.QVBoxLayout(self.group_box)
 
@@ -138,32 +130,18 @@ class CrosssectionContentSelector:
         else:
             outer.addWidget(QtWidgets.QLabel("(Keine benannten Querschnitte vorhanden.)"))
 
-        self.chk_pinned = QtWidgets.QCheckBox("Einzelner Querschnitt (fixiert/zuletzt gezeigt)")
-        self.chk_pinned.setChecked(default_pinned_checked and pinned_available)
-        self.chk_pinned.setEnabled(pinned_available)
-        self.chk_pinned.setToolTip(
-            "Der eine, der Maus folgende/fixierbare Querschnitt (Tab „Querschnitt“)."
-            if pinned_available else
-            "Noch nie fixiert -- auf welcher Zeile/Spalte würde sonst exportiert?"
-        )
-        outer.addWidget(self.chk_pinned)
-
         btn_all.clicked.connect(partial(self._select_all, True))
         btn_none.clicked.connect(partial(self._select_all, False))
 
     def _select_all(self, checked: bool) -> None:
         for chk in self.checks.values():
             chk.setChecked(checked)
-        self.chk_pinned.setChecked(checked and self.chk_pinned.isEnabled())
 
     def included_numbers(self) -> set[int]:
         return {number for number, chk in self.checks.items() if chk.isChecked()}
 
-    def include_pinned(self) -> bool:
-        return self.chk_pinned.isChecked()
-
     def has_any_selected(self) -> bool:
-        return bool(self.included_numbers()) or self.include_pinned()
+        return bool(self.included_numbers())
 
 
 class _CursorCurveLink:

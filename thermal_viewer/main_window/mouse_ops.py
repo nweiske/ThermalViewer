@@ -11,34 +11,7 @@ class _MouseMixin:
             return
 
         if self._crosssection_entry_armed_direction is not None:
-            # VOR dem crosssection_tab_active()-Check unten (analog zu dessen
-            # eigener Prioritaets-Begruendung dort): ein explizit ueber "+
-            # Horizontal"/"+ Vertikal" armiertes Platzieren-Werkzeug ist eine
-            # aktuellere, spezifischere Nutzerabsicht als der blosse Fokus
-            # auf dem "Querschnitt"-Graph-Dock-Tab -- ohne diese Prioritaet
-            # wuerde ein Klick bei gleichzeitig sichtbarem Querschnitt-Tab
-            # faelschlich nur das Hover/Pin-Fadenkreuz verschieben statt eine
-            # neue Querschnitt-Linie zu platzieren.
             self._handle_crosssection_entry_click(event)
-            return
-
-        if self._crosssection_tab_active():
-            # Nutzerwunsch: waehrend der "Querschnitt"-Tab im Vordergrund
-            # ist, verhaelt sich ein Linksklick ins Bild komplett anders
-            # (setzt die Schnitt-Position statt den normalen Live-Cursor zu
-            # fixieren/loesen) -- siehe crosssection_ops.py Moduldocstring.
-            #
-            # Bugfix: dieser Check muss VOR allen "armierte Werkzeuge"-
-            # Checks unten stehen (nicht erst danach) -- der Querschnitt-
-            # DOCK-Tab (rechtes Panel) ist ein voellig UNABHAENGIGES Tab-
-            # System von den Bild-Ebenen-Tabs (layer_tabs_ops.py), die ein
-            # armiertes Werkzeug beim Wechsel abbrechen (siehe dort). Ein
-            # Wechsel auf den Querschnitt-Dock-Tab allein bricht ein noch
-            # armiertes ROI-Platzieren/Maßstab/Messmodus/Probenhöhen-
-            # Werkzeug also NICHT ab -- ohne diese Prioritaet haette ein
-            # Klick ins Bild dann unbemerkt noch das alte Werkzeug statt
-            # der erwarteten Querschnitt-Fixierung ausgeloest.
-            self._handle_crosssection_click(event)
             return
 
         if self._ruler_armed:
@@ -119,23 +92,7 @@ class _MouseMixin:
         if self.recording is None:
             return
         if self._crosssection_entry_armed_direction is not None:
-            # Dieselbe Prioritaet wie im Klick-Handler (siehe
-            # _on_scene_mouse_clicked): ein explizit ueber "+ Horizontal"/
-            # "+ Vertikal" armiertes Platzieren-Werkzeug ist eine
-            # spezifischere Nutzerabsicht als der blosse Dock-Tab-Hover
-            # unten -- sonst wuerde bei bereits fixiertem einzelnen
-            # Querschnitt (siehe crosssection_ops.py:_handle_crosssection_
-            # hover) ueberhaupt keine Vorschau-Linie der Maus folgen.
             self._handle_crosssection_entry_hover(scene_pos)
-            return
-        if self._crosssection_tab_active():
-            # Nutzerwunsch: waehrend der "Querschnitt"-Tab im Vordergrund
-            # ist, folgt die Schnitt-Position (eigenes Fixier-Flag, siehe
-            # crosssection_ops.py) der Maus statt des normalen Live-Cursors
-            # -- die Pruefung steht bewusst VOR dem self._live_pinned-Guard
-            # unten, dessen Fixierungs-Zustand zu den ANDEREN Tabs gehoert
-            # und den Querschnitt-Tab nicht blockieren darf.
-            self._handle_crosssection_hover(scene_pos)
             return
         if self._live_pinned:
             return
@@ -238,7 +195,7 @@ class _MouseMixin:
             msg += f"  |  Cursor: Zeile {self._hover_row}, Spalte {self._hover_col} = {val:.2f} °C"
         self.statusBar().showMessage(msg)
         self._update_live_cursor_label()
-        self._update_crosssection_plot()
+        self._update_all_crosssection_entries()
 
     def _update_live_cursor_label(self) -> None:
         """Zeigt die Temperatur DES AKTUELLEN FRAMES am Cursor-Kreuz direkt

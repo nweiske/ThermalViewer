@@ -75,7 +75,16 @@ class ExportPreviewPanel:
         self.group_box = QtWidgets.QGroupBox("Vorschau")
         layout = QtWidgets.QVBoxLayout(self.group_box)
         self.label = _ScalingPreviewLabel("Vorschau erscheint hier.")
-        self.label.setAlignment(QtCore.Qt.AlignCenter)
+        # Nutzerwunsch (Folgeanfrage): "Vorschau-Bild Top-centered machen" --
+        # das Label selbst fuellt stets die GESAMTE Vorschau-Box (Expanding-
+        # Policy, siehe unten), das tatsaechliche Pixmap wird darin aber nur
+        # SEITENVERHAELTNISTREU skaliert (siehe _apply_scaled), bleibt also
+        # meist kleiner als die Box. Ist die Box hoeher als das Bild braucht
+        # (z.B. weil sie in export_dialogs.py derselben Zeile wie ein langer
+        # Tab zugeordnet ist), schwebte das Bild bisher mittig in viel
+        # Leerraum -- oben ausgerichtet wirkt stabiler/aufgeraeumter und
+        # "springt" beim Tab-Wechsel (unterschiedliche Tab-Hoehen) weniger.
+        self.label.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
         # NUR Hoehe als harte Untergrenze (wie vor diesem Umbau) -- die
         # Breite ist lediglich ein anfaenglicher sizeHint() (siehe
         # set_initial_size), keine permanente Mindestbreite. Mit einer

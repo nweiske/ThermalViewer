@@ -56,37 +56,10 @@ class _UIBuildMixin:
         self.live_cursor_label.setVisible(False)
         self.plot_item.addItem(self.live_cursor_label)
 
-        # Nutzerwunsch: die aktuelle Zeile/Spalte des Querschnitt-Graphen
-        # (siehe crosssection_ops.py) als duenne, gestrichelte Linie direkt im
-        # Thermobild sehen -- gleiche Dicke wie die Messbereich-Boxen
-        # (width=2), gestrichelt, damit sie sich davon unterscheidet. Nur
-        # sichtbar, waehrend der "Querschnitt"-Tab tatsaechlich im
-        # Vordergrund ist (siehe _update_crosssection_image_line). EIN
-        # InfiniteLine-Objekt, dessen Winkel/Position je nach gewaehlter
-        # Richtung umgeschaltet wird, statt zwei separater Linien -- der
-        # Nutzer sprach nur von "der" Linie fuer den jeweils aktiven Schnitt.
-        # movable=True (Nutzerwunsch: "per Drag/and Drop zusätzlich
-        # verschieben können") macht sie per pyqtgraph nativ ziehbar -- ein
-        # eigener hoverPen zeigt beim Drueberfahren an, dass sie greifbar
-        # ist. sigDragged (siehe crosssection_ops.py) feuert ausschliesslich
-        # bei echtem User-Drag, nie bei unseren eigenen setPos()-Aufrufen.
-        self.crosssection_image_line = pg.InfiniteLine(
-            angle=0, movable=True,
-            pen=pg.mkPen("#38bdf8", width=2, style=QtCore.Qt.DashLine),
-            hoverPen=pg.mkPen("#facc15", width=2, style=QtCore.Qt.DashLine),
-        )
-        self.crosssection_image_line.setZValue(10)
-        self.crosssection_image_line.setVisible(False)
-        self.plot_item.addItem(self.crosssection_image_line)
-        self.crosssection_image_line.sigDragged.connect(self._on_crosssection_image_line_dragged)
-
-        # Vorschau-Linie fuer das Platzieren-Werkzeug der PLURAL-Querschnitte
-        # (siehe crosssection_entry_ops.py) -- folgt der Maus, waehrend "+
-        # Horizontal"/"+ Vertikal" armiert ist, UNABHAENGIG vom Pin-Zustand
-        # des einzelnen Hover/Pin-Querschnitts oben (Bugreport: war der
-        # einzelne Querschnitt bereits fixiert, folgte GAR KEINE Linie mehr
-        # der Maus beim Platzieren eines neuen Eintrags). movable=False --
-        # reine Anzeige, das Platzieren selbst laeuft ueber einen Linksklick
+        # Vorschau-Linie fuer das Platzieren-Werkzeug der Querschnitte (siehe
+        # crosssection_entry_ops.py) -- folgt der Maus, waehrend "+
+        # Horizontal"/"+ Vertikal" armiert ist. movable=False -- reine
+        # Anzeige, das Platzieren selbst laeuft ueber einen Linksklick
         # (siehe mouse_ops.py:_on_scene_mouse_clicked).
         self.crosssection_entry_preview_line = pg.InfiniteLine(
             angle=0, movable=False,
@@ -611,75 +584,53 @@ class _UIBuildMixin:
         shrinkage_layout.addLayout(shrinkage_time_row)
 
         # Querschnitt-Graph (Nutzerwunsch): horizontaler/vertikaler
-        # Temperatur-Schnitt durch das AKTUELL angezeigte Bild an der
-        # Cursor-/fixierten Position (siehe crosssection_ops.py) -- KEINE
+        # Temperatur-Schnitt durch das AKTUELL angezeigte Bild, siehe
+        # crosssection_entry_ops.py fuer die beliebig vielen, benannten
+        # Querschnitt-Linien, die hier gemeinsam gezeichnet werden. KEINE
         # Zeitachse (X ist hier ein Pixel-Index), daher kein
-        # _build_time_display_row wie bei den drei Kurven-Graphen oben, nur
-        # der generische _reset_plot_view-Knopf. Als eigenes, TABIFIZIERTES
-        # Dock gebaut (siehe _build_docks) statt als eigenes Fenster --
-        # jedes Dock in dieser App ist ueber DockWidgetFloatable ohnehin
-        # frei zu einem schwebenden Fenster herausziehbar, die "Tab oder
-        # Fenster"-Frage stellt sich dadurch nicht wirklich.
+        # _build_time_display_row wie bei den drei Kurven-Graphen oben. Als
+        # eigenes, TABIFIZIERTES Dock gebaut (siehe _build_docks) statt als
+        # eigenes Fenster -- jedes Dock in dieser App ist ueber
+        # DockWidgetFloatable ohnehin frei zu einem schwebenden Fenster
+        # herausziehbar, die "Tab oder Fenster"-Frage stellt sich dadurch
+        # nicht wirklich.
         self.crosssection_plot = pg.PlotWidget()
         self.crosssection_plot.setLabel("left", "Temperatur", units="°C")
         self.crosssection_plot.showGrid(x=True, y=True, alpha=0.3)
         self.crosssection_plot.getPlotItem().getViewBox().setDefaultPadding(0.08)
         # Legende (Nutzerwunsch: mehrere gleichzeitige Querschnitte, siehe
-        # crosssection_entry_ops.py) -- bisher kein Legenden-Bedarf, da immer
-        # nur genau EINE Kurve auf diesem Graphen lag. "Live" benennt den
-        # bestehenden, der Maus folgenden Hover/Pin-Querschnitt, damit er in
-        # der Legende neben den neuen, benannten Eintraegen unterscheidbar ist.
+        # crosssection_entry_ops.py).
         self.crosssection_legend = self.crosssection_plot.addLegend(offset=(10, 10))
-        self.crosssection_curve = self.crosssection_plot.plot(pen=pg.mkPen("#38bdf8", width=2), name="Live")
         self._trim_plot_context_menu(self.crosssection_plot)
 
-        self.lbl_crosssection_position = QtWidgets.QLabel(
-            "Position per Linksklick ins Bild, Pfeiltasten oder den beiden Feldern rechts wählen, "
-            "um den Temperatur-Querschnitt der jeweiligen Zeile/Spalte zu sehen. Der normale, der "
-            "Maus folgende Live-Cursor ist in diesem Tab deaktiviert."
-        )
-        self.lbl_crosssection_position.setWordWrap(True)
-
-        self.radio_crosssection_horizontal = QtWidgets.QRadioButton("Horizontal (Zeile)")
-        self.radio_crosssection_vertical = QtWidgets.QRadioButton("Vertikal (Spalte)")
-        self.radio_crosssection_horizontal.setChecked(True)
-        self.radio_crosssection_horizontal.toggled.connect(self._on_crosssection_direction_changed)
-        self.radio_crosssection_vertical.toggled.connect(self._on_crosssection_direction_changed)
-        crosssection_direction_row = QtWidgets.QHBoxLayout()
-        crosssection_direction_row.addWidget(QtWidgets.QLabel("Richtung:"))
-        crosssection_direction_row.addWidget(self.radio_crosssection_horizontal)
-        crosssection_direction_row.addWidget(self.radio_crosssection_vertical)
-        crosssection_direction_row.addStretch(1)
+        # Folgeanfrage: Y-Achse (Temperatur) standardmaessig an die aktuelle
+        # Farbskala/"Legende" gekoppelt (siehe _update_crosssection_y_axis),
+        # zusaetzlich per Knopf manuell ueberschreibbar -- analog zu "Achsen
+        # einstellen…" bei den anderen Graphen (_build_time_display_row),
+        # aber bewusst NUR Y (eine X-Achsen-Einstellung ergibt fuer einen
+        # Pixel-Index keinen Sinn, anders als bei einer echten Zeitachse).
+        crosssection_axis_row = QtWidgets.QHBoxLayout()
         btn_crosssection_reset_view = QtWidgets.QPushButton("Achsen zurücksetzen")
-        btn_crosssection_reset_view.clicked.connect(partial(self._reset_plot_view, self.crosssection_plot))
-        crosssection_direction_row.addWidget(btn_crosssection_reset_view)
-
-        # Nutzerwunsch: die Position auch zeilen-/spaltengenau ueber ein
-        # Eingabefeld waehlen koennen, statt nur per Klick/Pfeiltasten.
-        # Beide Felder sind IMMER zusammen sichtbar (unabhaengig von der
-        # gewaehlten Richtung), da der Fadenkreuz-Punkt selbst immer beide
-        # Koordinaten hat -- die Richtung entscheidet nur, welche davon den
-        # Schnitt bestimmt (siehe crosssection_ops.py:_update_crosssection_plot).
-        self.spin_crosssection_row = QtWidgets.QSpinBox()
-        self.spin_crosssection_row.setRange(0, 0)
-        self.spin_crosssection_row.valueChanged.connect(self._on_crosssection_row_spin_changed)
-        self.spin_crosssection_col = QtWidgets.QSpinBox()
-        self.spin_crosssection_col.setRange(0, 0)
-        self.spin_crosssection_col.valueChanged.connect(self._on_crosssection_col_spin_changed)
-        crosssection_position_row = QtWidgets.QHBoxLayout()
-        crosssection_position_row.addWidget(QtWidgets.QLabel("Zeile (Y):"))
-        crosssection_position_row.addWidget(self.spin_crosssection_row)
-        crosssection_position_row.addWidget(QtWidgets.QLabel("Spalte (X):"))
-        crosssection_position_row.addWidget(self.spin_crosssection_col)
-        crosssection_position_row.addStretch(1)
+        btn_crosssection_reset_view.setToolTip(
+            "Setzt Zoom/Verschieben zurück -- die Y-Achse folgt danach wieder automatisch\n"
+            "der aktuellen Farbskala (Legende), eine eigene Y-Achsen-Einstellung wird verworfen."
+        )
+        btn_crosssection_reset_view.clicked.connect(self._reset_crosssection_axes)
+        crosssection_axis_row.addWidget(btn_crosssection_reset_view)
+        btn_crosssection_axis_settings = QtWidgets.QPushButton("Y-Achse einstellen…")
+        btn_crosssection_axis_settings.setToolTip(
+            "Y-Achse (Temperatur): Wertebereich und/oder Schrittweite manuell festlegen --\n"
+            "ohne eigene Einstellung folgt sie automatisch der aktuellen Farbskala (Legende)."
+        )
+        btn_crosssection_axis_settings.clicked.connect(self._open_crosssection_axis_settings)
+        crosssection_axis_row.addWidget(btn_crosssection_axis_settings)
+        crosssection_axis_row.addStretch(1)
 
         self.crosssection_widget = QtWidgets.QWidget()
         crosssection_layout = QtWidgets.QVBoxLayout(self.crosssection_widget)
         crosssection_layout.setContentsMargins(4, 4, 4, 4)
-        crosssection_layout.addWidget(self.lbl_crosssection_position)
         crosssection_layout.addWidget(self.crosssection_plot)
-        crosssection_layout.addLayout(crosssection_direction_row)
-        crosssection_layout.addLayout(crosssection_position_row)
+        crosssection_layout.addLayout(crosssection_axis_row)
 
         self.axis_live_bottom = TimeAxisItem()
         self.axis_live_top = TimeAxisItem(orientation="top")
@@ -809,7 +760,7 @@ class _UIBuildMixin:
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.shrinkage_dock)
         self.tabifyDockWidget(self.timeseries_dock, self.shrinkage_dock)
 
-        # Querschnitt-Graph (siehe _build_plots/crosssection_ops.py) --
+        # Querschnitt-Graph (siehe _build_plots/crosssection_entry_ops.py) --
         # gleiches Tabifizierungs-Muster wie "Schwindung" oben.
         self.crosssection_dock = QtWidgets.QDockWidget("Querschnitt", self)
         self.crosssection_dock.setWidget(self.crosssection_widget)
@@ -817,12 +768,6 @@ class _UIBuildMixin:
         self.crosssection_dock.setFeatures(dock_features)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.crosssection_dock)
         self.tabifyDockWidget(self.timeseries_dock, self.crosssection_dock)
-        # Nutzerwunsch: die Schnitt-Linie im Thermobild UND der normale
-        # Live-Cursor sollen sich danach richten, ob dieser Tab gerade
-        # tatsaechlich im Vordergrund ist -- visibilityChanged feuert auch
-        # beim reinen Tab-Wechsel innerhalb einer Dock-Gruppe (nicht nur beim
-        # echten Ein-/Ausblenden), siehe crosssection_ops.py.
-        self.crosssection_dock.visibilityChanged.connect(self._on_crosssection_dock_visibility_changed)
 
         # Das frueher separat tabifizierte "Live (Cursor)"-Dock entfaellt
         # (Nutzerwunsch: redundant, da der Live-Cursor-Verlauf laengst als
@@ -876,15 +821,8 @@ class _UIBuildMixin:
         # (Pfeiltasten/Pos1/Ende) gegenueber diesen Shortcuts, d.h. Tippen in
         # ROI-Namen/Spinboxen wird dadurch nicht gestoert (empirisch geprueft).
         shortcut_specs = [
-            # Nutzerwunsch: waehrend der "Querschnitt"-Tab im Vordergrund ist,
-            # verschieben Pfeiltasten stattdessen die Schnitt-Position (siehe
-            # crosssection_ops.py:_on_key_step_col/_row) -- sonst (normaler
-            # Fall) wie bisher Frame vor/zurueck. Hoch/Runter sind ausserhalb
-            # dieses Tabs bewusst wirkungslos (bisher gar nicht belegt).
-            (QtCore.Qt.Key_Right, partial(self._on_key_step_col, 1)),
-            (QtCore.Qt.Key_Left, partial(self._on_key_step_col, -1)),
-            (QtCore.Qt.Key_Up, partial(self._on_key_step_row, -1)),
-            (QtCore.Qt.Key_Down, partial(self._on_key_step_row, 1)),
+            (QtCore.Qt.Key_Right, lambda: self._step_frame(1)),
+            (QtCore.Qt.Key_Left, lambda: self._step_frame(-1)),
             (QtCore.Qt.Key_PageUp, lambda: self._step_frame(10)),
             (QtCore.Qt.Key_PageDown, lambda: self._step_frame(-10)),
             (QtCore.Qt.Key_Home, self._jump_to_first_frame),

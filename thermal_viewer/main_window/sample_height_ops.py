@@ -9,8 +9,8 @@ Ein-Box-Kontur-Messung in shrinkage_ops.py.
 
 Jede Probenhöhe ist EINE feste Bildzeile, per Spinbox ODER direkt per Ziehen
 der zugehörigen (horizontalen, gestrichelten) Linie im Thermobild
-positionierbar -- analog zur Querschnitt-Linie (crosssection_ops.py), aber
-dauerhaft (nicht nur Hover) und mit eigenem Namen/eigener Farbe wie ein ROI.
+positionierbar -- analog zu einer Querschnitt-Linie (crosssection_entry_ops.py),
+aber mit eigenem Namen/eigener Farbe wie ein ROI.
 Die Kanten/Breite an dieser Zeile werden per Otsu-Schwellenwert bestimmt
 (_track_sample_width_at_row in shrinkage_ops.py) -- UNABHÄNGIG von der Box-
 Messung selbst (muss nicht aktiviert/berechnet sein), nutzt aber deren

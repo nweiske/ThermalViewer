@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - TASTATUR-SHORTCUTS (KURZREFERENZ)
 ================================================================
 
-Stand: 2026-10-09
+Stand: 2026-10-10
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
@@ -40,20 +40,6 @@ MESSBEREICHE (ROI) ARMIEREN
 Wirkt wie ein Klick auf "Messbereich setzen" des jeweiligen Bereichs
 (siehe Bedienungsanleitung.txt, Abschnitt 6) -- der naechste Klick ins
 Bild platziert ihn dort. Ohne geladene Messreihe wirkungslos.
-
-
-QUERSCHNITT-GRAPH: PFEILTASTEN ABWEICHEND BELEGT
---------------------------------------------------
-Ist der Reiter "Querschnitt" (siehe Bedienungsanleitung.txt, Abschnitt 21)
-gerade im Vordergrund, verschieben Pfeiltasten dort STATT der Frame-
-Navigation die Schnitt-Position:
-
-  Pfeil rechts/links     -> Spalte um 1 Pixel nach rechts/links
-  Pfeil hoch/runter      -> Zeile um 1 Pixel nach oben/unten
-
-Ausserhalb dieses Tabs gilt wieder die normale Frame-Navigation oben
-(Hoch/Runter sind dort ohne Funktion). Bild-Auf/-Ab/Pos1/Ende bleiben
-in JEDEM Tab unveraendert Frame-Navigation.
 
 
 HINWEIS ZUR LEERTASTE
@@ -100,9 +86,6 @@ Ist bereits ein Maßstab gesetzt (Werkzeug nicht mehr aktiv):
   oder ihre mm-Beschriftung  -> öffnet den Dialog zum Ändern der realen
                                 Länge (die Endpunkte bleiben dabei fest).
 
-Im Reiter "Querschnitt" (siehe Bedienungsanleitung.txt, Abschnitt 21)
-gilt, solange dieser Tab im Vordergrund ist, dasselbe Linksklick-fixiert/
-Rechtsklick-loest-Muster wie oben -- nur fuer eine EIGENE, unabhaengige
-Fadenkreuz-Position statt des normalen Live-Cursors; zusaetzlich laesst
-sich die im Bild eingezeichnete Schnitt-Linie direkt per Ziehen (Drag &
-Drop) verschieben.
+Im Reiter "Querschnitte" (siehe Bedienungsanleitung.txt, Abschnitt 21)
+laesst sich jede angelegte Querschnitt-Linie direkt im Bild per Ziehen
+(Drag & Drop) verschieben.

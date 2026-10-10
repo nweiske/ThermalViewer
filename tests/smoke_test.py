@@ -900,6 +900,85 @@ check(
 )
 
 
+def test_ruler_label_follows_the_line_live_mid_drag_not_only_after_release():
+    # Folgeanfrage: "kann die Textbox ... Live updaten? also dass mit dem
+    # Verschieben der Linie aktiv die Textbox zu jedem Zeitpunkt mit
+    # verschoben werden kann" -- die obigen zwei Tests nutzen translate()
+    # mit dem Default finish=True, das SOFORT sowohl sigRegionChanged als
+    # auch sigRegionChangeFinished feuert und damit nicht zwischen "live
+    # waehrend des Ziehens" und "erst nach dem Loslassen" unterscheidet.
+    # Hier explizit finish=False (simuliert einen einzelnen Zwischenschritt
+    # WAEHREND eines laufenden Drags, bevor die Maus losgelassen wird) --
+    # _update_ruler_text_position() muss bereits jetzt gefeuert haben
+    # (ueber die neue sigRegionChanged-Verbindung, siehe measurement_ops.py:
+    # _create_or_move_ruler_line), nicht erst bei sigRegionChangeFinished.
+    win._start_ruler_tool()
+    p1 = win.view_box.mapViewToScene(QtCore.QPointF(2, 2))
+    p2 = win.view_box.mapViewToScene(QtCore.QPointF(22, 2))
+    win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p1))
+    with ruler_length_input(20.0):
+        win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p2))
+    try:
+        text_pos_before = QtCore.QPointF(win._ruler_text.pos())
+
+        dx, dy = 4.0, -2.0
+        win._ruler_line.translate((dx, dy), finish=False)
+
+        text_pos_mid_drag = win._ruler_text.pos()
+        assert abs(text_pos_mid_drag.x() - (text_pos_before.x() + dx)) < 1e-6, (
+            "Beschriftung haette bereits WAEHREND des Ziehens (vor sigRegionChangeFinished) folgen muessen"
+        )
+        assert abs(text_pos_mid_drag.y() - (text_pos_before.y() + dy)) < 1e-6
+    finally:
+        win._clear_ruler_scale()
+
+
+check(
+    "the ruler label follows the line body live during a drag (sigRegionChanged), not only after release "
+    "(sigRegionChangeFinished)",
+    test_ruler_label_follows_the_line_live_mid_drag_not_only_after_release,
+)
+
+
+def test_measurement_label_follows_the_line_live_mid_drag_not_only_after_release():
+    # Gegenstueck zu test_ruler_label_follows_the_line_live_mid_drag_not_
+    # only_after_release fuer eine einzelne Messung (MeasurementEntry).
+    win._start_ruler_tool()
+    rp1 = win.view_box.mapViewToScene(QtCore.QPointF(0, 0))
+    rp2 = win.view_box.mapViewToScene(QtCore.QPointF(10, 0))
+    win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, rp1))
+    with ruler_length_input(10.0):
+        win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, rp2))
+    try:
+        win._start_measurement_tool()
+        mp1 = win.view_box.mapViewToScene(QtCore.QPointF(3, 3))
+        mp2 = win.view_box.mapViewToScene(QtCore.QPointF(13, 3))
+        win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, mp1))
+        win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, mp2))
+        entry = win.measurements[-1]
+        try:
+            text_pos_before = QtCore.QPointF(entry.text.pos())
+
+            dx, dy = -3.0, 5.0
+            entry.line.translate((dx, dy), finish=False)
+
+            text_pos_mid_drag = entry.text.pos()
+            assert abs(text_pos_mid_drag.x() - (text_pos_before.x() + dx)) < 1e-6, (
+                "Beschriftung haette bereits WAEHREND des Ziehens folgen muessen"
+            )
+            assert abs(text_pos_mid_drag.y() - (text_pos_before.y() + dy)) < 1e-6
+        finally:
+            win._remove_measurement(entry)
+    finally:
+        win._clear_ruler_scale()
+
+
+check(
+    "the measurement label follows the line body live during a drag, not only after release",
+    test_measurement_label_follows_the_line_live_mid_drag_not_only_after_release,
+)
+
+
 def test_measurement_tool_uses_scale_without_modifying_it():
     # Nutzerwunsch (Folgeanfrage zu Punkt 12): "ich will keinen neuen
     # Maßstab setzen können, sondern wirklich nur messen" -- das Mess-
@@ -4703,7 +4782,10 @@ def test_video_export_dialog_cursor_independent_of_graph_box_and_beides_default(
         # unter einem einzigen Bereich zusammengefasst (siehe
         # ScaleContentSelector host_box) -- daher jetzt derselbe Kasten wie
         # dlg._scale_selector.group_box, mit entsprechend erweitertem Titel.
-        assert cursor_box.title() == "Cursor & Maßstab im Bild", cursor_box.title()
+        # "&&" (nicht "&") ist der tatsaechlich gesetzte Titel -- siehe
+        # Kommentar bei dessen Erzeugung in export_dialogs.py (ein einzelnes
+        # "&" wuerde der Fusion-Stil als sichtbaren Unterstrich rendern).
+        assert cursor_box.title() == "Cursor && Maßstab im Bild", cursor_box.title()
         assert dlg._scale_selector.group_box is cursor_box
         assert cursor_box is not dlg.chk_graph_zeitverlauf.parentWidget(), (
             "Cursor-Kasten darf NICHT mehr im 'Graphen'-Kasten liegen"
@@ -5273,20 +5355,17 @@ def test_export_respects_dynamically_selected_crosssection_lines():
     # Thermobild zu sehen ist ... analog wie bei den ROIs/Messungen der
     # Länge dem User die Möglichkeit geben, gezielt Linien anzuzeigen/
     # auszublenden" -- CrosssectionContentSelector (dialogs/graph_selector.py)
-    # bietet fuer Querschnitt-Linien (benannte Eintraege + der einzelne
-    # Hover/Pin-Querschnitt) dieselbe Art Auswahl wie GraphContentSelector
-    # fuer den Zeitverlauf (ROIs/Live-Cursor) -- End-to-End-Gegenstueck zu
+    # bietet fuer die benannten Querschnitt-Eintraege dieselbe Art Auswahl
+    # wie GraphContentSelector fuer den Zeitverlauf (ROIs/Live-Cursor) --
+    # End-to-End-Gegenstueck zu
     # test_end_to_end_export_state_restoration_with_dynamic_roi_selection.
     from thermal_viewer.dialogs import GraphicExportDialog
 
     entry1 = win._add_crosssection_entry("horizontal", 3)
     entry2 = win._add_crosssection_entry("vertical", 4)
-    win._set_crosssection_position(5, 5, pin=True)
-    assert win._crosssection_pinned is True
 
     prev_entry1_visible = entry1.curve.isVisible()
     prev_entry2_visible = entry2.curve.isVisible()
-    prev_pinned_visible = win.crosssection_curve.isVisible()
 
     out_png = OUT / "crosssection_dynamic_selection_export.png"
 
@@ -5295,7 +5374,6 @@ def test_export_respects_dynamically_selected_crosssection_lines():
         selector = self._crosssection_content_selector
         for number, chk in selector.checks.items():
             chk.setChecked(number == entry1.number)
-        selector.chk_pinned.setChecked(False)
         return (self.accept(), QtWidgets.QDialog.DialogCode.Accepted)[1]
 
     orig_save = QtWidgets.QFileDialog.getSaveFileName
@@ -5312,20 +5390,16 @@ def test_export_respects_dynamically_selected_crosssection_lines():
         assert entry2.curve.isVisible() == prev_entry2_visible, (
             "Sichtbarkeit von Eintrag 2 nach Export nicht wiederhergestellt"
         )
-        assert win.crosssection_curve.isVisible() == prev_pinned_visible, (
-            "Sichtbarkeit des einzelnen Pin-Querschnitts nach Export nicht wiederhergestellt"
-        )
     finally:
         QtWidgets.QFileDialog.getSaveFileName = orig_save
         for entry in (entry1, entry2):
             if entry in win._crosssection_entries:
                 win._on_crosssection_entry_remove_clicked(win._crosssection_entries.index(entry))
-        win._crosssection_pinned = False
 
 
 check(
-    "graphic export respects a dynamically selected subset of crosssection entry lines + the pinned "
-    "single crosssection, and restores curve visibility afterwards",
+    "graphic export respects a dynamically selected subset of crosssection entry lines, and restores "
+    "curve visibility afterwards",
     test_export_respects_dynamically_selected_crosssection_lines,
 )
 
@@ -7462,22 +7536,23 @@ check(
 
 
 def test_switching_away_from_querschnitt_tab_unblocks_ruler_click():
-    # End-to-End-Regression (Bugreport: "Wenn unten rechts der Tab
-    # 'Querschnitt' aktiv ist, dann kann ich im gleichen Atemzug keinen
-    # Maßstab setzen, da ich dann noch die Platzierung der Querschnittslinie
-    # aktiv habe") -- vorher blieb der untere, tabifizierte Querschnitt-
-    # Graph-Dock-Tab nach einem Panel-Tab-Wechsel faelschlich weiter im
-    # Vordergrund, sodass mouse_ops.py:_on_scene_mouse_clicked jeden
-    # Bildklick weiterhin an den Querschnitt-Handler statt an das gerade
-    # armierte Maßstab-Werkzeug weiterreichte. Braucht ein ECHTES, gezeigtes
-    # Fenster (anders als test_main_window.py, siehe dortiger Kommentar) --
-    # _crosssection_tab_active() haengt an visibleRegion().
+    # Urspruenglicher Bugreport ("Wenn unten rechts der Tab 'Querschnitt'
+    # aktiv ist, dann kann ich im gleichen Atemzug keinen Maßstab setzen")
+    # betraf den damaligen, einzelnen Hover/Pin-Querschnitt (dessen
+    # crosssection_tab_active()-Klick-Vorrang in mouse_ops.py jeden
+    # Bildklick abfing) -- der ist inzwischen vollstaendig entfernt (siehe
+    # crosssection_entry_ops.py Moduldocstring: ersetzt durch die benannten
+    # Querschnitt-Eintraege), ein armiertes Maßstab-Werkzeug bekommt Klicks
+    # seitdem strukturell IMMER. Dieser Test bleibt als End-to-End-Guard fuer
+    # das zugehoerige Dock-/Tab-Verhalten bestehen -- braucht ein ECHTES,
+    # gezeigtes Fenster (anders als test_main_window.py), da
+    # visibleRegion() ohne ein gezeigtes Fenster immer leer bleibt.
     win._set_active_layer_tab("querschnitt")
-    assert win._crosssection_tab_active() is True
+    assert not win.crosssection_dock.visibleRegion().isEmpty()
 
     win._start_ruler_tool()
     assert win._ruler_armed is True
-    assert win._crosssection_tab_active() is False, (
+    assert win.crosssection_dock.visibleRegion().isEmpty(), (
         "Wechsel auf 'Maßstab' haette den Querschnitt-Dock-Tab in den Hintergrund schieben muessen"
     )
 

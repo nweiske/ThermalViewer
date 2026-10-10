@@ -97,7 +97,14 @@ class _ProjectMixin:
             "vollständig verloren, wenn sie nicht vorher als Projekt gespeichert werden.\n\n"
             "Wie möchtest du fortfahren?"
         )
-        btn_save = box.addButton("Speichern & fortfahren…", QtWidgets.QMessageBox.ButtonRole.ActionRole)
+        # "&&" statt "&": QPushButton-Beschriftungen werten ein einzelnes "&"
+        # als (hier ungewollte) Mnemonic-Markierung aus -- der Fusion-Stil
+        # dieser App (siehe theming.py) zeichnet das dadurch "verschluckte"
+        # Zeichen (hier ein Leerzeichen) sichtbar als Unterstrich statt es
+        # einfach zu verstecken (Bugreport: sichtbares "Speichern_fortfahren"
+        # statt "Speichern & fortfahren"). "&&" escaped zu einem
+        # buchstaeblichen "&" ohne Mnemonic-Wirkung.
+        btn_save = box.addButton("Speichern && fortfahren…", QtWidgets.QMessageBox.ButtonRole.ActionRole)
         btn_discard = box.addButton("Verwerfen", QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
         btn_cancel = box.addButton("Abbrechen", QtWidgets.QMessageBox.ButtonRole.RejectRole)
         # Bewusst "Abbrechen" als Default (statt z.B. "Verwerfen"): ein

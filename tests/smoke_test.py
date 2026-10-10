@@ -4633,6 +4633,13 @@ def test_graphic_export_dual_time_axis_end_to_end():
 
     orig_save = QtWidgets.QFileDialog.getSaveFileName
     win._render_widget_image = spying_render_widget_image
+    # Bugfix (Folgeanfrage): "Zeitverlauf" ist im Export-Dialog gesperrt,
+    # solange kein Messbereich platziert UND kein Live-Cursor aktiv ist
+    # (kein leerer Graph exportierbar) -- dieser Test prueft ausschliesslich
+    # das Achsen-Rendering, braucht also voruebergehend einen aktiven
+    # Live-Cursor, damit die Checkbox ueberhaupt anwaehlbar bleibt.
+    orig_hover_row, orig_hover_col = win._hover_row, win._hover_col
+    win._hover_row, win._hover_col = 0, 0
     try:
         with temp_dialog_exec(GraphicExportDialog, make_exec):
             QtWidgets.QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (str(p), "PNG-Bild (*.png)"))
@@ -4640,6 +4647,7 @@ def test_graphic_export_dual_time_axis_end_to_end():
     finally:
         QtWidgets.QFileDialog.getSaveFileName = orig_save
         win._render_widget_image = orig_render_widget_image
+        win._hover_row, win._hover_col = orig_hover_row, orig_hover_col
     assert p.exists()
     assert observed.get("top_visible") is True, (
         "obere Achse haette beim tatsaechlichen Rendern bereits sichtbar sein muessen "

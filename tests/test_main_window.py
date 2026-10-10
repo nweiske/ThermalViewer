@@ -1193,27 +1193,54 @@ def test_graphic_export_dialog_graph_checkboxes_default_and_order(loaded_main_wi
         dlg.close()
 
 
-def test_graphic_export_dialog_disables_schwindung_checkbox_when_not_yet_computed(loaded_main_window):
-    # Bugfix: "Schwindung" liess sich bisher auch anhaken, wenn noch gar
-    # keine Schwindungsmessung berechnet wurde, und exportierte dann ein
-    # leeres Koordinatensystem.
+def test_graphic_export_dialog_disables_empty_graph_checkboxes(loaded_main_window):
+    # Bugfix: kein leerer Graph soll exportierbar sein -- "Schwindung" ohne
+    # berechnetes Ergebnis UND "Zeitverlauf" ohne platzierten Messbereich/
+    # aktiven Live-Cursor sind beide gesperrt. Querschnitt bleibt immer
+    # waehlbar (zeigt immer ein Profil der aktuellen Position, siehe
+    # export_dialogs.py-Kommentar bei der Erzeugung der Checkboxen).
     from thermal_viewer.dialogs import GraphicExportDialog
 
     dlg = GraphicExportDialog(
         loaded_main_window, loaded_main_window._settings, default_dpi=150,
         colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
         current_level_mode="global", current_min=0.0, current_max=50.0,
-        show_graph_source_choice=True, live_available=False, roi_entries=[(1, "ROI 1")],
+        show_graph_source_choice=True, live_available=False, roi_entries=[],
         shrinkage_available=False,
     )
     try:
         assert dlg.chk_graph_schwindung.isEnabled() is False
-        # Zeitverlauf/Querschnitt bleiben bewusst immer waehlbar (siehe
-        # export_dialogs.py-Kommentar bei der Erzeugung der Checkboxen).
-        assert dlg.chk_graph_zeitverlauf.isEnabled() is True
+        assert dlg.chk_graph_zeitverlauf.isEnabled() is False
+        assert dlg.chk_graph_zeitverlauf.isChecked() is False
         assert dlg.chk_graph_querschnitt.isEnabled() is True
     finally:
         dlg.close()
+
+    dlg2 = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=False, roi_entries=[(1, "ROI 1")],
+        shrinkage_available=True,
+    )
+    try:
+        assert dlg2.chk_graph_schwindung.isEnabled() is True
+        assert dlg2.chk_graph_zeitverlauf.isEnabled() is True
+        assert dlg2.chk_graph_zeitverlauf.isChecked() is True
+    finally:
+        dlg2.close()
+
+    # live_available (statt platziertem ROI) reicht ebenfalls aus.
+    dlg3 = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=True, roi_entries=[],
+    )
+    try:
+        assert dlg3.chk_graph_zeitverlauf.isEnabled() is True
+    finally:
+        dlg3.close()
 
     dlg2 = GraphicExportDialog(
         loaded_main_window, loaded_main_window._settings, default_dpi=150,
@@ -1431,8 +1458,12 @@ def test_video_export_dialog_graph_checkboxes_default_to_none_selected(qapp):
         dlg.close()
 
 
-def test_video_export_dialog_disables_schwindung_checkbox_when_not_yet_computed(qapp):
-    # Bugfix: siehe GraphicExportDialog -- deckt sowohl Video- als auch
+def test_video_export_dialog_disables_empty_graph_checkboxes(qapp):
+    # Bugfix: kein leerer Graph soll exportierbar sein -- "Schwindung" ohne
+    # berechnetes Ergebnis UND "Zeitverlauf" ohne platzierten Messbereich/
+    # aktiven Live-Cursor sind beide gesperrt. Querschnitt bleibt immer
+    # waehlbar (zeigt immer ein Profil der aktuellen Position, siehe
+    # export_dialogs.py-Kommentar). Deckt sowohl Video- als auch
     # Bildstapel-Export ab (derselbe Dialog).
     from thermal_viewer.dialogs import VideoExportDialog
 
@@ -1443,10 +1474,22 @@ def test_video_export_dialog_disables_schwindung_checkbox_when_not_yet_computed(
     )
     try:
         assert dlg.chk_graph_schwindung.isEnabled() is False
-        assert dlg.chk_graph_zeitverlauf.isEnabled() is True
+        assert dlg.chk_graph_zeitverlauf.isEnabled() is False
+        assert dlg.chk_graph_zeitverlauf.isChecked() is False
         assert dlg.chk_graph_querschnitt.isEnabled() is True
     finally:
         dlg.close()
+
+    dlg2 = VideoExportDialog(
+        None, n_frames=5, colormaps=[("Grau", "grey")], current_colormap_index=0,
+        current_invert=False, current_level_mode="global", current_min=0.0, current_max=100.0,
+        current_fps=5.0, shrinkage_available=True, roi_entries=[(1, "ROI 1")],
+    )
+    try:
+        assert dlg2.chk_graph_schwindung.isEnabled() is True
+        assert dlg2.chk_graph_zeitverlauf.isEnabled() is True
+    finally:
+        dlg2.close()
 
 
 def test_video_export_dialog_layer_checkboxes_default_on_and_toggle(qapp):

@@ -107,14 +107,20 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 "\"Schwindung\"/\"Querschnitt\" exportieren die aktuellen Hauptfenster-Einstellungen."
             )
             left_col.addWidget(graphs_box)
-            # Bugfix: "Schwindung" liess sich bisher auch anhaken, wenn noch
-            # gar keine Schwindungsmessung berechnet wurde, und exportierte
-            # dann ein leeres Koordinatensystem. Zeitverlauf/Querschnitt
-            # bleiben bewusst IMMER waehlbar -- anders als bei der Schwindung
-            # (klar binaer: berechnet oder nicht) gibt es fuer "Zeitverlauf
-            # zeigt aktuell keine Kurve" kein zuverlaessiges, UI-unabhaengiges
-            # Kriterium (z.B. zeigt dieser Graph je nach Blickwinkel auch
-            # ohne platziertes ROI/aktiven Live-Cursor sinnvollen Inhalt).
+            # Bugfix: ein Graph ohne jede Daten liess sich bisher trotzdem
+            # anhaken und exportierte dann ein leeres Koordinatensystem --
+            # Zeitverlauf/Schwindung jetzt gesperrt, wenn es nichts zu zeigen
+            # gibt. Querschnitt bleibt bewusst IMMER waehlbar: er zeigt
+            # (anders als Zeitverlauf/Schwindung) immer ein Profil der
+            # aktuellen Position, auch ohne manuelle Fixierung (siehe
+            # crosssection_ops.py -- Position startet auf der Bildmitte).
+            zeitverlauf_available = bool(roi_entries) or live_available
+            if not zeitverlauf_available:
+                self.chk_graph_zeitverlauf.setChecked(False)
+                self.chk_graph_zeitverlauf.setEnabled(False)
+                self.chk_graph_zeitverlauf.setToolTip(
+                    "Kein Messbereich platziert und kein Live-Cursor aktiv -- nichts zum Exportieren."
+                )
             if not shrinkage_available:
                 self.chk_graph_schwindung.setEnabled(False)
                 self.chk_graph_schwindung.setToolTip("Schwindungsmessung wurde noch nicht berechnet.")
@@ -812,10 +818,16 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             "Beliebig viele gleichzeitig exportierbar, mit wandernder Zeit-Markierung.\n"
             "\"Schwindung\"/\"Querschnitt\" exportieren die aktuellen Hauptfenster-Einstellungen."
         )
-        # Bugfix: siehe GraphicExportDialog -- "Schwindung" ohne berechnetes
-        # Ergebnis ist gesperrt. Deckt sowohl den Video- als auch den
-        # Bildstapel-Export ab (beides derselbe Dialog, siehe
-        # radio_output_images weiter unten).
+        # Bugfix: siehe GraphicExportDialog -- kein leerer Graph exportierbar.
+        # Deckt sowohl den Video- als auch den Bildstapel-Export ab (beides
+        # derselbe Dialog, siehe radio_output_images weiter unten).
+        zeitverlauf_available = bool(roi_entries) or live_available
+        if not zeitverlauf_available:
+            self.chk_graph_zeitverlauf.setChecked(False)
+            self.chk_graph_zeitverlauf.setEnabled(False)
+            self.chk_graph_zeitverlauf.setToolTip(
+                "Kein Messbereich platziert und kein Live-Cursor aktiv -- nichts zum Exportieren."
+            )
         if not shrinkage_available:
             self.chk_graph_schwindung.setEnabled(False)
             self.chk_graph_schwindung.setToolTip("Schwindungsmessung wurde noch nicht berechnet.")

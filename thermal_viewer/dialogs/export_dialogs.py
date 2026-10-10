@@ -423,7 +423,18 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             # graph_related_col weiter oben (faellt dann auf "Bild &
             # Maßstab" zurueck).
             self._tabs.removeTab(self._tabs.indexOf(graphs_tab))
-        layout_top.addWidget(self._tabs, 1)
+        # Folgeanfrage ("viel ungenutzten und somit verschwendeten Platz"):
+        # OHNE AlignTop streckt QHBoxLayout self._tabs auf dieselbe Hoehe wie
+        # die Vorschau-Spalte daneben (die durch zwei gestapelte Bildchen oft
+        # deutlich hoeher ist als der kompakteste Tab-Inhalt) -- QTabWidget
+        # fuellt diese zusaetzliche Hoehe dann INNERHALB der aktuell
+        # sichtbaren Tab-Seite auf, was dort wie grundlos verschwendeter
+        # Leerraum aussieht (sichtbar z.B. unter "Querschnitt-Inhalt" bei nur
+        # wenigen Eintraegen). Mit AlignTop behaelt self._tabs seine eigene,
+        # natuerliche Hoehe -- ein etwaiger Ueberschuss bleibt AUSSERHALB
+        # jeder Box, als normaler (weniger auffaelliger) Leerraum unterhalb
+        # des gesamten Tab-Widgets.
+        layout_top.addWidget(self._tabs, 1, QtCore.Qt.AlignTop)
         # Stretch-Faktor 1 (statt eines zusaetzlichen, konkurrierenden
         # addStretch(1)): die Vorschau soll den gesamten Platzueberschuss
         # bekommen, wenn der Nutzer den Dialog groesser zieht (Nutzerwunsch:
@@ -1152,7 +1163,10 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._tabs.addTab(color_tab, "Farbskala")
         self._tabs.addTab(output_tab, "Ausgabe")
         top_row = QtWidgets.QHBoxLayout()
-        top_row.addWidget(self._tabs, 1)
+        # AlignTop -- siehe GraphicExportDialog weiter oben fuer die volle
+        # Begruendung (dasselbe "viel ungenutzten Platz"-Problem, hier beim
+        # Video-/Bildstapel-Export).
+        top_row.addWidget(self._tabs, 1, QtCore.Qt.AlignTop)
         top_row.addWidget(self._preview_panel.group_box, 1)
         layout.addLayout(top_row)
 

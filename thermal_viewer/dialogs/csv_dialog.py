@@ -143,6 +143,12 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._mm_checks: list[QtWidgets.QCheckBox] = []
         self._bulk_update = False
         grid = QtWidgets.QGridLayout()
+        # Spalte 2 (Spaltenname-Editierfeld) bekommt bevorzugt zusaetzliche
+        # Breite, wenn der Nutzer den Dialog ueber die Mindestbreite hinaus
+        # vergroessert -- die anderen Spalten (Checkbox/Label/px-mm/
+        # Werteinheit) haben feste, kleine Inhalte, fuer die mehr Platz
+        # nichts bringen wuerde.
+        grid.setColumnStretch(2, 1)
 
         # Kopfzeile: "ALLE" ueber der Ein-/Ausschluss-Spalte (Spalte 0) --
         # ersetzt die frueheren grossen "Alle auswählen"/"Keine auswählen"-
@@ -182,6 +188,16 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             grid.addWidget(QtWidgets.QLabel(entry["name"]), row, 1)
             edit = QtWidgets.QLineEdit(f'{entry["name"]} ({entry.get("unit_suffix", "°C")})')
             chk.toggled.connect(edit.setEnabled)
+            # Folgeanfrage ("Labels von Haus aus ganz über die Breite
+            # angezeigt, Fenster nicht erst durch den User vergrößern"):
+            # QLineEdit.sizeHint() richtet sich NICHT nach dem tatsaechlichen
+            # Inhalt (ein fester, generischer Wert) -- ohne das hier wuerde
+            # der generierte Spaltenname (je nach Messbereichsname beliebig
+            # lang) im Feld abgeschnitten, selbst wenn der Dialog insgesamt
+            # schon recht breit ist. _cap_initial_dialog_height() (siehe
+            # _base.py) bemisst die anfaengliche Dialogbreite am sizeHint()
+            # des gescrollten Inhalts, zieht also diese Mindestbreite mit ein.
+            edit.setMinimumWidth(edit.fontMetrics().horizontalAdvance(edit.text()) + 24)
             grid.addWidget(edit, row, 2)
             self._edits.append(edit)
 

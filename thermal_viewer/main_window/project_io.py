@@ -257,6 +257,13 @@ class _ProjectMixin:
             # Kurve ist eine reine Pro-Bild-Momentaufnahme, wird beim Laden
             # einfach aus dem aktuellen Bild neu gezeichnet.
             "querschnitte": self._crosssection_entries_state_list(),
+            # Y-Achsen-Override des Querschnitt-Graphen (siehe crosssection_
+            # entry_ops.py:_open_crosssection_axis_settings) -- Nutzerwunsch:
+            # vollstaendiger Programmzustand. Ohne diesen Eintrag ging eine
+            # manuell gesetzte Y-Achse beim Speichern/Laden eines Projekts
+            # bisher stillschweigend verloren (sie folgte nach dem Laden
+            # wieder der Legende, siehe _update_crosssection_y_axis).
+            "querschnitt_y_achse": self._crosssection_axis_state_dict(),
         }
         return data
 
@@ -270,6 +277,17 @@ class _ProjectMixin:
             }
             for entry in self._crosssection_entries
         ]
+
+    def _crosssection_axis_state_dict(self) -> dict:
+        """Baut das "querschnitt_y_achse"-Teil-dict aus dem AKTUELLEN Live-
+        Zustand -- siehe _shrinkage_state_dict() fuer dasselbe Muster."""
+        y_min, y_max = self._crosssection_y_range if self._crosssection_y_range is not None else (None, None)
+        return {
+            "manuell": self._crosssection_y_manual,
+            "y_min": y_min,
+            "y_max": y_max,
+            "schrittweite": self._crosssection_y_spacing,
+        }
 
     def _shrinkage_state_dict(self) -> dict:
         """Baut das "schwindung"-Teil-dict aus dem AKTUELLEN Live-Zustand --
@@ -354,6 +372,7 @@ class _ProjectMixin:
         self._load_project_shrinkage(data)
         self._load_project_sample_heights(data)
         self._load_project_crosssection_entries(data)
+        self._load_project_crosssection_axis(data)
         # Ebenen-Tabs (layer_tabs_ops.py): Messbereiche koennen waehrend des
         # Ladens neu platziert worden sein (entry.place() setzt dabei seine
         # eigene Sichtbarkeit OHNE Kenntnis der aktuell aktiven Ebene) --
@@ -400,6 +419,7 @@ class _ProjectMixin:
         self._load_project_shrinkage(data, recompute=False)
         self._load_project_sample_heights(data, recompute=False)
         self._load_project_crosssection_entries(data)
+        self._load_project_crosssection_axis(data)
         self._apply_layer_tab_visibility()
 
     def _load_project_resolve_recording(self, data: dict) -> bool:
@@ -1156,6 +1176,36 @@ class _ProjectMixin:
         self._refresh_crosssection_entry_rows()
         self._update_all_crosssection_entries()
         self._apply_crosssection_entries_visibility()
+
+    def _load_project_crosssection_axis(self, data: dict) -> None:
+        """Y-Achsen-Override des Querschnitt-Graphen aus der Projektdatei
+        übernehmen -- siehe _crosssection_axis_state_dict()/
+        crosssection_entry_ops.py:_open_crosssection_axis_settings. Fehlt der
+        Eintrag (altes Projekt von vor diesem Fix) oder ist er fehlerhaft,
+        bleibt es beim Standard: Y-Achse folgt der aktuellen Farbskala/
+        Legende (self._update_crosssection_y_axis am Ende wendet das so
+        oder so an)."""
+        axis_data = data.get("querschnitt_y_achse")
+        manual = False
+        if isinstance(axis_data, dict):
+            y_min, y_max = axis_data.get("y_min"), axis_data.get("y_max")
+            if (
+                axis_data.get("manuell") is True
+                and isinstance(y_min, (int, float)) and not isinstance(y_min, bool)
+                and isinstance(y_max, (int, float)) and not isinstance(y_max, bool)
+                and y_max > y_min
+            ):
+                manual = True
+                self._crosssection_y_range = (float(y_min), float(y_max))
+            spacing = axis_data.get("schrittweite")
+            if isinstance(spacing, (int, float)) and not isinstance(spacing, bool) and spacing > 0:
+                self._crosssection_y_spacing = float(spacing)
+            else:
+                self._crosssection_y_spacing = None
+        self._crosssection_y_manual = manual
+        if not manual:
+            self._crosssection_y_range = None
+        self._update_crosssection_y_axis()
 
     def _load_paths(
         self, paths: list[Path], pattern: re.Pattern | None = None, strptime_fmt: str | None = None,

@@ -603,6 +603,19 @@ class _UIBuildMixin:
         self.crosssection_legend = self.crosssection_plot.addLegend(offset=(10, 10))
         self._trim_plot_context_menu(self.crosssection_plot)
 
+        # Folgeanfrage: "wenn ich einen Querschnitt platziere, soll die Kurve
+        # live mitgezeichnet werden, auch wenn ich den Querschnitt noch gar
+        # nicht gesetzt habe und nur mit der Maus durchs Bild fahre" --
+        # dieselbe gelbe Vorschau-Farbe wie crosssection_entry_preview_line
+        # (das Gegenstueck im Thermobild, siehe oben), OHNE name= (nimmt sonst
+        # unnoetig einen Platz in crosssection_legend ein). Aktualisiert/
+        # sichtbar nur waehrend "+ Horizontal"/"+ Vertikal" armiert ist, siehe
+        # crosssection_entry_ops.py:_handle_crosssection_entry_hover.
+        self.crosssection_entry_preview_curve = self.crosssection_plot.plot(
+            pen=pg.mkPen("#facc15", width=2, style=QtCore.Qt.DashLine)
+        )
+        self.crosssection_entry_preview_curve.setVisible(False)
+
         # Folgeanfrage: Y-Achse (Temperatur) standardmaessig an die aktuelle
         # Farbskala/"Legende" gekoppelt (siehe _update_crosssection_y_axis),
         # zusaetzlich per Knopf manuell ueberschreibbar -- analog zu "Achsen

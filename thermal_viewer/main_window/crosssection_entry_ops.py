@@ -371,6 +371,16 @@ class _CrosssectionEntryMixin:
         (analog zu sample_height_ops.py:_create_sample_height_entry)."""
         curve = self.crosssection_plot.plot(pen=pg.mkPen(color, width=2), name=f"Querschnitt {number}")
         entry = CrosssectionEntry(number, color, direction, self.view_box, curve)
+        # sigPositionChanged feuert bei JEDEM Zwischenschritt eines Drags
+        # (Folgeanfrage: "beim Verschieben der Linie aktiv die Textbox zu
+        # jedem Zeitpunkt mitverschieben" -- betraf hier sowohl die Kurve
+        # selbst als auch das festklebende Namens-Label, das bisher nur bei
+        # Erzeugung/per Positions-Spinbox aktualisiert wurde, siehe
+        # _on_crosssection_entry_line_moved) -- sigPositionChangeFinished
+        # bleibt fuer den eigentlichen COMMIT (Undo-Snapshot, Spinbox-Sync,
+        # Statusmeldung) reserviert, analog zum etablierten Muster bei pg.ROI
+        # (siehe roi_panel_build.py).
+        entry.line.sigPositionChanged.connect(partial(self._on_crosssection_entry_line_moved, entry))
         entry.line.sigPositionChangeFinished.connect(partial(self._on_crosssection_entry_line_dragged, entry))
         return entry
 
@@ -439,6 +449,7 @@ class _CrosssectionEntryMixin:
     def _cancel_crosssection_entry_tool(self) -> None:
         self._crosssection_entry_armed_direction = None
         self.crosssection_entry_preview_line.setVisible(False)
+        self.crosssection_entry_preview_curve.setVisible(False)
         for btn in (self.btn_add_crosssection_horizontal, self.btn_add_crosssection_vertical):
             if btn.isChecked():
                 btn.blockSignals(True)
@@ -451,10 +462,15 @@ class _CrosssectionEntryMixin:
         Prioritaet VOR dem Dock-Tab-Hover behandelt wie der Klick-Handler) --
         laesst die Vorschau-Linie der Maus folgen, UNABHAENGIG vom Pin-
         Zustand des einzelnen Hover/Pin-Querschnitts (siehe ui_build.py fuer
-        die Begruendung)."""
+        die Begruendung). Folgeanfrage ("die Temperaturquerschnittskurve
+        soll live mitgezeichnet werden, auch wenn der Querschnitt noch gar
+        nicht gesetzt ist"): zusaetzlich die Vorschau-KURVE mitfuehren --
+        zeigt das Temperaturprofil an der Stelle, an der ein Klick die Linie
+        platzieren wuerde."""
         row_col = self._pixel_at_scene_pos(scene_pos)
         if row_col is None:
             self.crosssection_entry_preview_line.setVisible(False)
+            self.crosssection_entry_preview_curve.setVisible(False)
             return
         row, col = row_col
         if self._crosssection_entry_armed_direction == "horizontal":
@@ -464,6 +480,26 @@ class _CrosssectionEntryMixin:
             self.crosssection_entry_preview_line.setAngle(90)
             self.crosssection_entry_preview_line.setPos(col + 0.5)
         self.crosssection_entry_preview_line.setVisible(True)
+        self._update_crosssection_entry_preview_curve(row, col)
+
+    def _update_crosssection_entry_preview_curve(self, row: int, col: int) -> None:
+        """Zeichnet das Temperaturprofil des AKTUELL ANGEZEIGTEN Bildes an
+        der Hover-Position -- Gegenstueck zu _update_crosssection_entry_curve
+        fuer eine noch gar nicht platzierte Linie, siehe
+        _handle_crosssection_entry_hover."""
+        if self.recording is None:
+            self.crosssection_entry_preview_curve.setVisible(False)
+            return
+        frame = self.recording.frames[self.current_index]
+        rows, cols = self.recording.shape
+        if self._crosssection_entry_armed_direction == "horizontal":
+            values = frame[max(0, min(rows - 1, row)), :]
+            xs = np.arange(cols)
+        else:
+            values = frame[:, max(0, min(cols - 1, col))]
+            xs = np.arange(rows)
+        self.crosssection_entry_preview_curve.setData(xs, values)
+        self.crosssection_entry_preview_curve.setVisible(True)
 
     def _handle_crosssection_entry_click(self, event) -> None:
         if event.button() != QtCore.Qt.LeftButton:
@@ -513,6 +549,27 @@ class _CrosssectionEntryMixin:
         entry = self._crosssection_entries[index]
         entry.position = value
         self._update_crosssection_entry_line_pos(entry)
+        self._update_crosssection_entry_curve(entry)
+
+    def _on_crosssection_entry_line_moved(self, entry: CrosssectionEntry, line) -> None:
+        """Live-Update WAEHREND eines Drags (sigPositionChanged, siehe
+        _create_crosssection_entry) -- Kurve UND Namens-Label folgen der
+        Linie ab sofort bei jedem Zwischenschritt, nicht erst nach dem
+        Loslassen (Folgeanfrage). Behebt nebenbei den Bug, dass das Namens-
+        Label nach einem Linien-Drag an der ALTEN Position (Erzeugung bzw.
+        letzte Positions-Spinbox-Aenderung) haengen blieb -- bisher setzte
+        NUR _update_crosssection_entry_line_pos (Erzeugen/Spinbox) dessen
+        Position neu, der Drag-Pfad nie. entry.position wird hier bereits
+        final gesetzt (identische Rechnung wie in
+        _on_crosssection_entry_line_dragged) -- der dortige Finish-Handler
+        bleibt trotzdem fuer Undo-Snapshot/Spinbox-Sync/Statusmeldung
+        zustaendig, die NICHT bei jedem Zwischenschritt passieren sollen."""
+        if entry not in self._crosssection_entries or self.recording is None:
+            return
+        rows, cols = self.recording.shape
+        limit = rows if entry.direction == "horizontal" else cols
+        entry.position = max(0, min(limit - 1, int(round(line.value() - 0.5))))
+        self._update_crosssection_entry_label_pos(entry)
         self._update_crosssection_entry_curve(entry)
 
     def _on_crosssection_entry_line_dragged(self, entry: CrosssectionEntry, line) -> None:

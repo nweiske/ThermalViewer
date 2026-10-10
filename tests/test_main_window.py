@@ -1343,6 +1343,69 @@ def test_video_export_dialog_graphen_tab_uses_2x2_grid(qapp):
         dlg.close()
 
 
+def _find_layout_item_for_widget(layout, widget):
+    """Sucht rekursiv in layout nach dem QLayoutItem, das widget direkt
+    haelt (QWidget.pos()/parentWidget() allein verraet nicht, MIT welcher
+    Ausrichtung/welchem Stretch-Faktor ein bestimmtes Unter-Layout es
+    eingehaengt hat)."""
+    for i in range(layout.count()):
+        item = layout.itemAt(i)
+        if item.widget() is widget:
+            return item
+        sub_layout = item.layout()
+        if sub_layout is not None:
+            found = _find_layout_item_for_widget(sub_layout, widget)
+            if found is not None:
+                return found
+    return None
+
+
+def _assert_tabs_widget_is_top_aligned(dlg) -> None:
+    """Folgeanfrage: "viel ungenutzten und somit verschwendeten Platz" im
+    Grafik-/Video-Export-Manager -- ohne AlignTop streckt die umgebende
+    QHBoxLayout dlg._tabs auf dieselbe Hoehe wie die (oft deutlich hoehere)
+    Vorschau-Spalte daneben, QTabWidget fuellt diese Hoehe dann INNERHALB
+    der gerade sichtbaren Tab-Seite auf -- genau der als Leerraum
+    wahrgenommene Effekt. Mit AlignTop behaelt dlg._tabs seine eigene
+    natuerliche Hoehe, ein etwaiger Ueberschuss bleibt AUSSERHALB jeder Box."""
+    scroll_area = dlg.findChild(QtWidgets.QScrollArea)
+    content_layout = scroll_area.widget().layout()
+    item = _find_layout_item_for_widget(content_layout, dlg._tabs)
+    assert item is not None, "dlg._tabs nicht im Dialog-Layout gefunden"
+    assert bool(item.alignment() & QtCore.Qt.AlignTop), "dlg._tabs muss mit AlignTop eingehaengt sein"
+
+
+def test_graphic_export_dialog_tabs_widget_is_top_aligned_next_to_preview(loaded_main_window):
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    dlg = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=False,
+        roi_entries=[(1, "ROI 1")], show_scale_choice=True, ruler_available=True,
+        crosssection_entries=[(1, "Querschnitt 1")],
+    )
+    try:
+        _assert_tabs_widget_is_top_aligned(dlg)
+    finally:
+        dlg.close()
+
+
+def test_video_export_dialog_tabs_widget_is_top_aligned_next_to_preview(qapp):
+    from thermal_viewer.dialogs import VideoExportDialog
+
+    dlg = VideoExportDialog(
+        parent=None, n_frames=5, colormaps=[("Grau", "grey")], current_colormap_index=0,
+        current_invert=False, current_level_mode="global", current_min=0.0, current_max=100.0,
+        current_fps=5.0, crosssection_entries=[(1, "Querschnitt 1")],
+    )
+    try:
+        _assert_tabs_widget_is_top_aligned(dlg)
+    finally:
+        dlg.close()
+
+
 def test_export_graphic_writes_a_png(roi_and_live_window, tmp_path, monkeypatch):
     mw = roi_and_live_window
     out_path = tmp_path / "Graph.png"
@@ -2448,6 +2511,28 @@ def test_csv_export_includes_shrinkage_area_column(loaded_main_window, tmp_path,
         assert rec[col_key] == pytest.approx(round(float(areas[i]), 3))
 
 
+def test_csv_column_dialog_name_edit_wide_enough_for_generated_text(qapp):
+    # Folgeanfrage: "mache den Export-Manager des Werte-Exports etwas
+    # breiter, sodass die Labels von Haus aus ganz angezeigt werden können
+    # und das Fenster nicht erst durch den User vergrößert werden muss" --
+    # QLineEdit.sizeHint() richtet sich NICHT nach dem Inhalt, daher muss
+    # jedes Spaltennamen-Feld seine Mindestbreite explizit anhand des
+    # tatsaechlich generierten Textes bekommen.
+    from thermal_viewer.dialogs.csv_dialog import CsvColumnDialog
+
+    settings = QtCore.QSettings("ThermalViewer", "ThermalViewerTest")
+    entries = [
+        {"name": "Ein ziemlich langer Messbereichsname, der sonst abgeschnitten würde", "width_px": 10.0, "height_px": 10.0},
+    ]
+    dlg = CsvColumnDialog(None, entries, settings)
+    try:
+        edit = dlg._edits[0]
+        needed = edit.fontMetrics().horizontalAdvance(edit.text())
+        assert edit.minimumWidth() >= needed, "Feld muss von Haus aus breit genug fuer den vollen Text sein"
+    finally:
+        dlg.close()
+
+
 # ------------------------------------------------------------ Probenhöhen
 
 def _place_sample_height(mw, row=None):
@@ -2756,6 +2841,55 @@ def test_project_save_load_roundtrip_preserves_sample_heights(loaded_main_window
     assert restored.row == 7
     assert restored.enabled is False
     assert restored.color == entry.color
+
+
+def test_project_save_load_roundtrip_preserves_crosssection_y_axis(loaded_main_window):
+    # Gap gefunden bei der Nachfrage "geht irgendwo etwas verloren?": eine
+    # manuell gesetzte Y-Achse des Querschnitt-Graphen (siehe
+    # crosssection_entry_ops.py:_open_crosssection_axis_settings) wurde
+    # bisher NICHT mit gespeichert -- folgte nach dem Laden wieder
+    # stillschweigend der Legende statt der zuletzt gewaehlten eigenen
+    # Einstellung.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._add_crosssection_entry("horizontal", 5)
+    mw._crosssection_y_manual = True
+    mw._crosssection_y_range = (3.0, 123.0)
+    mw._crosssection_y_spacing = 10.0
+
+    data = mw._build_project_state_dict()
+    assert data["querschnitt_y_achse"] == {
+        "manuell": True, "y_min": 3.0, "y_max": 123.0, "schrittweite": 10.0,
+    }
+
+    # Zustand zuruecksetzen, dann aus dem gespeicherten dict wiederherstellen.
+    mw._crosssection_y_manual = False
+    mw._crosssection_y_range = None
+    mw._crosssection_y_spacing = None
+
+    mw._load_project_crosssection_axis(data)
+    assert mw._crosssection_y_manual is True
+    assert mw._crosssection_y_range == (3.0, 123.0)
+    assert mw._crosssection_y_spacing == 10.0
+    lo, hi = mw.crosssection_plot.getPlotItem().getViewBox().viewRange()[1]
+    assert abs(lo - 3.0) < 1e-6 and abs(hi - 123.0) < 1e-6
+
+
+def test_project_load_crosssection_axis_without_saved_entry_keeps_legend_default(loaded_main_window):
+    # Alte Projektdateien (von vor diesem Fix) haben keinen
+    # "querschnitt_y_achse"-Eintrag -- muss beim Laden unauffaellig beim
+    # Standard (Y-Achse folgt der Legende) bleiben, kein Fehler.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw._add_crosssection_entry("horizontal", 5)
+    mw._crosssection_y_manual = True
+    mw._crosssection_y_range = (1.0, 2.0)
+
+    mw._load_project_crosssection_axis({})
+
+    assert mw._crosssection_y_manual is False
+    assert mw._crosssection_y_range is None
+    img_lo, img_hi = mw.image_item.getLevels()
+    lo, hi = mw.crosssection_plot.getPlotItem().getViewBox().viewRange()[1]
+    assert abs(lo - img_lo) < 1e-6 and abs(hi - img_hi) < 1e-6
 
 
 # ------------------------------------------------------------ Projekt
@@ -4056,6 +4190,64 @@ def test_crosssection_entry_hover_preview_line_follows_mouse_while_armed(loaded_
 
     mw._cancel_crosssection_entry_tool()
     assert mw.crosssection_entry_preview_line.isVisible() is False
+
+
+def test_crosssection_entry_hover_preview_curve_shows_profile_at_cursor(loaded_main_window):
+    # Folgeanfrage: "wenn ich einen Querschnitt platziere, soll die Kurve
+    # live mitgezeichnet werden, auch wenn der Querschnitt noch gar nicht
+    # gesetzt ist und ich nur mit der Maus durchs Bild fahre".
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+    mw.view_box.mapSceneToView = lambda pos: pos
+
+    mw._set_active_layer_tab("querschnitt")
+    assert mw._start_crosssection_entry_tool("horizontal") is True
+    assert mw.crosssection_entry_preview_curve.isVisible() is False
+
+    mw._on_scene_mouse_moved(QtCore.QPointF(4.5, 6.5))  # Zeile 6
+    assert mw.crosssection_entry_preview_curve.isVisible() is True
+    xs, ys = mw.crosssection_entry_preview_curve.getData()
+    assert list(xs) == list(range(30))
+    assert np.allclose(ys, mw.recording.frames[0, 6, :])
+
+    mw._cancel_crosssection_entry_tool()
+    assert mw.crosssection_entry_preview_curve.isVisible() is False
+
+
+def test_crosssection_entry_line_drag_live_updates_curve_and_label_mid_drag(loaded_main_window):
+    # Folgeanfrage: "kannst du die Textboxen ... live updaten, wenn sie
+    # verschoben werden?" -- betrifft hier sowohl die Kurve als auch das
+    # Namens-Label eines bereits platzierten Querschnitts. pg.InfiniteLine
+    # feuert sigPositionChanged bereits bei setPos() (laufende Bewegung,
+    # anders als sigPositionChangeFinished, das erst von einer echten
+    # Maus-Drag-Geste kommt) -- deckt damit genau den "waehrend des Ziehens"
+    # Fall ab, ohne die Finished-Geste zu simulieren.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    entry = mw._add_crosssection_entry("horizontal", 2)
+    assert entry.position == 2
+
+    entry.line.setPos(9.5)  # live, mitten im (simulierten) Drag -> Zeile 9
+
+    assert entry.position == 9, "Position muss schon waehrend des Drags (nicht erst am Ende) folgen"
+    xs, ys = entry.curve.getData()
+    assert np.allclose(ys, mw.recording.frames[0, 9, :]), "Kurve muss live der neuen Zeile folgen"
+    assert entry.name_label.pos().y() == 9.5, "Label (bisher 'festklebend') muss live mitgezogen werden"
+
+
+def test_crosssection_entry_line_drag_finished_commits_undo_and_spinbox(loaded_main_window):
+    # sigPositionChangeFinished bleibt fuer den eigentlichen COMMIT zustaendig
+    # (Undo-Snapshot, Positions-Spinbox-Sync) -- unveraendert durch das neue
+    # Live-Update waehrend des Drags selbst.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    entry = mw._add_crosssection_entry("horizontal", 2)
+    undo_depth_before = len(mw._undo_stack)
+
+    entry.line.setPos(9.5)
+    mw._on_crosssection_entry_line_dragged(entry, entry.line)
+
+    assert entry.position == 9
+    assert entry.spin_position.value() == 9
+    assert len(mw._undo_stack) == undo_depth_before + 1
 
 
 def test_temporary_crosssection_content_toggles_exactly_the_selected_curves(loaded_main_window):

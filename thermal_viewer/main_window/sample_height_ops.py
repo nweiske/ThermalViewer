@@ -184,7 +184,7 @@ class _SampleHeightMixin:
         Schwindungs-Box (roi_shrink_area) als gemeinsamer Suchbereich fuer
         ALLE Probenhöhen, UNABHAENGIG davon, ob die Box-Messung selbst
         aktiviert ist (die Box ist immer positioniert, siehe
-        shrinkage_ops.py:_reset_shrinkage_state_for_recording). Fallback auf
+        shrinkage_ops.py:_clear_shrinkage_for_new_recording). Fallback auf
         die volle Bildbreite, falls die Box (z.B. manuell) auf Breite 0
         gezogen wurde."""
         rows, cols = self.recording.shape

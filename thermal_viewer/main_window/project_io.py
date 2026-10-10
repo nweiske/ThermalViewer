@@ -608,8 +608,16 @@ class _ProjectMixin:
                 if name:
                     entry.list_item.setText(name)
 
+                # Bugfix: ungueltiger Wert (z.B. hand-editiert) liess
+                # entry.set_color() HALB durchlaufen (setzt entry.color SOFORT,
+                # bevor pg.mkPen() fuer den ungueltigen String eine Exception
+                # wirft) -- der Eintrag landete dann als "fehlerhaft, komplett
+                # uebersprungen" in der Abschluss-Meldung, obwohl Name/Farb-
+                # Attribut (nicht aber Stift/Label) bereits mutiert waren.
+                # isValid()-Pruefung VORHER (wie bereits bei Messungen, siehe
+                # _load_project_measurements) verhindert das.
                 color = roi_data.get("farbe")
-                if color:
+                if isinstance(color, str) and QtGui.QColor(color).isValid():
                     entry.set_color(color)
 
                 entry.list_item.setCheckState(

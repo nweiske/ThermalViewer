@@ -761,6 +761,59 @@ def test_ruler():
 check("ruler tool sets px_to_mm", test_ruler)
 
 
+def test_dragging_ruler_endpoint_onto_the_other_restores_visual_geometry():
+    # Bugfix: zieht man einen Endpunkt der Maßstab-Linie exakt auf den
+    # anderen, bleibt die Kalibrierung bewusst unveraendert (Division durch
+    # Null vermieden, siehe _on_ruler_line_dragged) -- die Linie selbst war
+    # aber bereits waehrend des Ziehens visuell auf die kollabierte Position
+    # gesprungen (pyqtgraph aktualisiert die ROI-Geometrie VOR dem
+    # sigRegionChangeFinished-Signal) und blieb dort haengen, obwohl
+    # self._px_to_mm unveraendert die vorherige, gueltige Strecke meint --
+    # verwirrend sichtbar falsch. Fix: die Start-Positionen werden beim
+    # Beginn des Ziehens gemerkt und im degenerierten Fall aktiv
+    # wiederhergestellt.
+    win._start_ruler_tool()
+    p1 = win.view_box.mapViewToScene(QtCore.QPointF(2, 2))
+    p2 = win.view_box.mapViewToScene(QtCore.QPointF(22, 2))
+    win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p1))
+    with ruler_length_input(20.0):
+        win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p2))
+    assert win._px_to_mm is not None
+    before = win._px_to_mm
+    original_points = [QtCore.QPointF(pt) for pt in win._ruler_line.listPoints()]
+
+    try:
+        handles = win._ruler_line.getHandles()
+        # sigRegionChangeStarted kommt NUR von Handle.mouseDragEvent()'s
+        # ev.isStart()-Zweig (ueber ROI.handleMoveStarted(), siehe
+        # pyqtgraph-Quelltext) -- movePoint() allein (wie bei einem echten
+        # Mausklick-Drag intern ebenfalls fuer jeden Zwischenschritt
+        # verwendet) loest nur sigRegionChanged/-Finished aus. Fuer einen
+        # realistischen Test-Drag beides nachbilden: erst den Start
+        # simulieren (merkt sich die Ausgangsposition, siehe
+        # _on_ruler_line_drag_started), dann bewegen.
+        win._ruler_line.handleMoveStarted()
+        win._ruler_line.movePoint(handles[1], original_points[0])
+        assert win._px_to_mm == before, "Kalibrierung haette unveraendert bleiben muessen"
+        restored_points = win._ruler_line.listPoints()
+        assert abs(restored_points[0].x() - original_points[0].x()) < 1e-6
+        assert abs(restored_points[0].y() - original_points[0].y()) < 1e-6
+        assert abs(restored_points[1].x() - original_points[1].x()) < 1e-6
+        assert abs(restored_points[1].y() - original_points[1].y()) < 1e-6
+        assert (restored_points[1] - restored_points[0]).length() > 1e-6, (
+            "Linie blieb visuell kollabiert statt wiederhergestellt zu werden"
+        )
+    finally:
+        win._clear_ruler_scale()
+
+
+check(
+    "dragging a ruler endpoint exactly onto the other endpoint restores the line's previous visual "
+    "geometry instead of leaving it visually collapsed",
+    test_dragging_ruler_endpoint_onto_the_other_restores_visual_geometry,
+)
+
+
 def test_measurement_tool_uses_scale_without_modifying_it():
     # Nutzerwunsch (Folgeanfrage zu Punkt 12): "ich will keinen neuen
     # Maßstab setzen können, sondern wirklich nur messen" -- das Mess-

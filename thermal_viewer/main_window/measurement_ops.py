@@ -213,7 +213,14 @@ class _MeasurementMixin:
         # sigRegionChangeStarted feuert einmal beim Beginn des Ziehens
         # (siehe undo_ops.py-Moduldocstring) -- EIN Snapshot pro Drag.
         self._ruler_line.sigRegionChangeStarted.connect(self._push_undo_snapshot)
+        # Merkt sich zusaetzlich die Start-Positionen beider Endpunkte (siehe
+        # _on_ruler_line_dragged weiter unten, degenerierter Fall).
+        self._ruler_line.sigRegionChangeStarted.connect(self._on_ruler_line_drag_started)
         self._ruler_line.sigRegionChangeFinished.connect(self._on_ruler_line_dragged)
+
+    def _on_ruler_line_drag_started(self) -> None:
+        if self._ruler_line is not None:
+            self._ruler_drag_start_points = list(self._ruler_line.listPoints())
 
     def _on_ruler_line_dragged(self) -> None:
         """Nach dem Ziehen eines Endpunkts (Punkt 11): die reale Länge
@@ -225,8 +232,24 @@ class _MeasurementMixin:
         p1, p2 = self._ruler_line.listPoints()
         pixel_distance = (p2 - p1).length()
         if pixel_distance < 1e-6:
-            # Degenerierter Zustand (beide Punkte uebereinander) -- bisherige
-            # Kalibrierung beibehalten, statt durch Null zu teilen.
+            # Degenerierter Zustand (ein Endpunkt exakt auf den anderen
+            # gezogen) -- bisherige Kalibrierung beibehalten, statt durch
+            # Null zu teilen. Bugfix: die Linie selbst war bis hierher
+            # bereits visuell auf die degenerierte Position gesprungen (pyqtgraph
+            # aktualisiert die ROI-Geometrie waehrend des Ziehens, bevor
+            # dieses sigRegionChangeFinished ueberhaupt feuert) und blieb
+            # trotz unveraenderter Kalibrierung sichtbar kollabiert liegen,
+            # bis der Nutzer sie zufaellig erneut zog oder per Strg+Z
+            # rueckgaengig machte -- hier aktiv auf die beim Start des Ziehens
+            # gemerkten Positionen zuruecksetzen. finish=False: verhindert,
+            # dass dieser programmatische movePoint()-Aufruf selbst erneut
+            # sigRegionChangeFinished ausloest (keine Rekursion).
+            if self._ruler_drag_start_points is not None:
+                start_p1, start_p2 = self._ruler_drag_start_points
+                handles = self._ruler_line.getHandles()
+                if len(handles) == 2:
+                    self._ruler_line.movePoint(handles[0], start_p1, finish=False)
+                    self._ruler_line.movePoint(handles[1], start_p2, finish=False)
             return
         self._px_to_mm = self._ruler_mm_value / pixel_distance
         self._update_ruler_text_position()

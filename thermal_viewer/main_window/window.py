@@ -164,6 +164,11 @@ class MainWindow(
         # Wert konstant und _px_to_mm wird aus der neuen Pixel-Distanz neu
         # berechnet; beim Doppelklick-Bearbeiten ist es umgekehrt.
         self._ruler_mm_value: float | None = None
+        # Endpunkt-Positionen beim Beginn eines Ziehens (siehe
+        # _on_ruler_line_drag_started/_on_ruler_line_dragged) -- erlaubt,
+        # die Linie visuell auf ihre vorherige Geometrie zurueckzusetzen,
+        # falls der Nutzer einen Endpunkt exakt auf den anderen zieht.
+        self._ruler_drag_start_points: list | None = None
         self._ruler_armed = False
         self._ruler_start: tuple[float, float] | None = None
         # Waehrend der Klick-Klick-Erstellung (siehe _handle_ruler_click) nur

@@ -49,6 +49,7 @@ class _FrameNavMixin:
         # vollstaendig verworfen zu werden.
         self._clear_all_sample_heights_for_new_recording()
         self._clear_all_crosssection_entries_for_new_recording()
+        self._clear_shrinkage_for_new_recording()
         self._armed_entry = None
         self._roi_next_number = 1
         self._measurement_next_number = 1
@@ -91,6 +92,14 @@ class _FrameNavMixin:
         self.recording = recording
         if had_previous_recording:
             self._reset_state_for_new_recording()
+        else:
+            # Allererstes Laden ueberhaupt: _reset_state_for_new_recording()
+            # laeuft bewusst nicht (nichts Altes zum Wegwerfen) -- die
+            # Schwindungsbox braucht trotzdem einmalig eine zur Bildgroesse
+            # passende Startposition statt ihres bild-unabhaengigen
+            # Konstruktions-Defaults (siehe shrinkage_ops.py:
+            # _clear_shrinkage_for_new_recording).
+            self._clear_shrinkage_for_new_recording()
         n = recording.n_frames
         rows, cols = recording.shape
 
@@ -166,11 +175,13 @@ class _FrameNavMixin:
         self.live_curve.setSymbol(symbol)
         self.timeseries_live_curve.setSymbol(symbol)
 
-        # Schwindungsmessung (siehe shrinkage_ops.py): Boxen/Ergebnis der
-        # VORHERIGEN Aufnahme sind fuer eine andere Bildgroesse/Frame-Anzahl
-        # bedeutungslos -- gleiche Invariante wie bei ROIs/Messungen/
-        # Bereinigung oben.
-        self._reset_shrinkage_state_for_recording()
+        # Schwindungsmessung (siehe shrinkage_ops.py): bei diesem Aufruf hier
+        # wurde die Box bereits ueber _clear_shrinkage_for_new_recording()
+        # (oben, bzw. im else-Zweig fuer den allerersten Ladevorgang) auf
+        # eine zur AKTUELLEN Bildgroesse passende Position gesetzt --
+        # _reset_shrinkage_for_recording() klemmt hier nur noch defensiv
+        # (aktuell ueberall ein No-Op, siehe dortiger Docstring).
+        self._reset_shrinkage_for_recording()
 
         self._hover_row = None
         self._hover_col = None

@@ -453,7 +453,7 @@ class _ShrinkageMixin:
     def _build_shrinkage_panel(self) -> None:
         # EINE Box im Bild (siehe roi.py:AdjustableROI) -- Standardgroesse/
         # -position wird erst bekannt, wenn eine Aufnahme geladen ist (siehe
-        # _reset_shrinkage_state_for_recording), hier nur Platzhalter-
+        # _clear_shrinkage_for_new_recording), hier nur Platzhalter-
         # Geometrie (view_box existiert zu diesem Zeitpunkt in __init__
         # bereits). Deckt (mit Rand) fast das ganze Bild ab, da sie NICHT
         # nachgefuehrt wird und die Probe ueber die gesamte Aufnahme hinweg
@@ -603,7 +603,7 @@ class _ShrinkageMixin:
     def _apply_shrinkage_roi_visibility(self) -> None:
         """Zentrale Stelle, ob die Box gerade sichtbar sein soll -- haengt
         von "Aktivieren" UND dem aktiven Ebenen-Tab ab, siehe
-        _on_shrinkage_enabled_toggled/_reset_shrinkage_state_for_recording."""
+        _on_shrinkage_enabled_toggled/_clear_shrinkage_for_new_recording."""
         visible = (
             self._shrinkage_enabled and self.recording is not None
             and self._is_layer_tab_active("shrinkage")
@@ -703,13 +703,27 @@ class _ShrinkageMixin:
         self._shrinkage_metric = self.combo_shrinkage_metric.currentData()
         self._update_shrinkage_curve()
 
-    def _reset_shrinkage_state_for_recording(self) -> None:
-        """Positioniert die Box neu passend zur (neu geladenen) Aufnahme
-        und verwirft ein evtl. vorhandenes Ergebnis -- Box/Ergebnis der
+    def _clear_shrinkage_for_new_recording(self) -> None:
+        """Positioniert die Box neu passend zur (neu geladenen) Aufnahme und
+        verwirft ein evtl. vorhandenes Ergebnis -- Box/Ergebnis der
         VORHERIGEN Aufnahme sind fuer eine andere Bildgroesse/Frame-Anzahl
         bedeutungslos (gleiche Invariante wie bei ROIs/Messungen/
         Bereinigung, siehe frame_nav.py). Die gewaehlte Kenngroesse selbst
-        bleibt (wie die Boxfarbe) ueber einen Reload hinweg erhalten."""
+        bleibt (wie die Boxfarbe) ueber einen Reload hinweg erhalten.
+
+        Analog zu sample_height_ops.py:_clear_all_sample_heights_for_new_
+        recording/crosssection_entry_ops.py:_clear_all_crosssection_entries_
+        for_new_recording -- vom Laden einer WEITEREN (echten) Messreihe
+        aufgerufen (siehe frame_nav.py:_reset_state_for_new_recording), UND
+        einmalig direkt von _set_recording() beim ALLERERSTEN Laden (dort
+        laeuft _reset_state_for_new_recording() bewusst nicht, die Box
+        braucht trotzdem eine zur Bildgroesse passende Startposition statt
+        ihres bild-unabhaengigen Konstruktions-Defaults). _reset_shrinkage_
+        for_recording() (siehe unten) ist das Gegenstueck fuer jeden
+        _set_recording()-Aufruf generell -- hier spielt das (anders als bei
+        den beiden anderen Listen-Merkmalen) aktuell keine Rolle, weil die
+        Box immer schon durch DIESE Methode sinnvoll positioniert wurde,
+        bevor jener Aufruf greift."""
         self._shrinkage_result = None
         self.lbl_shrinkage_result.setText("Noch nicht berechnet.")
         self.lbl_shrinkage_result.setToolTip("")
@@ -724,6 +738,45 @@ class _ShrinkageMixin:
         rows, cols = self.recording.shape
         self.roi_shrink_area.setPos((cols * 0.05, rows * 0.1), update=False)
         self.roi_shrink_area.setSize((cols * 0.9, rows * 0.8))
+        self._apply_shrinkage_roi_visibility()
+
+    def _reset_shrinkage_for_recording(self) -> None:
+        """Gegenstueck zu _clear_shrinkage_for_new_recording() -- bei JEDEM
+        _set_recording()-Aufruf aufgerufen (analog zu sample_height_ops.py:
+        _reset_sample_heights_for_recording/crosssection_entry_ops.py:
+        _reset_crosssection_entries_for_recording). Klemmt eine bestehende
+        Box-Position/-Groesse nur auf die (evtl. neue) Bildgroesse, statt sie
+        wie die obige Methode komplett zu verwerfen -- heute in jedem
+        erreichbaren Aufrufpfad ein No-Op (die Box wurde bei DIESEM Aufruf
+        bereits durch _clear_shrinkage_for_new_recording() auf eine zur
+        aktuellen Bildgroesse passende Position gesetzt, Klemmen auf
+        dieselbe Groesse aendert nichts), bewusst trotzdem vorhanden, falls
+        kuenftig ein Codepfad echtes "dieselbe Aufnahme erneut laden, Box
+        soll erhalten bleiben" unterstuetzt (z.B. eine Live-Ordner-
+        Ueberwachung ueber _set_recording statt wie heute direkt ueber
+        _apply_appended_recording). Ein vorhandenes Ergebnis bezieht sich
+        auf die ALTE Frame-Anzahl und wird in jedem Fall verworfen -- ohne
+        erneutes "Berechnen" liesse es sich nicht zuverlaessig weiternutzen."""
+        self._shrinkage_result = None
+        self.lbl_shrinkage_result.setText("Noch nicht berechnet.")
+        self.lbl_shrinkage_result.setToolTip("")
+        self.lbl_shrinkage_polarity.setText(
+            "Polarität (wärmer/kälter als Hintergrund): wird bei \"Berechnen\" automatisch erkannt."
+        )
+        self.shrinkage_curve.clear()
+        self.shrinkage_curve.setVisible(False)
+        if self.recording is None:
+            self._apply_shrinkage_roi_visibility()
+            return
+        rows, cols = self.recording.shape
+        pos_x, pos_y = self.roi_shrink_area.pos()
+        width, height = self.roi_shrink_area.size()
+        clamped_w = max(1.0, min(width, cols))
+        clamped_h = max(1.0, min(height, rows))
+        clamped_x = max(0.0, min(pos_x, cols - clamped_w))
+        clamped_y = max(0.0, min(pos_y, rows - clamped_h))
+        self.roi_shrink_area.setPos((clamped_x, clamped_y), update=False)
+        self.roi_shrink_area.setSize((clamped_w, clamped_h))
         self._apply_shrinkage_roi_visibility()
 
     def _on_shrinkage_compute_clicked(self) -> None:

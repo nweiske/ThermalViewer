@@ -2808,6 +2808,43 @@ def test_load_project_tolerates_non_integer_cleaning_points_in_file(loaded_main_
     mw._compute_cleaning_candidates()  # darf nicht mit IndexError abstuerzen
 
 
+def test_load_project_ignores_invalid_roi_color_without_partial_mutation(loaded_main_window, tmp_path, monkeypatch):
+    # Bugfix: ein ungueltiger "farbe"-Wert liess entry.set_color() HALB
+    # durchlaufen -- entry.color wird dort SOFORT gesetzt, bevor pg.mkPen()
+    # fuer den ungueltigen String eine Exception wirft (roi_entry.py). Der
+    # ROI-Eintrag landete dadurch als komplett "fehlerhaft, uebersprungen"
+    # in der Abschluss-Meldung, obwohl Name/Position bereits uebernommen
+    # waren und nur die Farbe halb-mutiert haengen blieb. Fix: dieselbe
+    # isValid()-Pruefung VOR dem Zuweisen wie bei Messungen (siehe
+    # _load_project_measurements).
+    mw = loaded_main_window
+    entry = mw.roi_entries[0]
+    original_color = entry.color
+    proj_path = tmp_path / "bad_roi_color.tvproj"
+    proj_path.write_text(
+        json.dumps({
+            "format_version": 2,
+            "quellordner": str(mw.recording.paths[0].parent),
+            "bild_groesse_px": {"zeilen": mw.recording.shape[0], "spalten": mw.recording.shape[1]},
+            "rois": [{
+                "index": 0, "name": "Ecke", "farbe": "nicht-eine-gueltige-farbe",
+                "platziert": True, "mittelpunkt": {"x": 3, "y": 3},
+                "breite_px": 2, "hoehe_px": 2,
+            }],
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(proj_path), "")),
+    )
+    mw._load_project()
+
+    assert entry.list_item.text() == "Ecke", "Name haette trotz ungueltiger Farbe uebernommen werden muessen"
+    assert entry.color == original_color, "eine ungueltige Farbe darf entry.color nicht veraendern"
+    assert entry.placed, "Platzierung haette trotz ungueltiger Farbe erfolgreich sein muessen"
+
+
 def test_apply_cleaning_exclusions_refuses_to_hide_every_frame(loaded_main_window, monkeypatch):
     # Regressionsschutz: wuerde eine Auswahl ALLE Bilder der Aufnahme
     # ausblenden, faende der Navigations-Ausweich-Sprung in

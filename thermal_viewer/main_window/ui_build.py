@@ -332,6 +332,11 @@ class _UIBuildMixin:
             "x_min": x0 - t0, "x_max": x1 - t0, "x_auto": x_auto,
             "x_runtime_mode": x_axis_item.runtime_mode, "x_spacing": x_axis_item.manual_spacing,
             "y_min": y0, "y_max": y1, "y_auto": y_auto, "y_spacing": current_y_spacing,
+            # Bugfix: AxisSettingsDialog zeigte die X-Achse (Zeit) bisher immer
+            # in Sekunden an, unabhaengig von der im Hauptfenster gewaehlten
+            # Laufzeit-Einheit -- jetzt mitgegeben, damit der Dialog (siehe
+            # AxisOverridePanel._open_sub_dialog) dieselbe Einheit anzeigt.
+            "runtime_unit": self._runtime_unit,
         }
 
     @contextlib.contextmanager
@@ -424,6 +429,7 @@ class _UIBuildMixin:
             x_manual=not current["x_auto"], y_manual_range=not current["y_auto"],
             y_spacing=current["y_spacing"],
             x_runtime_mode=current["x_runtime_mode"], x_spacing=current["x_spacing"],
+            runtime_unit=self._runtime_unit,
         )
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
@@ -739,11 +745,15 @@ class _UIBuildMixin:
         self.control_dock.setTitleBarWidget(QtWidgets.QWidget())
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.control_dock)
 
-        self.timeseries_dock = QtWidgets.QDockWidget("Zeitverlauf", self)
+        # Bugfix: hiess frueher "Zeitverlauf", obwohl dieses Dock laengst auch
+        # die Schwindung-/Querschnitt-Tabs enthaelt -- "Graphen" beschreibt
+        # den Inhalt zutreffender (Nutzerwunsch). Der einzelne Graph-TYP
+        # "Zeitverlauf" (z.B. in den Export-Dialogen) bleibt davon unberuehrt.
+        self.timeseries_dock = QtWidgets.QDockWidget("Graphen", self)
         self.timeseries_dock.setWidget(self.timeseries_widget)
         self.timeseries_dock.setAllowedAreas(side_areas)
         self.timeseries_dock.setFeatures(dock_features)
-        # Der Name "Zeitverlauf" bleibt als windowTitle() erhalten (fuer den
+        # Der Name "Graphen" bleibt als windowTitle() erhalten (fuer den
         # Ein-/Ausblenden-Menuepunkt im "Ansicht"-Menue, siehe _build_menu),
         # die eigentliche Titelzeile ueber dem Graphen selbst blendet ein
         # leeres Platzhalter-Widget aus (Nutzerfeedback: "sollte offensicht-
@@ -855,7 +865,7 @@ class _UIBuildMixin:
             (QtCore.Qt.Key_Home, self._jump_to_first_frame),
             (QtCore.Qt.Key_End, self._jump_to_last_frame),
             (QtCore.Qt.Key_Space, self._on_space_pressed),
-            # Nutzerwunsch: Tasten 1-5 armieren direkt den jeweiligen
+            # Nutzerwunsch: Tasten 1-6 armieren direkt den jeweiligen
             # Standard-Messbereich zum Platzieren (siehe roi_ops.py:
             # _on_arm_roi_shortcut) -- Ziffern werden von einem fokussierten
             # Spinbox-/Textfeld weiterhin automatisch als Zahlen-Eingabe
@@ -866,6 +876,7 @@ class _UIBuildMixin:
             (QtCore.Qt.Key_3, partial(self._on_arm_roi_shortcut, 3)),
             (QtCore.Qt.Key_4, partial(self._on_arm_roi_shortcut, 4)),
             (QtCore.Qt.Key_5, partial(self._on_arm_roi_shortcut, 5)),
+            (QtCore.Qt.Key_6, partial(self._on_arm_roi_shortcut, 6)),
         ]
         self._nav_shortcuts: list[QtGui.QShortcut] = []
         for key, slot in shortcut_specs:

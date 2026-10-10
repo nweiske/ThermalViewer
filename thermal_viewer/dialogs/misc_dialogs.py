@@ -7,8 +7,18 @@ from datetime import datetime
 
 from qtpy import QtCore, QtWidgets
 
+from ..plot_items import _RUNTIME_UNIT_DIVISORS
 from ..widgets import LocaleTolerantDoubleSpinBox
 from ._base import _disable_enter_auto_accept, _NoEnterAutoAccept
+
+# Anzeige-Namen/Vorgabe-Tick-Abstaende je Laufzeit-Einheit fuer
+# AxisSettingsDialog -- dieselben Einheiten-Schluessel wie
+# _RUNTIME_UNIT_DIVISORS (plot_items.py)/MainWindow._runtime_unit. Die
+# Vorgabe-Abstaende sind bewusst NICHT einfach "60s / Einheit-Divisor"
+# umgerechnet (ergaebe z.B. fuer Stunden ein unrundes 0.0167h), sondern pro
+# Einheit ein eigener, sinnvoll runder Startwert.
+_RUNTIME_UNIT_LABELS = {"s": "Sekunden", "min": "Minuten", "h": "Stunden"}
+_DEFAULT_X_SPACING_BY_UNIT = {"s": 60.0, "min": 5.0, "h": 1.0}
 
 
 class RulerLengthDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
@@ -100,7 +110,15 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     5/15/30 Minuten) -- im Laufzeit-Modus sonst z.B. haesslich unrunde
     Werte wie 00:00:24, 00:01:24 statt 00:00:00, 00:01:00, weil pyqtgraph
     seine "schoenen" Intervalle an der ABSOLUTEN Uhrzeit statt am
-    Aufnahmebeginn ausrichtet (siehe TimeAxisItem.tickValues)."""
+    Aufnahmebeginn ausrichtet (siehe TimeAxisItem.tickValues).
+
+    runtime_unit ("s"/"min"/"h", siehe _RUNTIME_UNIT_DIVISORS): Bugfix --
+    die X-Achsen-Felder zeigten/erwarteten bisher IMMER Sekunden, unabhaengig
+    davon, worauf das Hauptfenster gerade eingestellt war (z.B. "Minuten"),
+    was beim Umrechnen verwirrend war. current_x_min/current_x_max/x_spacing
+    werden weiterhin in SEKUNDEN uebergeben (wie von _gather_axis_state
+    geliefert) -- nur die ANZEIGE/EINGABE hier passt sich runtime_unit an,
+    x_range()/x_spacing() geben weiterhin Sekunden zurueck (siehe dort)."""
 
     def __init__(
         self,
@@ -114,9 +132,17 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         y_spacing: float | None = None,
         x_runtime_mode: bool = False,
         x_spacing: float | None = None,
+        runtime_unit: str = "s",
     ):
         super().__init__(parent)
         self.setWindowTitle("Achsen einstellen")
+        # "hhmmss" (Uhrzeit-Anzeige im Hauptfenster) hat keine sinnvolle
+        # Entsprechung als einzelner Zahlenwert hier -- faellt auf Sekunden
+        # zurueck, wie zuvor.
+        self._runtime_unit = runtime_unit if runtime_unit in _RUNTIME_UNIT_DIVISORS else "s"
+        divisor = _RUNTIME_UNIT_DIVISORS[self._runtime_unit]
+        unit_suffix = f" {self._runtime_unit}"
+        unit_label = _RUNTIME_UNIT_LABELS[self._runtime_unit]
 
         layout = QtWidgets.QVBoxLayout(self)
 
@@ -128,15 +154,15 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.spin_x_min = LocaleTolerantDoubleSpinBox()
         self.spin_x_min.setRange(-1e12, 1e12)
         self.spin_x_min.setDecimals(1)
-        self.spin_x_min.setSuffix(" s")
-        self.spin_x_min.setValue(current_x_min)
+        self.spin_x_min.setSuffix(unit_suffix)
+        self.spin_x_min.setValue(current_x_min / divisor)
         self.spin_x_max = LocaleTolerantDoubleSpinBox()
         self.spin_x_max.setRange(-1e12, 1e12)
         self.spin_x_max.setDecimals(1)
-        self.spin_x_max.setSuffix(" s")
-        self.spin_x_max.setValue(current_x_max)
-        x_form.addRow("Von (Sekunden seit Aufnahmebeginn):", self.spin_x_min)
-        x_form.addRow("Bis (Sekunden seit Aufnahmebeginn):", self.spin_x_max)
+        self.spin_x_max.setSuffix(unit_suffix)
+        self.spin_x_max.setValue(current_x_max / divisor)
+        x_form.addRow(f"Von ({unit_label} seit Aufnahmebeginn):", self.spin_x_min)
+        x_form.addRow(f"Bis ({unit_label} seit Aufnahmebeginn):", self.spin_x_max)
         x_layout.addLayout(x_form)
 
         self.chk_x_manual_spacing = QtWidgets.QCheckBox("Tick-Abstand (Laufzeit-Modus) manuell festlegen")
@@ -145,8 +171,11 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.spin_x_spacing = LocaleTolerantDoubleSpinBox()
         self.spin_x_spacing.setRange(0.1, 1e7)
         self.spin_x_spacing.setDecimals(1)
-        self.spin_x_spacing.setSuffix(" s")
-        self.spin_x_spacing.setValue(x_spacing if x_spacing is not None else 60.0)
+        self.spin_x_spacing.setSuffix(unit_suffix)
+        self.spin_x_spacing.setValue(
+            x_spacing / divisor if x_spacing is not None
+            else _DEFAULT_X_SPACING_BY_UNIT[self._runtime_unit]
+        )
         x_spacing_form.addRow("Hauptintervall:", self.spin_x_spacing)
         x_layout.addLayout(x_spacing_form)
         x_note = QtWidgets.QLabel(
@@ -239,13 +268,14 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         return self.chk_x_manual.isChecked()
 
     def x_range(self) -> tuple[float, float]:
-        return self.spin_x_min.value(), self.spin_x_max.value()
+        divisor = _RUNTIME_UNIT_DIVISORS[self._runtime_unit]
+        return self.spin_x_min.value() * divisor, self.spin_x_max.value() * divisor
 
     def x_manual_spacing(self) -> bool:
         return self.chk_x_manual_spacing.isChecked()
 
     def x_spacing(self) -> float:
-        return self.spin_x_spacing.value()
+        return self.spin_x_spacing.value() * _RUNTIME_UNIT_DIVISORS[self._runtime_unit]
 
     def y_manual_range(self) -> bool:
         return self.chk_y_manual_range.isChecked()

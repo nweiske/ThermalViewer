@@ -35,6 +35,7 @@ MESSBEREICHE (ROI) ARMIEREN
   Ziffer 3               -> Messbereich "Mitte" zum Platzieren armieren
   Ziffer 4               -> Messbereich "Rechts" zum Platzieren armieren
   Ziffer 5               -> Messbereich "Unten" zum Platzieren armieren
+  Ziffer 6               -> Messbereich "Hintergrund" zum Platzieren armieren
 
 Wirkt wie ein Klick auf "Messbereich setzen" des jeweiligen Bereichs
 (siehe Bedienungsanleitung.txt, Abschnitt 6) -- der naechste Klick ins

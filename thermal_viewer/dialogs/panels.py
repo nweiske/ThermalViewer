@@ -289,6 +289,7 @@ class AxisOverridePanel:
             y_spacing=(ov["y_spacing"] if ov and ov["y_spacing_manual"] else state["y_spacing"]),
             x_runtime_mode=state["x_runtime_mode"],
             x_spacing=(ov["x_spacing"] if ov and ov["x_spacing_manual"] else state["x_spacing"]),
+            runtime_unit=state.get("runtime_unit", "s"),
         )
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return

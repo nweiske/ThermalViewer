@@ -518,6 +518,15 @@ class _RenderPipelineMixin:
         Darstellung (Punkt 13), sonst wirkt die Grafik im Dunkel-Modus wie
         ein dunkler Fleck auf weissem Papier."""
         vertical, image_first = _RenderPipelineMixin._combined_panel_order(position)
+        # Nutzerwunsch (Kompaktheit): bei GENAU 3 Graphen nebeneinander wird
+        # das Bild zu breit -- stattdessen die 3 Graphen UNTEREINANDER neben
+        # das Bild stapeln (siehe _combine_image_and_stacked_graphs). Nur bei
+        # horizontaler Position relevant -- "oben"/"unten" stapelt ohnehin
+        # schon alles untereinander.
+        if not vertical and len(graphs) == 3:
+            return _RenderPipelineMixin._combine_image_and_stacked_graphs(
+                image, image_title, graphs, image_first, dpi, background, foreground
+            )
         panels = (
             [(image, image_title)] + graphs if image_first
             else graphs + [(image, image_title)]
@@ -565,6 +574,69 @@ class _RenderPipelineMixin:
                 image_y = margin + title_height + (row_height - img.height()) // 2
                 painter.drawImage(x, image_y, img)
                 x += img.width() + gap
+
+        painter.end()
+        return combined
+
+    @staticmethod
+    def _combine_image_and_stacked_graphs(
+        image: QtGui.QImage,
+        image_title: str,
+        graphs: list[tuple[QtGui.QImage, str]],
+        image_first: bool,
+        dpi: int,
+        background: QtGui.QColor,
+        foreground: QtGui.QColor,
+    ) -> QtGui.QImage:
+        """Kompaktere Variante von _combine_image_and_graph fuer GENAU 3
+        Graphen bei horizontaler Bild-Position (Nutzerwunsch: "Bild soll
+        nicht zu breit werden") -- die 3 Graphen werden UNTEREINANDER
+        gestapelt (wiederverwendet dieselbe vertical=True-Stapel-
+        Layoutberechnung wie der normale Mehr-Panel-Fall oben), der Stapel
+        wird dann wie EIN einzelnes Panel neben das Bild gesetzt (dieselbe
+        Zentrierungs-Logik wie oben im horizontalen Zweig). Dadurch waechst
+        nur die Hoehe, nicht die Breite, mit der Graphen-Anzahl."""
+        stack_layout = _RenderPipelineMixin._combined_layout(
+            dpi, [(img.width(), img.height()) for img, _title in graphs], vertical=True
+        )
+        stack_w, stack_h = stack_layout["width"], stack_layout["height"]
+        sizes = [(image.width(), image.height()), (stack_w, stack_h)]
+        if not image_first:
+            sizes = list(reversed(sizes))
+        outer_layout = _RenderPipelineMixin._combined_layout(dpi, sizes, vertical=False)
+        margin, gap, title_height = outer_layout["margin"], outer_layout["gap"], outer_layout["title_height"]
+        width, height = outer_layout["width"], outer_layout["height"]
+        row_height = max(image.height(), stack_h)
+
+        combined = QtGui.QImage(width, height, QtGui.QImage.Format_ARGB32)
+        combined.fill(background)
+        dots_per_meter = round(dpi / 0.0254)
+        combined.setDotsPerMeterX(dots_per_meter)
+        combined.setDotsPerMeterY(dots_per_meter)
+
+        painter = QtGui.QPainter(combined)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.setFont(outer_layout["font"])
+        painter.setPen(foreground)
+
+        image_x = margin if image_first else margin + stack_w + gap
+        stack_x = margin + image.width() + gap if image_first else margin
+
+        text_rect = QtCore.QRect(image_x, margin, image.width(), title_height)
+        painter.drawText(text_rect, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, image_title)
+        image_y = margin + title_height + (row_height - image.height()) // 2
+        painter.drawImage(image_x, image_y, image)
+
+        stack_y = margin + (row_height - stack_h) // 2 + stack_layout["margin"]
+        for img, title in graphs:
+            sub_text_rect = QtCore.QRect(
+                stack_x + stack_layout["margin"], stack_y, img.width(), stack_layout["title_height"]
+            )
+            painter.drawText(sub_text_rect, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, title)
+            stack_y += stack_layout["title_height"]
+            img_x = stack_x + stack_layout["margin"] + (stack_w - 2 * stack_layout["margin"] - img.width()) // 2
+            painter.drawImage(img_x, stack_y, img)
+            stack_y += img.height() + stack_layout["gap"]
 
         painter.end()
         return combined
@@ -651,6 +723,13 @@ class _RenderPipelineMixin:
             for widget, title in graph_widgets
         ]
         vertical, image_first = self._combined_panel_order(position)
+        # Siehe _combine_image_and_stacked_graphs (Raster-Gegenstueck) fuer
+        # den Grund -- dasselbe Kompaktheits-Verhalten fuer den SVG-Pfad,
+        # weiterhin vollstaendig vektoriell (kein Raster-Einbetten).
+        if not vertical and len(graph_widgets) == 3:
+            return self._save_combined_svg_stacked(
+                path, image_widget, image_title, graph_widgets, image_first, dpi, foreground, background
+            )
         panels = [image_panel] + graph_panels if image_first else graph_panels + [image_panel]
         layout = self._combined_layout(dpi, [(w, h) for _widget, _title, w, h, _is_image in panels], vertical)
         margin, gap, title_height = layout["margin"], layout["gap"], layout["title_height"]
@@ -715,6 +794,85 @@ class _RenderPipelineMixin:
                 panel_y = margin + title_height + (row_height - h) // 2
                 self._render_svg_panel(painter, scale, widget, w, h, is_image, x, panel_y)
                 x += w + gap
+
+        painter.end()
+        self._verify_file_written(path)
+        return width, height
+
+    def _save_combined_svg_stacked(
+        self,
+        path: Path,
+        image_widget: QtWidgets.QWidget,
+        image_title: str,
+        graph_widgets: list[tuple[QtWidgets.QWidget, str]],
+        image_first: bool,
+        dpi: int,
+        foreground: QtGui.QColor,
+        background: QtGui.QColor,
+    ) -> tuple[int, int]:
+        """SVG-Entsprechung von _combine_image_and_stacked_graphs (siehe
+        dort fuer den Grund) -- GENAU 3 Graphen bei horizontaler Position
+        werden UNTEREINANDER gestapelt statt nebeneinander, damit das Bild
+        nicht zu breit wird. Bleibt wie _save_combined_svg vollstaendig
+        vektoriell (kein Raster-Einbetten)."""
+        scale = dpi / 96.0
+        img_w, img_h = self._widget_export_size(image_widget, scale)
+        graph_sizes = [self._widget_export_size(widget, scale) for widget, _title in graph_widgets]
+        stack_layout = self._combined_layout(dpi, graph_sizes, vertical=True)
+        stack_w, stack_h = stack_layout["width"], stack_layout["height"]
+        sizes = [(img_w, img_h), (stack_w, stack_h)]
+        if not image_first:
+            sizes = list(reversed(sizes))
+        layout = self._combined_layout(dpi, sizes, vertical=False)
+        margin, gap, title_height = layout["margin"], layout["gap"], layout["title_height"]
+        width, height = layout["width"], layout["height"]
+        row_height = max(img_h, stack_h)
+
+        # Logisches (96-DPI-aequivalentes) Gegenstueck, siehe _save_combined_svg.
+        logical_img_w, logical_img_h = self._widget_export_size(image_widget, 1.0)
+        logical_graph_sizes = [self._widget_export_size(widget, 1.0) for widget, _title in graph_widgets]
+        logical_stack_layout = self._combined_layout(96, logical_graph_sizes, vertical=True)
+        logical_sizes = [
+            (logical_img_w, logical_img_h),
+            (logical_stack_layout["width"], logical_stack_layout["height"]),
+        ]
+        if not image_first:
+            logical_sizes = list(reversed(logical_sizes))
+        logical_layout = self._combined_layout(96, logical_sizes, vertical=False)
+
+        generator = QtSvg.QSvgGenerator()
+        generator.setFileName(str(path))
+        generator.setSize(QtCore.QSize(logical_layout["width"], logical_layout["height"]))
+        generator.setViewBox(QtCore.QRect(0, 0, width, height))
+        generator.setResolution(96)
+        generator.setTitle("Thermo-Sequenz-Viewer Export")
+
+        painter = QtGui.QPainter(generator)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.fillRect(QtCore.QRectF(0, 0, width, height), background)
+        painter.setFont(layout["font"])
+        painter.setPen(foreground)
+
+        image_x = margin if image_first else margin + stack_w + gap
+        stack_x = margin + img_w + gap if image_first else margin
+
+        painter.drawText(
+            QtCore.QRect(image_x, margin, img_w, title_height),
+            QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, image_title,
+        )
+        image_y = margin + title_height + (row_height - img_h) // 2
+        self._render_svg_panel(painter, scale, image_widget, img_w, img_h, True, image_x, image_y)
+
+        stack_y = margin + (row_height - stack_h) // 2 + stack_layout["margin"]
+        for (widget, title), (w, h) in zip(graph_widgets, graph_sizes):
+            painter.drawText(
+                QtCore.QRect(stack_x + stack_layout["margin"], stack_y, w, stack_layout["title_height"]),
+                QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, title,
+            )
+            stack_y += stack_layout["title_height"]
+            panel_x = stack_x + stack_layout["margin"] + (stack_w - 2 * stack_layout["margin"] - w) // 2
+            self._render_svg_panel(painter, scale, widget, w, h, False, panel_x, stack_y)
+            stack_y += h + stack_layout["gap"]
 
         painter.end()
         self._verify_file_written(path)

@@ -803,6 +803,39 @@ def test_cleaning_viewer_point_actions_are_logged_in_status_bar(loaded_main_wind
     assert mw.statusBar().currentMessage() == "Referenzpunkt 1 verschoben."
 
 
+def test_cleaning_dialog_layout_minimum_size_stable_after_first_point(loaded_main_window):
+    # Bugfix: das Setzen des ERSTEN Referenzpunkts liess das gesamte
+    # Dialog-Layout sichtbar "springen" (lbl_summary ohne Zeilenumbruch,
+    # points_list ohne Mindesthoehe) -- die vom Layout verlangte
+    # Mindestgroesse darf sich dadurch nicht mehr aendern.
+    from thermal_viewer.dialogs import DataCleaningDialog
+
+    mw = loaded_main_window
+    dlg = DataCleaningDialog(mw)
+    try:
+        before = dlg.layout().minimumSize()
+        assert mw._cleaning_points == []
+
+        dlg.preview.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+        dlg.preview.view_box.mapSceneToView = lambda pos: pos
+
+        class FakeEvent:
+            def button(self):
+                return QtCore.Qt.LeftButton
+
+            def scenePos(self):
+                return QtCore.QPointF(5, 5)
+
+        dlg.preview._on_scene_clicked(FakeEvent())
+        assert len(mw._cleaning_points) == 1
+
+        after = dlg.layout().minimumSize()
+        assert after.width() <= before.width(), "Dialog-Mindestbreite darf durch den ersten Punkt nicht wachsen"
+        assert after.height() <= before.height(), "Dialog-Mindesthoehe darf durch den ersten Punkt nicht wachsen"
+    finally:
+        dlg.close()
+
+
 def test_cleaning_preview_viewer_shows_any_frame_independent_of_main_window(loaded_main_window):
     """Punkt 3/5 (Nutzerwunsch): das Hauptfenster darf NIE ein ausgeblendetes
     Bild zeigen (siehe test_excluded_frames_are_skipped_during_stepping_and_
@@ -1160,6 +1193,67 @@ def test_graphic_export_dialog_graph_checkboxes_default_and_order(loaded_main_wi
         dlg.close()
 
 
+def test_graphic_export_dialog_disables_schwindung_checkbox_when_not_yet_computed(loaded_main_window):
+    # Bugfix: "Schwindung" liess sich bisher auch anhaken, wenn noch gar
+    # keine Schwindungsmessung berechnet wurde, und exportierte dann ein
+    # leeres Koordinatensystem.
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    dlg = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=False, roi_entries=[(1, "ROI 1")],
+        shrinkage_available=False,
+    )
+    try:
+        assert dlg.chk_graph_schwindung.isEnabled() is False
+        # Zeitverlauf/Querschnitt bleiben bewusst immer waehlbar (siehe
+        # export_dialogs.py-Kommentar bei der Erzeugung der Checkboxen).
+        assert dlg.chk_graph_zeitverlauf.isEnabled() is True
+        assert dlg.chk_graph_querschnitt.isEnabled() is True
+    finally:
+        dlg.close()
+
+    dlg2 = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=False, roi_entries=[(1, "ROI 1")],
+        shrinkage_available=True,
+    )
+    try:
+        assert dlg2.chk_graph_schwindung.isEnabled() is True
+    finally:
+        dlg2.close()
+
+
+def test_graphic_export_dialog_separate_label_reflects_selected_graph_count(loaded_main_window):
+    # Bugfix: die Beschriftung stand bisher fest auf "zwei Dateien", obwohl
+    # _export_combined_image tatsaechlich 1 (Bild) + N (eine je gewaehltem
+    # Graph) Dateien schreibt.
+    from thermal_viewer.dialogs import GraphicExportDialog
+
+    dlg = GraphicExportDialog(
+        loaded_main_window, loaded_main_window._settings, default_dpi=150,
+        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
+        current_level_mode="global", current_min=0.0, current_max=50.0,
+        show_graph_source_choice=True, live_available=False, roi_entries=[(1, "ROI 1")],
+    )
+    try:
+        assert dlg.selected_graph_keys() == ["zeitverlauf"]
+        assert dlg.chk_separate.text() == "Getrennt (zwei Dateien: Bild und Kurve einzeln)"
+
+        dlg.chk_graph_zeitverlauf.setChecked(False)
+        assert dlg.chk_separate.text() == "Getrennt (eine Datei: nur Bild)"
+
+        dlg.chk_graph_schwindung.setChecked(True)
+        dlg.chk_graph_querschnitt.setChecked(True)
+        assert dlg.chk_separate.text() == "Getrennt (3 Dateien: Bild und jede Kurve einzeln)"
+    finally:
+        dlg.close()
+
+
 def test_graphic_export_dialog_layer_checkboxes_default_on_and_toggle(loaded_main_window):
     # Nutzerwunsch: "Ebenen im Bild" (ROI-Messbereiche/Schwindungsmessung)
     # per Ankreuzliste waehlbar, unabhaengig vom aktuell im Hauptfenster
@@ -1259,6 +1353,37 @@ def test_export_graphic_with_multiple_graphs_produces_wider_combined_image(roi_a
     assert multi_img.width() > single_img.width()
 
 
+def test_combine_image_and_graph_stacks_exactly_three_graphs_to_keep_width_down(loaded_main_window):
+    # Nutzerwunsch: bei 3 Graphen soll das kombinierte Bild "nicht zu breit"
+    # werden -- die 3 Graphen werden daher UNTEREINANDER gestapelt statt
+    # nebeneinander (siehe render_pipeline.py:_combine_image_and_stacked_
+    # graphs), nur bei horizontaler Bild-Position ("links"/"rechts").
+    from qtpy import QtGui as _QtGui
+
+    mw = loaded_main_window
+    image = _QtGui.QImage(200, 200, _QtGui.QImage.Format_ARGB32)
+    image.fill(_QtGui.QColor("white"))
+    graphs = []
+    for _ in range(3):
+        g = _QtGui.QImage(300, 100, _QtGui.QImage.Format_ARGB32)
+        g.fill(_QtGui.QColor("white"))
+        graphs.append((g, "Graph"))
+
+    combined = mw._combine_image_and_graph(
+        image, "Bild", graphs, "rechts", 96, _QtGui.QColor("white"), _QtGui.QColor("black"),
+    )
+    # Naive Reihe nebeneinander waere >= 200 + 3*300px breit -- gestapelt
+    # bleibt es bei Bildbreite + EINER Graphbreite.
+    assert combined.width() < 200 + 2 * 300
+
+    # Zwei Graphen (nicht genau 3) nutzen weiterhin die normale
+    # Reihen-Anordnung -- Regressionsschutz fuer den bestehenden Fall.
+    combined_two = mw._combine_image_and_graph(
+        image, "Bild", graphs[:2], "rechts", 96, _QtGui.QColor("white"), _QtGui.QColor("black"),
+    )
+    assert combined_two.width() > 200 + 300  # beide Graphen nebeneinander
+
+
 def test_render_export_preview_image_reflects_selected_graphs(roi_and_live_window):
     from thermal_viewer.dialogs import GraphicExportDialog
 
@@ -1302,6 +1427,24 @@ def test_video_export_dialog_graph_checkboxes_default_to_none_selected(qapp):
     try:
         assert dlg.selected_graph_keys() == []
         assert dlg.show_graph() is False
+    finally:
+        dlg.close()
+
+
+def test_video_export_dialog_disables_schwindung_checkbox_when_not_yet_computed(qapp):
+    # Bugfix: siehe GraphicExportDialog -- deckt sowohl Video- als auch
+    # Bildstapel-Export ab (derselbe Dialog).
+    from thermal_viewer.dialogs import VideoExportDialog
+
+    dlg = VideoExportDialog(
+        None, n_frames=5, colormaps=[("Grau", "grey")], current_colormap_index=0,
+        current_invert=False, current_level_mode="global", current_min=0.0, current_max=100.0,
+        current_fps=5.0, shrinkage_available=False,
+    )
+    try:
+        assert dlg.chk_graph_schwindung.isEnabled() is False
+        assert dlg.chk_graph_zeitverlauf.isEnabled() is True
+        assert dlg.chk_graph_querschnitt.isEnabled() is True
     finally:
         dlg.close()
 
@@ -3111,6 +3254,18 @@ def test_control_dock_title_bar_is_blanked(loaded_main_window):
     assert isinstance(title_bar, QtWidgets.QWidget)
 
 
+def test_timeseries_dock_renamed_to_graphen_with_view_menu_tooltips(loaded_main_window):
+    # Bugfix: "Zeitverlauf" -> "Graphen" (das Dock enthaelt auch Schwindung-/
+    # Querschnitt-Tabs, nicht nur Zeitverlauf), ausserdem bekommen beide
+    # "Ansicht"-Menue-Eintraege jetzt einen erklaerenden Tooltip (Nutzerwunsch:
+    # "deutlicher machen").
+    mw = loaded_main_window
+    assert mw.timeseries_dock.windowTitle() == "Graphen"
+    assert mw.timeseries_dock.toggleViewAction().text() == "Graphen"
+    assert mw.timeseries_dock.toggleViewAction().toolTip()
+    assert mw.control_dock.toggleViewAction().toolTip()
+
+
 def test_shrinkage_box_color_change_updates_pen_and_swatch(loaded_main_window, monkeypatch):
     mw = loaded_main_window
     old_pen_color = mw.roi_shrink_area.pen.color().name()
@@ -3223,10 +3378,12 @@ def test_no_roi_armed_right_after_startup_or_reload(loaded_main_window, syntheti
 
 
 def test_number_keys_arm_the_matching_default_roi(loaded_main_window):
-    # Tasten 1-5 -- siehe roi_ops.py:_on_arm_roi_shortcut -- entsprechen den
-    # 5 Standard-Messbereichen in Erzeugungsreihenfolge (1=Oben..5=Unten).
+    # Tasten 1-6 -- siehe roi_ops.py:_on_arm_roi_shortcut -- entsprechen den
+    # 6 Standard-Messbereichen in Erzeugungsreihenfolge (1=Oben..6=Hintergrund).
     mw = loaded_main_window
     assert mw._armed_entry is None
+    assert len(mw.roi_entries) == 6
+    assert mw.roi_entries[5].name == "Hintergrund"
 
     mw._on_arm_roi_shortcut(3)
     assert mw._armed_entry is mw.roi_entries[2]
@@ -3236,6 +3393,10 @@ def test_number_keys_arm_the_matching_default_roi(loaded_main_window):
     assert mw._armed_entry is mw.roi_entries[0]
     # Taste 3 wurde durch Taste 1 wieder entarmiert (Mutual Exclusion).
     assert not mw.roi_entries[2].btn_place.isChecked()
+
+    mw._on_arm_roi_shortcut(6)
+    assert mw._armed_entry is mw.roi_entries[5]
+    assert mw.roi_entries[5].btn_place.isChecked()
 
 
 def test_number_key_shortcut_is_noop_without_recording(main_window):
@@ -3490,6 +3651,60 @@ def test_crosssection_hover_follows_mouse_until_pinned_then_rightclick_resumes(l
     monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (3, 3))
     mw._on_scene_mouse_moved(QtCore.QPointF(0, 0))
     assert (mw._crosssection_row, mw._crosssection_col) == (3, 3)  # folgt wieder
+
+
+def test_crosssection_second_left_click_does_not_move_pinned_position(loaded_main_window, monkeypatch):
+    # Bugfix: ein zweiter Linksklick an anderer Stelle durfte die bereits
+    # fixierte Position bisher trotzdem verschieben -- nur ein Rechtsklick
+    # darf die Fixierung loesen (siehe crosssection_ops.py:
+    # _handle_crosssection_click).
+    mw = _make_gradient_recording_window(loaded_main_window)
+    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: True)
+
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (9, 12))
+    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
+    assert (mw._crosssection_row, mw._crosssection_col) == (9, 12)
+    assert mw._crosssection_pinned is True
+
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (1, 2))
+    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
+    assert (mw._crosssection_row, mw._crosssection_col) == (9, 12), "zweiter Linksklick darf die Fixierung nicht verschieben"
+    assert mw._crosssection_pinned is True
+
+    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.RightButton))
+    assert mw._crosssection_pinned is False
+    assert (mw._crosssection_row, mw._crosssection_col) == (1, 2)
+
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (5, 5))
+    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
+    assert (mw._crosssection_row, mw._crosssection_col) == (5, 5)
+    assert mw._crosssection_pinned is True
+
+
+def test_live_cursor_second_left_click_does_not_move_pinned_cursor(loaded_main_window, monkeypatch):
+    # Bugfix: dasselbe wie bei der Querschnittslinie (siehe oben), hier fuer
+    # den normalen Live-Cursor (mouse_ops.py:_on_scene_mouse_clicked).
+    mw = loaded_main_window
+    monkeypatch.setattr(mw, "_crosssection_tab_active", lambda: False)
+
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (4, 6))
+    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
+    assert (mw._hover_row, mw._hover_col) == (4, 6)
+    assert mw._live_pinned is True
+
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (1, 1))
+    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
+    assert (mw._hover_row, mw._hover_col) == (4, 6), "zweiter Linksklick darf die Fixierung nicht verschieben"
+    assert mw._live_pinned is True
+
+    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.RightButton))
+    assert mw._live_pinned is False
+    assert (mw._hover_row, mw._hover_col) == (1, 1)
+
+    monkeypatch.setattr(mw, "_pixel_at_scene_pos", lambda _pos: (7, 8))
+    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(0, 0, button=QtCore.Qt.LeftButton))
+    assert (mw._hover_row, mw._hover_col) == (7, 8)
+    assert mw._live_pinned is True
 
 
 def test_crosssection_image_line_drag_updates_position_and_pins(loaded_main_window):

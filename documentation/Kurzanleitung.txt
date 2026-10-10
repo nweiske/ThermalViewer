@@ -35,7 +35,8 @@ neu gestartet.
 SCHRITT 2 -- MESSBEREICH (ROI) SETZEN (Abschnitt 6)
 ----------------------------------------------------------------
 Im rechten Panel, Reiter "Temperatur-Messung", sind standardmäßig
-fünf Messbereiche angelegt ("Oben"/"Links"/"Mitte"/"Rechts"/"Unten").
+sechs Messbereiche angelegt
+("Oben"/"Links"/"Mitte"/"Rechts"/"Unten"/"Hintergrund").
 Einen davon anklicken (Liste ODER sein Rechteck im Bild) -> der
 Knopf "Messbereich setzen" aktiviert sich automatisch -> einmal ins
 Thermobild klicken, der Messbereich wird dort zentriert platziert.

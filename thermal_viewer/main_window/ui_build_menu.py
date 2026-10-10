@@ -105,8 +105,17 @@ class _UIBuildMenuMixin:
         # offen, statt sich wie ein Standard-QMenu sofort zu schliessen.
         view_menu = _StaysOpenMenu("&Ansicht", self)
         self.menuBar().addMenu(view_menu)
-        view_menu.addAction(self.control_dock.toggleViewAction())
-        view_menu.addAction(self.timeseries_dock.toggleViewAction())
+        # Bugfix: beide Eintraege hatten bisher keinen Tooltip -- unklar, dass
+        # es sich um Ein-/Ausblenden-Schalter fuer die beiden Panels handelt
+        # (Nutzerwunsch: "deutlicher machen"), anders als die meisten
+        # uebrigen Menue-Eintraege in dieser Datei (siehe z.B. act_save_
+        # project.setToolTip weiter oben).
+        act_toggle_control = self.control_dock.toggleViewAction()
+        act_toggle_control.setToolTip("Blendet das \"Werkzeuge\"-Panel ein/aus.")
+        view_menu.addAction(act_toggle_control)
+        act_toggle_timeseries = self.timeseries_dock.toggleViewAction()
+        act_toggle_timeseries.setToolTip("Blendet das \"Graphen\"-Panel (Zeitverlauf/Schwindung/Querschnitt) ein/aus.")
+        view_menu.addAction(act_toggle_timeseries)
 
         view_menu.addSeparator()
         # Zwei Voreinstellungs-Knoepfe (Folgeanfrage: "ich möchte zwei

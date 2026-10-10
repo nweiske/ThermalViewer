@@ -56,6 +56,7 @@ class _ImageExportMixin:
             show_scale_choice=True,
             ruler_available=self._px_to_mm is not None,
             measurement_entries=[(e.number, e.name) for e in self.measurements],
+            shrinkage_available=self._shrinkage_result is not None,
         )
         export_dialog.enable_preview(lambda: self._render_export_preview_image(export_dialog))
         # Schleife statt einmaligem exec() (Punkt 3): bricht der Nutzer den

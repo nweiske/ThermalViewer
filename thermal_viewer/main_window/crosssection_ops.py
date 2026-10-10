@@ -143,6 +143,11 @@ class _CrossSectionMixin:
             return
         if event.button() != QtCore.Qt.LeftButton:
             return
+        # Bugfix: einmal fixiert, soll ein weiterer Links-Klick die Position
+        # NICHT mehr verschieben -- nur ein Rechtsklick (siehe oben) loest
+        # die Fixierung wieder (analog zum normalen Live-Cursor).
+        if self._crosssection_pinned:
+            return
         row_col = self._pixel_at_scene_pos(event.scenePos())
         if row_col is None:
             return

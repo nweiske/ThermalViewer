@@ -162,12 +162,12 @@ app.processEvents()
 
 
 def test_default_roi_names():
-    expected = ["Oben", "Links", "Mitte", "Rechts", "Unten"]
+    expected = ["Oben", "Links", "Mitte", "Rechts", "Unten", "Hintergrund"]
     assert [e.name for e in win.roi_entries] == expected
     assert [e.list_item.text() for e in win.roi_entries] == expected
 
 
-check("default ROI names are Oben/Links/Mitte/Rechts/Unten in order", test_default_roi_names)
+check("default ROI names are Oben/Links/Mitte/Rechts/Unten/Hintergrund in order", test_default_roi_names)
 
 
 def test_image_actually_has_color_after_loading():
@@ -572,7 +572,7 @@ check(
 
 
 def test_roi_tabs_instead_of_stacked_scrolling():
-    assert win.roi_list.count() == win.roi_stack.count() == len(win.roi_entries) == 5
+    assert win.roi_list.count() == win.roi_stack.count() == len(win.roi_entries) == 6
     for i, entry in enumerate(win.roi_entries):
         assert win.roi_list.item(i).text() == entry.name
     entry = win.roi_entries[0]
@@ -2928,20 +2928,21 @@ check("Zeitverlauf/Live (Cursor) dock tabs positioned above the graphs", test_do
 
 
 def test_timeseries_dock_title_bar_hidden_but_still_toggleable_via_menu():
-    # Nutzerfeedback: die Titelzeile "Zeitverlauf" ueber dem Graphen ist
-    # redundant (sollte offensichtlich sein, was gemeint ist) -- die
-    # sichtbare Titelleiste wird daher ausgeblendet (leeres Platzhalter-
-    # Widget), waehrend windowTitle() fuer den "Ansicht"-Menuepunkt (Ein-/
-    # Ausblenden) weiterhin "Zeitverlauf" bleibt.
-    assert win.timeseries_dock.windowTitle() == "Zeitverlauf"
+    # Nutzerfeedback: die Titelzeile ueber dem Graphen ist redundant (sollte
+    # offensichtlich sein, was gemeint ist) -- die sichtbare Titelleiste wird
+    # daher ausgeblendet (leeres Platzhalter-Widget), waehrend windowTitle()
+    # fuer den "Ansicht"-Menuepunkt (Ein-/Ausblenden) weiterhin gesetzt ist.
+    # Bugfix: "Zeitverlauf" -> "Graphen" umbenannt, da das Dock auch die
+    # Schwindung-/Querschnitt-Tabs enthaelt (Nutzerwunsch).
+    assert win.timeseries_dock.windowTitle() == "Graphen"
     title_bar = win.timeseries_dock.titleBarWidget()
     assert title_bar is not None, "leeres Widget statt der Standard-Titelleiste erwartet"
     assert type(title_bar) is QtWidgets.QWidget, "muss ein schlichtes, leeres Platzhalter-Widget sein"
-    assert win.timeseries_dock.toggleViewAction().text() == "Zeitverlauf"
+    assert win.timeseries_dock.toggleViewAction().text() == "Graphen"
 
 
 check(
-    "'Zeitverlauf'-Dock: Titelzeile ueber dem Graphen ausgeblendet, aber weiterhin ueber 'Ansicht'-Menue umschaltbar",
+    "'Graphen'-Dock: Titelzeile ueber dem Graphen ausgeblendet, aber weiterhin ueber 'Ansicht'-Menue umschaltbar",
     test_timeseries_dock_title_bar_hidden_but_still_toggleable_via_menu,
 )
 
@@ -6664,6 +6665,42 @@ check(
 )
 
 
+def test_axis_settings_dialog_x_axis_shown_and_entered_in_hauptfenster_runtime_unit():
+    # Bugfix: die X-Achsen-Felder zeigten/erwarteten bisher IMMER Sekunden,
+    # unabhaengig von der im Hauptfenster gewaehlten Laufzeit-Einheit (hier:
+    # "Minuten") -- current_x_min/current_x_max/x_spacing kommen weiterhin
+    # in SEKUNDEN rein, x_range()/x_spacing() geben weiterhin Sekunden
+    # zurueck (siehe AxisOverridePanel/_temporary_axis_override), nur die
+    # ANZEIGE/EINGABE passt sich an.
+    from thermal_viewer.dialogs import AxisSettingsDialog
+
+    dialog = AxisSettingsDialog(
+        win, current_x_min=120.0, current_x_max=600.0, current_y_min=0, current_y_max=50,
+        x_runtime_mode=True, x_spacing=180.0, runtime_unit="min",
+    )
+    try:
+        assert abs(dialog.spin_x_min.value() - 2.0) < 1e-6  # 120s = 2min
+        assert abs(dialog.spin_x_max.value() - 10.0) < 1e-6  # 600s = 10min
+        assert abs(dialog.spin_x_spacing.value() - 3.0) < 1e-6  # 180s = 3min
+        assert dialog.spin_x_min.suffix() == " min"
+
+        dialog.spin_x_min.setValue(1.0)
+        dialog.spin_x_max.setValue(5.0)
+        xmin, xmax = dialog.x_range()
+        assert abs(xmin - 60.0) < 1e-6 and abs(xmax - 300.0) < 1e-6, "Rueckgabe muss weiterhin in Sekunden erfolgen"
+
+        dialog.spin_x_spacing.setValue(2.0)
+        assert abs(dialog.x_spacing() - 120.0) < 1e-6
+    finally:
+        dialog.close()
+
+
+check(
+    "AxisSettingsDialog: X-Achse wird in der Hauptfenster-Laufzeit-Einheit angezeigt/eingegeben, x_range()/x_spacing() bleiben in Sekunden",
+    test_axis_settings_dialog_x_axis_shown_and_entered_in_hauptfenster_runtime_unit,
+)
+
+
 # ==================================== Robustheits-/Logikfehler-Review =====
 
 def test_new_roi_added_mid_recording_gets_working_interp_frame_range():
@@ -6880,7 +6917,7 @@ def test_reload_discards_stale_roi_interpolation_keyframes():
             "der alte Messbereich (inkl. seiner Interpolations-Keyframes) haette komplett verworfen "
             "werden muessen, nicht nur geklemmt weiterbestehen"
         )
-        assert len(fresh.roi_entries) == 5, "frisch aufgebauter Standard-Messbereichsbestand"
+        assert len(fresh.roi_entries) == 6, "frisch aufgebauter Standard-Messbereichsbestand"
         assert all(
             not e.placed and not e.interp_enabled and e.interp_start_frame is None and e.interp_end_frame is None
             for e in fresh.roi_entries

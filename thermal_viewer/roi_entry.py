@@ -12,11 +12,12 @@ from qtpy import QtCore, QtWidgets
 
 from .roi import AdjustableROI, average_value
 
-ROI_COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#eab308", "#a855f7"]
-# Standardnamen der ersten 5 Messbereiche (typische Anordnung eines
-# Kreuzmusters); weitere (beliebig viele) Messbereiche darueber hinaus
-# heissen weiterhin schlicht "ROI n" (siehe default_roi_name).
-DEFAULT_ROI_NAMES = ["Oben", "Links", "Mitte", "Rechts", "Unten"]
+ROI_COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#eab308", "#a855f7", "#64748b"]
+# Standardnamen der ersten 6 Messbereiche (Kreuzmuster + ein neutraler
+# Hintergrund-Referenzpunkt, Nutzerwunsch); weitere (beliebig viele)
+# Messbereiche darueber hinaus heissen weiterhin schlicht "ROI n" (siehe
+# default_roi_name).
+DEFAULT_ROI_NAMES = ["Oben", "Links", "Mitte", "Rechts", "Unten", "Hintergrund"]
 DEFAULT_ROI_SIZE = 30.0
 # Obergrenze fuer "beliebig viele ROIs" -- schuetzt MainWindow._load_project
 # vor einem riesigen/manipulierten Erzeugungsnummer-Wert ("index") in einer

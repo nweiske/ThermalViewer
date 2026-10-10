@@ -61,6 +61,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         show_scale_choice: bool = False,
         ruler_available: bool = False,
         measurement_entries: list[tuple[int, str]] | None = None,
+        shrinkage_available: bool = True,
     ):
         super().__init__(parent)
         self.setWindowTitle("Grafik exportieren")
@@ -106,6 +107,17 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 "\"Schwindung\"/\"Querschnitt\" exportieren die aktuellen Hauptfenster-Einstellungen."
             )
             left_col.addWidget(graphs_box)
+            # Bugfix: "Schwindung" liess sich bisher auch anhaken, wenn noch
+            # gar keine Schwindungsmessung berechnet wurde, und exportierte
+            # dann ein leeres Koordinatensystem. Zeitverlauf/Querschnitt
+            # bleiben bewusst IMMER waehlbar -- anders als bei der Schwindung
+            # (klar binaer: berechnet oder nicht) gibt es fuer "Zeitverlauf
+            # zeigt aktuell keine Kurve" kein zuverlaessiges, UI-unabhaengiges
+            # Kriterium (z.B. zeigt dieser Graph je nach Blickwinkel auch
+            # ohne platziertes ROI/aktiven Live-Cursor sinnvollen Inhalt).
+            if not shrinkage_available:
+                self.chk_graph_schwindung.setEnabled(False)
+                self.chk_graph_schwindung.setToolTip("Schwindungsmessung wurde noch nicht berechnet.")
 
             self._content_selector = GraphContentSelector(
                 roi_entries or [], live_available, default_live_checked=False
@@ -218,12 +230,22 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             # exportiert in EINEM Durchgang sowohl die kombinierte Grafik ALS
             # AUCH die zwei Einzeldateien (siehe _export_combined_image).
             self.chk_combined = QtWidgets.QCheckBox("Kombiniert (ein Bild: Thermobild + Kurve)")
-            self.chk_separate = QtWidgets.QCheckBox("Getrennt (zwei Dateien: Bild und Kurve einzeln)")
+            self.chk_separate = QtWidgets.QCheckBox()
             output_layout.addWidget(self.chk_combined)
             output_layout.addWidget(self.chk_separate)
 
             self.chk_combined.setChecked(bool(settings.value("export/combined_images", True, type=bool)))
             self.chk_separate.setChecked(bool(settings.value("export/separate_images", False, type=bool)))
+
+            # Bugfix: die Beschriftung stand bisher fest auf "zwei Dateien",
+            # obwohl _export_combined_image tatsaechlich 1 (Bild) + N (eine
+            # je ausgewaehltem Graph) Dateien schreibt -- bei 2+ Graphen war
+            # das schlicht falsch. Passt sich jetzt an die aktuell
+            # angehakten Graphen-Checkboxen an.
+            for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
+                if chk is not None:
+                    chk.toggled.connect(self._update_separate_label)
+            self._update_separate_label()
 
             # Die Position relativ zum Bild ergibt nur einen Sinn, solange
             # ueberhaupt eine KOMBINIERTE Datei entsteht -- bei "nur Getrennt"
@@ -385,6 +407,19 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
     def _update_graph_position_enabled(self) -> None:
         self.combo_graph_position.setEnabled(self.chk_combined.isChecked())
+
+    def _update_separate_label(self) -> None:
+        """Siehe Kommentar bei der Erzeugung von chk_separate -- die
+        Beschriftung nennt die TATSAECHLICHE Dateianzahl (1 Bild + 1 je
+        gewaehltem Graph), statt fest von genau einem Graph auszugehen."""
+        n = len(self.selected_graph_keys())
+        if n == 0:
+            text = "Getrennt (eine Datei: nur Bild)"
+        elif n == 1:
+            text = "Getrennt (zwei Dateien: Bild und Kurve einzeln)"
+        else:
+            text = f"Getrennt ({n + 1} Dateien: Bild und jede Kurve einzeln)"
+        self.chk_separate.setText(text)
 
     def _on_accept(self) -> None:
         if self.chk_combined is not None and self.chk_separate is not None:
@@ -551,6 +586,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         ruler_available: bool = False,
         measurement_entries: list[tuple[int, str]] | None = None,
         has_excluded_frames: bool = False,
+        shrinkage_available: bool = True,
     ):
         super().__init__(parent)
         self.setWindowTitle("Video / Bildstapel exportieren")
@@ -776,6 +812,13 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             "Beliebig viele gleichzeitig exportierbar, mit wandernder Zeit-Markierung.\n"
             "\"Schwindung\"/\"Querschnitt\" exportieren die aktuellen Hauptfenster-Einstellungen."
         )
+        # Bugfix: siehe GraphicExportDialog -- "Schwindung" ohne berechnetes
+        # Ergebnis ist gesperrt. Deckt sowohl den Video- als auch den
+        # Bildstapel-Export ab (beides derselbe Dialog, siehe
+        # radio_output_images weiter unten).
+        if not shrinkage_available:
+            self.chk_graph_schwindung.setEnabled(False)
+            self.chk_graph_schwindung.setToolTip("Schwindungsmessung wurde noch nicht berechnet.")
 
         # Eingerueckt unter "Graph mit exportieren" -- Inhalt/Position sind
         # nur relevant, wenn ueberhaupt ein Graph exportiert wird. Der Cursor

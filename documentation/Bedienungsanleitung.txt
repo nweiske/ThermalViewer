@@ -326,12 +326,12 @@ editiert wird):
                               Start bereits AUSSERHALB dieses Bereichs, laeuft
                               die Wiedergabe stattdessen ungeklemmt bis zum
                               tatsaechlich letzten Frame.
-  - Ziffern 1-5            -> armieren direkt den jeweiligen Standard-
-                              Messbereich ("Oben".."Unten", siehe Abschnitt 6)
-                              zum Platzieren im Bild, ohne ihn erst in der
-                              Liste anklicken zu muessen -- Tippen in einem
-                              gerade fokussierten Zahlenfeld ist davon
-                              unberuehrt.
+  - Ziffern 1-6            -> armieren direkt den jeweiligen Standard-
+                              Messbereich ("Oben".."Hintergrund", siehe
+                              Abschnitt 6) zum Platzieren im Bild, ohne ihn
+                              erst in der Liste anklicken zu muessen --
+                              Tippen in einem gerade fokussierten Zahlenfeld
+                              ist davon unberuehrt.
 
 Eine separate Kurzreferenz aller Tastatur-Shortcuts liegt in
 Tastatur-Shortcuts.txt (gleicher Ordner wie diese Datei).
@@ -345,12 +345,13 @@ Im rechten Panel "Werkzeuge", Registerkarte "Temperatur-Messung" (siehe
 Abschnitt 19), gibt es links eine senkrechte Liste, einen Eintrag pro
 Messbereich, per Klick auswaehlbar -- rechts daneben die Detailansicht des
 jeweils ausgewaehlten Messbereichs. Das spart Platz, da ROI-Namen meist
-kurz sind. Standardmaessig sind fuenf Messbereiche angelegt, benannt nach
-ihrer typischen Anordnung: "Oben", "Links", "Mitte", "Rechts" und "Unten"
-(in dieser Reihenfolge). Ueber den Knopf "+ Messbereich" oberhalb der Liste
-lassen sich beliebig viele weitere hinzufuegen -- jeder neue Messbereich
-hat exakt dieselben Funktionen wie die urspruenglichen fuenf und heisst
-zunaechst "ROI n". Die Trennlinie zwischen Liste und Detailansicht laesst
+kurz sind. Standardmaessig sind sechs Messbereiche angelegt, benannt nach
+ihrer typischen Anordnung: "Oben", "Links", "Mitte", "Rechts", "Unten" und
+"Hintergrund" (in dieser Reihenfolge, letzterer z.B. fuer eine neutrale
+Referenzstelle ausserhalb der Probe). Ueber den Knopf "+ Messbereich"
+oberhalb der Liste lassen sich beliebig viele weitere hinzufuegen -- jeder
+neue Messbereich hat exakt dieselben Funktionen wie die urspruenglichen
+sechs und heisst zunaechst "ROI n". Die Trennlinie zwischen Liste und Detailansicht laesst
 sich per Maus verschieben. Das GESAMTE Panel sitzt in einem gemeinsamen
 Scrollbereich, damit bei knappem Platz alles erreichbar bleibt.
 

@@ -52,6 +52,7 @@ class _VideoExportMixin:
             ruler_available=self._px_to_mm is not None,
             measurement_entries=[(e.number, e.name) for e in self.measurements],
             has_excluded_frames=bool(self._excluded_frame_indices),
+            shrinkage_available=self._shrinkage_result is not None,
         )
         dialog.enable_preview(lambda: self._render_export_preview_image(dialog))
         # Schleife statt einmaligem exec() (Punkt 3): bricht der Nutzer den

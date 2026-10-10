@@ -84,6 +84,11 @@ class _MouseMixin:
             return
 
         if event.button() == QtCore.Qt.LeftButton:
+            # Bugfix: einmal fixiert, soll ein weiterer Links-Klick den
+            # Live-Cursor NICHT mehr verschieben -- nur ein Rechtsklick
+            # (siehe oben) loest die Fixierung wieder.
+            if self._live_pinned:
+                return
             row_col = self._pixel_at_scene_pos(event.scenePos())
             if row_col is None:
                 return

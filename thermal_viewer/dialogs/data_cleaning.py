@@ -74,6 +74,11 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         points_box = QtWidgets.QGroupBox("Referenzpunkte")
         points_layout = QtWidgets.QVBoxLayout(points_box)
         self.points_list = QtWidgets.QListWidget()
+        # Bugfix: ohne Mindesthoehe aendert sich der sizeHint() beim ersten
+        # hinzugefuegten Punkt (0 -> 1 Zeile), wodurch das gesamte
+        # Dialog-Layout sichtbar "springt" -- feste Hoehe unabhaengig vom
+        # Inhalt, analog zu candidates_area.setMinimumHeight(140) unten.
+        self.points_list.setMinimumHeight(140)
         self.points_list.setMaximumHeight(140)
         points_layout.addWidget(self.points_list)
         # self._point_row_widgets: pro Zeile ein dict mit den Widgets, die
@@ -180,6 +185,11 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
 
         # Zusammenfassungszeile ganz unten, direkt vor den Knoepfen.
         self.lbl_summary = QtWidgets.QLabel()
+        # Bugfix: ohne Zeilenumbruch sprengt der lange Text nach dem ersten
+        # Referenzpunkt (statt des kurzen Platzhalters "Noch keine...") die
+        # Mindestbreite der rechten Spalte -- das Dialogfenster wurde dadurch
+        # sichtbar breiter. Analog zu intro/logic_hint oben.
+        self.lbl_summary.setWordWrap(True)
         right_column.addWidget(self.lbl_summary)
 
         buttons = QtWidgets.QDialogButtonBox()

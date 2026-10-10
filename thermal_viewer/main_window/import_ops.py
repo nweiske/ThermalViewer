@@ -295,17 +295,28 @@ class _ImportMixin:
         fehlt oder ungueltig ist."""
         s = self._settings
         defaults = ImportSettings()
+        # max(0, ...): die Dialog-Spinboxen selbst erlauben nur 0-100 (siehe
+        # import_dialogs.py), aber ein hand-editierter/fremder QSettings-Wert
+        # (z.B. aus einer alten Registry-Installation) umgeht das. Ein
+        # NEGATIVER Wert hier fuehrte in data.py:_try_fast_parse_lines zu
+        # einem stumm falschen Ergebnis statt auf den Fallback zurueckzufallen
+        # (Bugfix) -- "Anzahl zu ueberspringender Zeilen/Spalten" ist ohnehin
+        # nur als nicht-negativ sinnvoll.
         return ImportSettings(
             delimiter=str(s.value("import/delimiter", defaults.delimiter)),
             decimal_separator=str(s.value("import/decimal_separator", defaults.decimal_separator)),
             encoding=str(s.value("import/encoding", defaults.encoding)),
-            skip_header_lines=int(s.value("import/skip_header_lines", defaults.skip_header_lines, type=int)),
-            skip_footer_lines=int(s.value("import/skip_footer_lines", defaults.skip_footer_lines, type=int)),
-            skip_leading_columns=int(
-                s.value("import/skip_leading_columns", defaults.skip_leading_columns, type=int)
+            skip_header_lines=max(
+                0, int(s.value("import/skip_header_lines", defaults.skip_header_lines, type=int))
             ),
-            skip_trailing_columns=int(
-                s.value("import/skip_trailing_columns", defaults.skip_trailing_columns, type=int)
+            skip_footer_lines=max(
+                0, int(s.value("import/skip_footer_lines", defaults.skip_footer_lines, type=int))
+            ),
+            skip_leading_columns=max(
+                0, int(s.value("import/skip_leading_columns", defaults.skip_leading_columns, type=int))
+            ),
+            skip_trailing_columns=max(
+                0, int(s.value("import/skip_trailing_columns", defaults.skip_trailing_columns, type=int))
             ),
         )
 
@@ -414,6 +425,19 @@ class _ImportMixin:
                 f"Live-Überwachung: neue Datei(en) im Ordner konnten nicht geladen werden ({exc})", 8000
             )
             return
+        # Bugfix: ein einzelner neu aufgetauchter, aber fehlerhafter Pfad
+        # (z.B. noch nicht fertig geschrieben, falsches Format) wurde bisher
+        # NIE gemeldet -- append_paths() wirft dafuer keine Exception
+        # (anders als oben), sondern traegt ihn nur in skipped_files ein.
+        # Ohne jeden Hinweis blieb unklar, warum ein erwartetes Bild nie
+        # auftauchte. Reiner Laengen-Vergleich (nicht welche Pfade konkret
+        # neu sind) reicht fuer eine kurze, nicht-blockierende Meldung.
+        newly_skipped = len(updated.skipped_files) - len(self.recording.skipped_files)
+        if newly_skipped > 0:
+            self.statusBar().showMessage(
+                f"Live-Überwachung: {newly_skipped} neue Datei(en) im Ordner konnten nicht "
+                "gelesen werden (siehe Status beim nächsten vollständigen Neuladen).", 8000
+            )
         if updated.n_frames != self.recording.n_frames:
             self._apply_appended_recording(updated)
 
@@ -430,8 +454,41 @@ class _ImportMixin:
         # wurde es bewusst frueher gesetzt, bleibt es unveraendert stehen.
         eval_end_was_at_latest = self._eval_end_index is None or self._eval_end_index >= old_n - 1
         added = updated.n_frames - old_n
+        # Bugfix: append_paths() sortiert ALTE+NEUE Bilder gemeinsam neu nach
+        # Zeitstempel (siehe dort -- Dateien koennen "nicht streng
+        # chronologisch nachgeliefert" werden), ein roher Index wie
+        # self.current_index kann sich dadurch auf ein ANDERES Bild als
+        # zuvor verschieben. Vor dem Austausch das aktuell angezeigte sowie
+        # die beiden Auswertungsgrenzen-Bilder ueber ihren (stabilen) Pfad
+        # merken, nach dem Austausch ueber denselben Pfad in der neuen
+        # Reihenfolge wiederfinden -- Fallback auf den (geklemmten) alten
+        # Index, falls der Pfad unerwartet fehlt (sollte append_paths()
+        # garantiert nicht entfernen).
+        old_paths = self.recording.paths
+        current_path = old_paths[self.current_index] if 0 <= self.current_index < old_n else None
+        eval_start_path = (
+            old_paths[self._eval_start_index]
+            if self._eval_start_index is not None and 0 <= self._eval_start_index < old_n else None
+        )
+        eval_end_path = (
+            old_paths[self._eval_end_index]
+            if self._eval_end_index is not None and 0 <= self._eval_end_index < old_n else None
+        )
         self.recording = updated
         n = updated.n_frames
+        new_index_by_path = {p: i for i, p in enumerate(updated.paths)}
+        if current_path is not None and current_path in new_index_by_path:
+            self.current_index = new_index_by_path[current_path]
+        else:
+            self.current_index = max(0, min(n - 1, self.current_index))
+        if eval_start_path is not None and eval_start_path in new_index_by_path:
+            self._eval_start_index = new_index_by_path[eval_start_path]
+        elif self._eval_start_index is not None:
+            self._eval_start_index = max(0, min(n - 1, self._eval_start_index))
+        if eval_end_path is not None and eval_end_path in new_index_by_path:
+            self._eval_end_index = new_index_by_path[eval_end_path]
+        elif self._eval_end_index is not None:
+            self._eval_end_index = max(0, min(n - 1, self._eval_end_index))
 
         self._global_level_range = (
             (float(updated.frames.min()), float(updated.frames.max())) if n else None

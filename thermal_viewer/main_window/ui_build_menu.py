@@ -36,7 +36,9 @@ class _UIBuildMenuMixin:
         file_menu.addSeparator()
         act_save_project = file_menu.addAction("Projekt speichern…")
         act_save_project.setToolTip(
-            "Speichert Messbereiche, Farbverlauf und Legenden-Limits in einer Projektdatei."
+            "Speichert den vollständigen Auswertungs-Zustand (Messbereiche,\n"
+            "Maßstab, Messungen, Schwindungsmessung, Querschnitte, Rohdaten-\n"
+            "Bereinigung, Farbverlauf u.a.) in einer Projektdatei."
         )
         act_save_project.triggered.connect(self._save_project)
         act_load_project = file_menu.addAction("Projekt laden…")
@@ -114,7 +116,10 @@ class _UIBuildMenuMixin:
         act_toggle_control.setToolTip("Blendet das \"Werkzeuge\"-Panel ein/aus.")
         view_menu.addAction(act_toggle_control)
         act_toggle_timeseries = self.timeseries_dock.toggleViewAction()
-        act_toggle_timeseries.setToolTip("Blendet das \"Graphen\"-Panel (Zeitverlauf/Schwindung/Querschnitt) ein/aus.")
+        act_toggle_timeseries.setToolTip(
+            "Blendet das \"Temperaturverlauf\"-Panel ein/aus\n"
+            "(enthält die Tabs Zeitverlauf, Schwindung und Querschnitt)."
+        )
         view_menu.addAction(act_toggle_timeseries)
 
         view_menu.addSeparator()

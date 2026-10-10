@@ -170,7 +170,15 @@ class _MeasurementMixin:
 
         length_dialog = RulerLengthDialog(self, current_mm=self._ruler_mm_value or 10.0)
         if length_dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
-            self._hide_ruler_visuals()
+            # Bugfix: ein bereits GUELTIGER, vorheriger Maßstab (_ruler_line/
+            # _ruler_mm_value unveraendert) wurde hier bisher dauerhaft
+            # ausgeblendet statt wieder gezeigt zu werden -- erst ein
+            # unverwandter Ebenen-Tab-Wechsel oder die "Anzeigen"-Checkbox
+            # holte ihn zufaellig zurueck. _apply_scale_visuals_visibility()
+            # ist dieselbe Stelle, die diese Sichtbarkeit sonst ueberall
+            # bestimmt, und prueft selbst, ob ueberhaupt ein gueltiger
+            # Maßstab vorliegt.
+            self._apply_scale_visuals_visibility()
             return
         mm_value = length_dialog.mm_value()
 
@@ -185,6 +193,7 @@ class _MeasurementMixin:
         self._refresh_scale_label()
         for entry in self.roi_entries:
             self._update_roi_mm_label(entry)
+        self._refresh_measurement_mm_values()
         self.statusBar().showMessage(
             f"Maßstab gesetzt: 1 px ≈ {self._format_de(self._px_to_mm, 4)} mm", 5000
         )
@@ -224,6 +233,7 @@ class _MeasurementMixin:
         self._refresh_scale_label()
         for entry in self.roi_entries:
             self._update_roi_mm_label(entry)
+        self._refresh_measurement_mm_values()
 
     def _update_ruler_text_position(self) -> None:
         if self._ruler_line is None or self._ruler_text is None or self._ruler_mm_value is None:
@@ -305,6 +315,7 @@ class _MeasurementMixin:
         self._refresh_scale_label()
         for entry in self.roi_entries:
             self._update_roi_mm_label(entry)
+        self._refresh_measurement_mm_values()
         self.statusBar().showMessage(
             f"Maßstab aktualisiert: 1 px ≈ {self._format_de(self._px_to_mm, 4)} mm", 5000
         )
@@ -551,11 +562,38 @@ class _MeasurementMixin:
             entry.row_widget.deleteLater()
         self.measurements.remove(entry)
 
-    def _on_measurement_line_dragged(self, entry: "MeasurementEntry") -> None:
+    def _refresh_measurement_mm_values(self) -> None:
+        """Rechnet die mm-Anzeige ALLER bestehenden Messungen mit dem
+        aktuellen self._px_to_mm neu -- nach jeder Neukalibrierung des
+        Maßstabs aufzurufen (Endpunkt gezogen, Länge neu eingegeben, neu
+        gesetzt). Bugfix: eine Messung, deren eigene Strecke NIE angefasst
+        wurde, zeigte bisher stillschweigend weiter den mm-Wert der ALTEN
+        Kalibrierung -- nur _on_measurement_line_dragged (ausgelöst durch
+        das Ziehen der Messung selbst) rechnete bisher neu."""
+        if self._px_to_mm is None:
+            return
+        for entry in self.measurements:
+            p1, p2 = entry.endpoints()
+            entry.mm_value = (p2 - p1).length() * self._px_to_mm
+            entry.update_text_position()
+
+    def _on_measurement_line_dragged(self, entry: "MeasurementEntry", *_args) -> None:
         """Endpunkte einer Mess-Strecke nachtraeglich verschoben: mm-Anzeige
         mit dem AKTUELLEN Maßstab neu berechnen (im Unterschied zur
         Lineal-Linie wird hier nie in _px_to_mm zurückgerechnet -- Messen ist
-        rein lesend)."""
+        rein lesend).
+
+        Bugfix: sigRegionChangeFinished.emit(self) liefert IMMER das ROI-
+        Objekt als Argument mit (siehe pyqtgraph) -- die partial(self._on_
+        measurement_line_dragged, entry)-Bindung unten gibt dieses Argument
+        unveraendert durch, zusaetzlich zum vorgebundenen entry. Ohne *_args
+        warf das hier bisher bei JEDEM echten Ziehen einer Mess-Strecke per
+        Maus einen TypeError (von Qt stillschweigend verschluckt, siehe
+        PyQt-Fehlerausgabe) -- die eigentliche Neuberechnung lief dadurch nie,
+        nur der direkte Testaufruf ohne das Extra-Argument blieb unbemerkt
+        unbetroffen. *_args (nicht ein benannter line-Parameter): der Wert
+        wird hier ohnehin nicht gebraucht, analog zu roi_ops.py:
+        _on_roi_region_finished."""
         if self._px_to_mm is None:
             return
         p1, p2 = entry.endpoints()

@@ -296,6 +296,18 @@ class _VideoExportMixin:
         cancelled = False
         error_message: str | None = None
         error_traceback: str | None = None
+        # Re-Entranz-Sperre -- siehe export_image.py:_export_single_graph fuer
+        # den vollen Grund. Fuer den Video-/Bildstapel-Export zusaetzlich
+        # abgesichert durch den window-modalen Fortschrittsdialog oben (blockt
+        # bereits Eingaben am Hauptfenster), aber konsistent mit den anderen
+        # Export-Wegen trotzdem gesetzt.
+        if self._export_busy:
+            progress.close()
+            QtWidgets.QMessageBox.information(
+                self, "Export läuft bereits", "Bitte warten, bis der aktuelle Export abgeschlossen ist."
+            )
+            return
+        self._export_busy = True
         try:
             # use_custom/Legende-Sichtbarkeit erst HIER (innerhalb des try)
             # anwenden -- siehe _export_single_graph/_export_combined_image
@@ -436,6 +448,7 @@ class _VideoExportMixin:
             error_traceback = traceback.format_exc()
             cancelled = True
         finally:
+            self._export_busy = False
             progress.close()
             # Anzeigezustand wiederherstellen.
             self.histogram.setVisible(prev_histogram_visible)

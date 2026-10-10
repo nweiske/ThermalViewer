@@ -45,7 +45,7 @@ INHALT
 Der Thermo-Sequenz-Viewer zeigt eine Serie von Thermokamera-Messungen
 (einzelne CSV-Dateien, je eine pro Zeitpunkt) als "Video" an und lässt
 zusätzlich beliebig viele frei platzierbare, in Breite und Höhe
-unabhängig skalierbare Messbereiche (ROIs, standardmäßig 5) definieren.
+unabhängig skalierbare Messbereiche (ROIs, standardmäßig 6) definieren.
 Für jeden Messbereich wird der gemittelte Temperaturwert über alle
 geladenen Zeitpunkte hinweg als Graph dargestellt.
 
@@ -235,9 +235,9 @@ sonst fragt eine Dateiauswahl danach.
 Im linken, zentralen Bereich wird der aktuelle Frame als Falschfarben-
 bild dargestellt. Rechts daneben liegt die Legende (Farbskala).
 
-Direkt OBERHALB des Bildes liegen vier Registerkarten ("Ebenen-Tabs":
-Alle / Temperatur-Messung / Schwindungsmessung / Maßstab) -- siehe
-Abschnitt 19 für Details, wie sie helfen, das Bild bei vielen
+Direkt OBERHALB des Bildes liegen fünf Registerkarten ("Ebenen-Tabs":
+Alle / Temperatur-Messung / Schwindungsmessung / Maßstab / Querschnitte)
+-- siehe Abschnitt 19 für Details, wie sie helfen, das Bild bei vielen
 gleichzeitig genutzten Werkzeugen übersichtlich zu halten. Die
 Rohdaten-Bereinigung (Abschnitt 17) hat seit ihrem Umbau zu einem
 eigenständigen modalen Dialog keinen eigenen Ebenen-Tab mehr, sondern ist
@@ -1259,10 +1259,10 @@ Bildaufloesung unterscheidet).
 13. FENSTER/PANELS ANORDNEN
 ================================================================
 
-Die beiden rechten Panels ("Werkzeuge", "Zeitverlauf") lassen sich in der
-Breite verstellen (Rand mit der Maus ziehen). "Werkzeuge" zeigt zusaetzlich
-eine Titelzeile und laesst sich damit wie in professionellen Programmen
-ueblich:
+Die beiden rechten Panels ("Werkzeuge", "Temperaturverlauf") lassen sich in
+der Breite verstellen (Rand mit der Maus ziehen). "Werkzeuge" zeigt
+zusaetzlich eine Titelzeile und laesst sich damit wie in professionellen
+Programmen ueblich:
 
   - links oder rechts andocken (am Titel packen und verschieben)
   - schliessen (X-Knopf oben am Panel) und ueber das Menue
@@ -1270,9 +1270,10 @@ ueblich:
   - als eigenes, frei verschiebbares Fenster abdocken (Titel packen
     und aus dem Hauptfenster herausziehen)
 
-Das Panel "Zeitverlauf" hat bewusst KEINE eigene Titelzeile ueber dem
-Graphen (redundant -- offensichtlich, worum es sich handelt); Ein-/
-Ausblenden funktioniert dafuer weiterhin ueber "Ansicht > Zeitverlauf".
+Das Panel "Temperaturverlauf" (enthaelt die Tabs Zeitverlauf/Schwindung/
+Querschnitt, siehe Abschnitt 8) hat bewusst KEINE eigene Titelzeile ueber
+dem Graphen (redundant -- offensichtlich, worum es sich handelt); Ein-/
+Ausblenden funktioniert dafuer weiterhin ueber "Ansicht > Temperaturverlauf".
 
 Das Menue "Ansicht" bleibt (anders als sonst in Qt-Menues ueblich) nach
 dem Anklicken einer Checkbox (Panel-Sichtbarkeit, Fenster-/Thermobild-/
@@ -1595,6 +1596,7 @@ nicht für den Bildstapel (dort werden ausgeblendete Bilder weiterhin immer
 ausgelassen).
 
 
+================================================================
 18. SCHWINDUNGSMESSUNG (EXPERIMENTELL)
 ================================================================
 
@@ -1774,6 +1776,7 @@ Maßstab -- sie beziehen sich auf Zeilen-Positionen der ALTEN Aufnahme und
 wären für eine andere Messreihe bedeutungslos.
 
 
+================================================================
 19. EBENEN-TABS (BEREICHE ÜBER DEM THERMOBILD EIN-/AUSBLENDEN)
 ================================================================
 

@@ -171,7 +171,7 @@ class _CrosssectionEntryMixin:
         ueber die ZEIT laufen) ist das hier eine reine Pro-Bild-Momentaufnahme,
         muss also bei jedem Frame-Wechsel neu gesetzt werden (siehe
         _update_all_crosssection_entries)."""
-        if self.recording is None:
+        if self.recording is None or self.recording.n_frames == 0:
             entry.curve.clear()
             entry.curve.setVisible(False)
             return

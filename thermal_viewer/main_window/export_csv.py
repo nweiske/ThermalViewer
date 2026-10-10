@@ -303,6 +303,19 @@ class _CsvExportMixin:
                             [self._format_csv_number(v) if isinstance(v, float) else v for v in row]
                         )
         except OSError as exc:
+            # Bugfix: ohne das hier blieb bei einem Fehler MITTEN im
+            # Schreiben (z.B. Platte voll waehrend der Zeilen-Schleife) eine
+            # angefangene, unvollstaendige Datei unter dem gewaehlten Pfad
+            # liegen -- gleiches Muster wie export_video.py/export_image.py.
+            # is_file()-Check statt blankem unlink(missing_ok=True): path
+            # kann je nach Fehlerursache auch ein VERZEICHNIS sein (z.B. vom
+            # Nutzer als Ziel gewaehlt -- IsADirectoryError/PermissionError)
+            # -- unlink() auf einem Verzeichnis wirft selbst einen Fehler,
+            # der hier unabgefangen den gerade behandelten OSError ueberdeckt
+            # haette.
+            path_obj = Path(path)
+            if path_obj.is_file():
+                path_obj.unlink(missing_ok=True)
             QtWidgets.QMessageBox.critical(self, "Fehler", f"Konnte Werte nicht speichern:\n{exc}")
             return
 

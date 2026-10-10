@@ -245,6 +245,15 @@ class MainWindow(
         # Kategorien (siehe layer_tabs_ops.py:_is_layer_tab_active,
         # export_visuals.py:_temporary_export_layers).
         self._export_layer_categories: set[str] | None = None
+        # Re-Entranz-Sperre (Bugfix): waehrend _export_graphic/_export_single_
+        # graph/_export_video/_export_csv laufen, pumpt der Renderpfad
+        # mehrfach QApplication.processEvents() (fuer Fortschrittsanzeige/
+        # Tab-Vorwaermen) -- OHNE eigenen modalen Dialog waehrenddessen bleibt
+        # das Hauptfenster dabei normal bedienbar, ein zweiter Export-Aufruf
+        # waehrend eines laufenden wuerde denselben gemeinsamen Live-Zustand
+        # (Farbskala/Legenden-Position/Kurven-Sichtbarkeit ueber die with-
+        # Kontextmanager in export_visuals.py) gleichzeitig mutieren.
+        self._export_busy = False
         # Schwindungsmessung (Punkt 9, Nutzerwunsch, experimentell -- siehe
         # shrinkage_ops.py): EINE aktive Messung (wie das Maßstab-Werkzeug),
         # standardmaessig deaktiviert/ausgeblendet, um Nutzer, die sie nicht

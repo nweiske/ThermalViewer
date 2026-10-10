@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from xml.etree import ElementTree
 
 import numpy as np
 from qtpy import QtCore, QtGui, QtSvg, QtWidgets
@@ -647,9 +648,22 @@ class _RenderPipelineMixin:
         (anders als QImage.save()) -- ohne diese explizite Pruefung wuerde ein
         fehlgeschlagener SVG-Export (z.B. Zielordner nicht beschreibbar) im
         Gegensatz zum Raster-Pfad (der ok_image/ok_curve prueft) unbemerkt
-        durchrutschen."""
+        durchrutschen.
+
+        Die reine Existenz-/Groessen-Pruefung allein erkennt nur einen
+        KOMPLETT fehlgeschlagenen Schreibvorgang -- ein waehrend des
+        Schreibens abgebrochener (z.B. Netzlaufwerk mitten im Export
+        getrennt) hinterlaesst trotzdem eine nicht-leere, aber UNVOLLSTAENDIGE
+        (nicht wohlgeformte) XML-Datei, die sonst stillschweigend als
+        "erfolgreich exportiert" gemeldet wuerde. ElementTree.parse() ist die
+        guenstigste verlaessliche Wohlgeformtheits-Pruefung ohne zusaetzliche
+        Abhaengigkeit (Standardbibliothek)."""
         if not path.exists() or path.stat().st_size == 0:
             raise OSError(f"Datei wurde nicht geschrieben: {path}")
+        try:
+            ElementTree.parse(path)
+        except ElementTree.ParseError as exc:
+            raise OSError(f"Datei wurde nur unvollständig geschrieben: {path} ({exc})") from exc
 
     def _save_widget_svg(
         self, widget: QtWidgets.QWidget, path: Path, scale: float, background: QtGui.QColor

@@ -112,7 +112,7 @@ class _DataCleaningMixin:
         geladene Aufnahme."""
         if (
             self.recording is None
-            or frame_index <= 0
+            or not (0 < frame_index < self.recording.n_frames)
             or not (0 <= point_index < len(self._cleaning_points))
         ):
             return None

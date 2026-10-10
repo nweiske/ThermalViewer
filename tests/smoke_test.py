@@ -893,6 +893,118 @@ check(
 )
 
 
+def test_dragging_a_measurement_line_via_the_real_signal_updates_mm_value():
+    # Bugfix: entry.line.sigRegionChangeFinished war ueber partial(self._on_
+    # measurement_line_dragged, entry) verbunden -- pyqtgraphs ROI.
+    # sigRegionChangeFinished.emit(self) liefert IMMER zusaetzlich das ROI-
+    # Objekt selbst mit, was bei einem ECHTEN (nicht direkt im Test
+    # aufgerufenen) Ziehen per Maus zu einem TypeError fuehrte ("takes 2
+    # positional arguments but 3 were given", von Qt stillschweigend
+    # verschluckt) -- die mm-Wert-Neuberechnung lief dadurch beim echten
+    # Ziehen NIE. Anders als test_multiple_measurements_..., das danach
+    # zusaetzlich den Handler direkt aufruft (und den Fehler dadurch
+    # verdeckte), prueft dieser Test NUR den reinen movePoint()-Ausloeser.
+    win._start_ruler_tool()
+    p1 = win.view_box.mapViewToScene(QtCore.QPointF(2, 2))
+    p2 = win.view_box.mapViewToScene(QtCore.QPointF(22, 2))
+    win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p1))
+    with ruler_length_input(20.0):
+        win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p2))
+    assert win._px_to_mm is not None
+
+    win._start_measurement_tool()
+    a = win.view_box.mapViewToScene(QtCore.QPointF(0, 0))
+    b = win.view_box.mapViewToScene(QtCore.QPointF(5, 0))
+    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, a))
+    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, b))
+    entry = win.measurements[-1]
+    old_mm_value = entry.mm_value
+
+    try:
+        handles = entry.line.getHandles()
+        entry.line.movePoint(handles[1], QtCore.QPointF(15, 0))  # finish=True (Standard) loest das Signal aus
+        assert abs(entry.mm_value - old_mm_value) > 1e-6, (
+            "echtes Ziehen (ueber das Signal, nicht ueber einen direkten Handler-Aufruf) "
+            "haette den mm-Wert neu berechnen muessen"
+        )
+        assert abs(entry.mm_value - 15.0) < 1e-6  # 15px bei 1px = 1mm
+    finally:
+        win._remove_measurement(entry)
+        win._clear_ruler_scale()
+
+
+check(
+    "dragging a measurement's line endpoint via the REAL pyqtgraph signal (not a direct handler call) "
+    "updates its mm value, instead of raising a swallowed TypeError",
+    test_dragging_a_measurement_line_via_the_real_signal_updates_mm_value,
+)
+
+
+def test_measurement_mm_value_refreshes_when_ruler_is_recalibrated():
+    # Bugfix: eine Messung, deren eigene Strecke NIE angefasst wurde, zeigte
+    # bisher stillschweigend weiter den mm-Wert der ALTEN Kalibrierung, wenn
+    # NUR der Maßstab (nicht die Messung selbst) nachtraeglich neu gesetzt/
+    # per Endpunkt-Ziehen neu kalibriert/per "Länge ändern" neu beziffert
+    # wurde -- nur das Ziehen der Messung selbst loeste bisher eine
+    # Neuberechnung aus (_on_measurement_line_dragged).
+    from thermal_viewer.roi_entry import mm_value_de
+
+    win._start_ruler_tool()
+    p1 = win.view_box.mapViewToScene(QtCore.QPointF(2, 2))
+    p2 = win.view_box.mapViewToScene(QtCore.QPointF(22, 2))
+    win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p1))
+    with ruler_length_input(20.0):
+        win._handle_ruler_click(FakeEvent(QtCore.Qt.LeftButton, p2))
+    assert win._px_to_mm is not None
+
+    win._start_measurement_tool()
+    a = win.view_box.mapViewToScene(QtCore.QPointF(0, 0))
+    b = win.view_box.mapViewToScene(QtCore.QPointF(10, 0))
+    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, a))
+    win._handle_measurement_click(FakeEvent(QtCore.Qt.LeftButton, b))
+    entry = win.measurements[-1]
+    old_mm_value = entry.mm_value
+    assert abs(old_mm_value - 10.0) < 1e-6  # 10px bei 1px = 1mm (20mm/20px)
+
+    try:
+        # Fall 1: "Länge ändern" (_edit_ruler_length) -- Endpunkte des
+        # Maßstabs bleiben fest, nur die reale Laenge aendert sich.
+        with ruler_length_input(40.0):
+            win._edit_ruler_length()
+        assert abs(entry.mm_value - old_mm_value) > 1e-6, (
+            "mm-Wert haette sich nach der Maßstab-Neukalibrierung aendern muessen"
+        )
+        assert abs(entry.mm_value - 20.0) < 1e-6  # doppelte Laenge -> doppelter mm-Wert
+        # Panel-Zeile (value_label) muss denselben aktualisierten Wert zeigen
+        # wie entry.mm_value selbst (beide werden von update_text_position()
+        # gemeinsam gesetzt, siehe measurement.py).
+        assert mm_value_de(entry.mm_value) in entry.value_label.text()
+
+        # Fall 2: Endpunkt des Maßstabs ziehen (_on_ruler_line_dragged) --
+        # reale Laenge bleibt fest, px-zu-mm aendert sich durch die neue
+        # Pixel-Distanz.
+        before_drag = entry.mm_value
+        handles = win._ruler_line.getHandles()
+        # movePoint() erwartet View-/Datenkoordinaten (coords="parent",
+        # Standard), KEINE Szenen-Koordinaten -- siehe das analoge Muster
+        # bei entry_a.line.movePoint(...) weiter oben in dieser Datei.
+        win._ruler_line.movePoint(handles[1], QtCore.QPointF(42, 2))
+        win._on_ruler_line_dragged()
+        assert abs(entry.mm_value - before_drag) > 1e-6, (
+            "mm-Wert haette sich auch nach dem Ziehen eines Maßstab-Endpunkts aendern muessen"
+        )
+    finally:
+        win._remove_measurement(entry)
+        win._clear_ruler_scale()
+
+
+check(
+    "an existing measurement's mm value refreshes after the ruler/Maßstab itself is recalibrated "
+    "(length edited or an endpoint dragged), even though the measurement's own line was never touched",
+    test_measurement_mm_value_refreshes_when_ruler_is_recalibrated,
+)
+
+
 def test_renaming_a_hidden_measurement_does_not_resurrect_its_stale_label():
     # Bugfix: _hide_measurement_visuals() (z.B. beim Laden einer neuen
     # Aufnahme mit anderen Pixel-Koordinaten, siehe _set_recording) blendet

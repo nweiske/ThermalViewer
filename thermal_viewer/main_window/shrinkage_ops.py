@@ -727,11 +727,12 @@ class _ShrinkageMixin:
         self._apply_shrinkage_roi_visibility()
 
     def _on_shrinkage_compute_clicked(self) -> None:
-        if self.recording is None:
+        if self.recording is None or self.recording.n_frames == 0:
             return
         self._compute_shrinkage()
 
     def _compute_shrinkage(self) -> None:
+        self._push_undo_snapshot()
         rows, cols = self.recording.shape
         row0, row1, col0, col1 = self.roi_shrink_area.bounds_px((rows, cols))
         n = self.recording.n_frames

@@ -364,8 +364,13 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         haelt keine Referenz auf MainWindow."""
         self._preview_panel.group_box.setVisible(True)
         refresh = lambda *_args: self._preview_panel.schedule_refresh(provider)
+        # None, wenn show_graph_source_choice=False (siehe __init__) -- bisher
+        # ungeschuetzt, anders als jede andere optionale Steuerelement-Gruppe
+        # hier drunter (AttributeError-Falle fuer einen kuenftigen Aufrufer,
+        # der enable_preview() auf so einem Dialog aufruft).
         for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
-            chk.toggled.connect(refresh)
+            if chk is not None:
+                chk.toggled.connect(refresh)
         if self.combo_graph_position is not None:
             self.combo_graph_position.currentIndexChanged.connect(refresh)
         if self.chk_cursor_position is not None:

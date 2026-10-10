@@ -216,6 +216,10 @@ class _RoiPanelBuildMixin:
         self.spin_level_max.setSuffix(" °C")
         self.spin_level_max.setEnabled(False)
         self.spin_level_max.valueChanged.connect(self._on_level_spin_changed)
+        # Beendet die von _on_level_spin_changed begonnene Eingabe-Sitzung
+        # (siehe undo_ops.py), analog zu den ROI-Positions-Spinboxen weiter
+        # unten.
+        self.spin_level_max.editingFinished.connect(self._end_grouped_undo_edit)
         legend_layout.addWidget(self.spin_level_max, 4, 2)
 
         legend_layout.addWidget(QtWidgets.QLabel("Min:"), 5, 1)
@@ -225,6 +229,7 @@ class _RoiPanelBuildMixin:
         self.spin_level_min.setSuffix(" °C")
         self.spin_level_min.setEnabled(False)
         self.spin_level_min.valueChanged.connect(self._on_level_spin_changed)
+        self.spin_level_min.editingFinished.connect(self._end_grouped_undo_edit)
         legend_layout.addWidget(self.spin_level_min, 5, 2)
 
         self.histogram.sigLevelsChanged.connect(self._on_histogram_levels_changed)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 
@@ -28,6 +29,20 @@ from .sample_height_ops import MAX_SAMPLE_HEIGHT_COUNT, _sample_height_color
 from .shrinkage_ops import _SHRINKAGE_METRIC_LABELS
 
 
+def _finite_float(value) -> float:
+    """float(value), aber wirft ZUSAETZLICH ValueError fuer NaN/±Infinity --
+    json.loads() akzeptiert deren (nicht standardkonforme) Literale klaglos,
+    float() selbst ebenso. Ohne diese Pruefung wuerde z.B. eine hand-
+    editierte .tvproj mit "x": NaN unbemerkt an einer Pixel-Position landen,
+    statt (wie jeder andere fehlerhafte Wert in dieser Datei) ueber die
+    bestehende try/except (TypeError, ValueError)-Behandlung der Aufrufer
+    abgefangen zu werden."""
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"nicht endlicher Zahlenwert: {value!r}")
+    return result
+
+
 def _shrink_box_data(roi) -> dict:
     """Position/Groesse einer Schwindungsmessungs-Box (roi_shrink_*, siehe
     shrinkage_ops.py) als JSON-faehiges dict fuer _save_project -- eigene
@@ -48,8 +63,8 @@ def _apply_shrink_box_data(roi, box, rows: int, cols: int) -> None:
     if not isinstance(box, dict):
         return
     try:
-        x, y = float(box["x"]), float(box["y"])
-        w, h = float(box["breite_px"]), float(box["hoehe_px"])
+        x, y = _finite_float(box["x"]), _finite_float(box["y"])
+        w, h = _finite_float(box["breite_px"]), _finite_float(box["hoehe_px"])
     except (KeyError, TypeError, ValueError):
         return
     w = max(1.0, min(w, cols))
@@ -462,8 +477,18 @@ class _ProjectMixin:
             level_mode = "per_frame" if data.get("auto_levels", True) else "manual"
         self._set_level_mode(level_mode)
         if level_mode == "manual":
-            self.spin_level_min.setValue(data.get("level_min", self.spin_level_min.value()))
-            self.spin_level_max.setValue(data.get("level_max", self.spin_level_max.value()))
+            # Bugfix: ungeschuetzt (anders als jedes andere Feld hier) --
+            # QDoubleSpinBox.setValue() mit einem nicht-numerischen Wert
+            # (z.B. hand-editierte .tvproj mit "level_min": "abc") wirft
+            # einen TypeError, der _load_project() MITTEN im Laden abbricht
+            # und ROIs/Messungen/Bereinigung/Schwindung/Probenhöhen/
+            # Querschnitte/Undo-History gar nicht mehr laedt.
+            level_min = data.get("level_min")
+            if isinstance(level_min, (int, float)) and not isinstance(level_min, bool):
+                self.spin_level_min.setValue(level_min)
+            level_max = data.get("level_max")
+            if isinstance(level_max, (int, float)) and not isinstance(level_max, bool):
+                self.spin_level_max.setValue(level_max)
 
         px_to_mm = data.get("px_zu_mm")
         self._px_to_mm = float(px_to_mm) if isinstance(px_to_mm, (int, float)) else None
@@ -611,10 +636,10 @@ class _ProjectMixin:
                         # Altes Projektformat (Punkt 2): eine einzelne
                         # "groesse" statt getrennter Breite/Hoehe.
                         width = height = roi_data.get("groesse", DEFAULT_ROI_SIZE)
-                    cx = float(mittelpunkt.get("x", 0.0))
-                    cy = float(mittelpunkt.get("y", 0.0))
-                    width = float(width)
-                    height = float(height)
+                    cx = _finite_float(mittelpunkt.get("x", 0.0))
+                    cy = _finite_float(mittelpunkt.get("y", 0.0))
+                    width = _finite_float(width)
+                    height = _finite_float(height)
                     # _set_widget_value (blockSignals) statt direktem .setValue():
                     # die vier Felder sind seit der Live-Uebernahme-Umstellung
                     # (siehe spin.valueChanged weiter oben) mit _on_roi_apply_clicked
@@ -666,6 +691,16 @@ class _ProjectMixin:
                     # damals immer der erste Frame (siehe frueheres
                     # _step_frame(-self.current_index) bei "Start festlegen").
                     entry.interp_start_frame = sframe if sframe is not None else 0
+                    # Bugfix: ein gespeicherter "frame"-Wert wurde bisher
+                    # UNGEKLEMMT uebernommen -- anders als frame_nav.py:
+                    # _reset_state_for_new_recording (klemmt beim Neuladen
+                    # einer KUERZEREN Aufnahme), lief dieser Pfad hier beim
+                    # Projekt-Laden daran vorbei. Ein zu grosser Wert (z.B.
+                    # hand-editiert oder aus einem Projekt einer laengeren
+                    # Aufnahme) fuehrte zu einer dauerhaft falschen/haengenden
+                    # Interpolations-Spanne statt eines klaren Fehlers.
+                    if n_frames > 0:
+                        entry.interp_start_frame = max(0, min(n_frames - 1, entry.interp_start_frame))
                     # Zahlenfeld "Erstes Frame:" (1-basiert) synchron halten
                     # -- sonst zeigt es weiterhin den alten/Default-Wert,
                     # waehrend ein erneutes "Start festlegen" bereits zum
@@ -679,6 +714,8 @@ class _ProjectMixin:
                     (ex, ey), (ew, eh), eframe = parsed_end
                     entry.interp_end = ((ex, ey), (ew, eh))
                     entry.interp_end_frame = eframe if eframe is not None else max(0, n_frames - 1)
+                    if n_frames > 0:
+                        entry.interp_end_frame = max(0, min(n_frames - 1, entry.interp_end_frame))
                     self._set_widget_value(entry.spin_interp_end_frame, entry.interp_end_frame + 1)
                 else:
                     entry.interp_end = None
@@ -752,8 +789,8 @@ class _ProjectMixin:
                     measurement_errors += 1
                     continue
                 try:
-                    sx, sy = float(m_data["start"]["x"]), float(m_data["start"]["y"])
-                    ex, ey = float(m_data["ende"]["x"]), float(m_data["ende"]["y"])
+                    sx, sy = _finite_float(m_data["start"]["x"]), _finite_float(m_data["start"]["y"])
+                    ex, ey = _finite_float(m_data["ende"]["x"]), _finite_float(m_data["ende"]["y"])
                 except (KeyError, TypeError, ValueError):
                     measurement_errors += 1
                     continue

@@ -28,6 +28,11 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     def __init__(self, main_window) -> None:
         super().__init__(main_window)
         self._mw = main_window
+        # Re-Entranz-Sperre fuer refresh_candidates() (siehe dort) -- dessen
+        # abschliessendes processEvents() kann einen zweiten, waehrenddessen
+        # eintreffenden Szenen-Klick (z.B. sehr schnelles Doppelklicken auf
+        # die Vorschau) verarbeiten, BEVOR der aeussere Aufruf zurueckkehrt.
+        self._refreshing_candidates = False
         self.setWindowTitle("Rohdaten säubern")
         self.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
         self.setMinimumSize(900, 600)
@@ -324,13 +329,19 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 "checkbox": chk_enabled, "label_position": lbl_position,
                 "label_delta": lbl_delta, "combo_logic": combo_logic, "remove_button": btn_remove,
             })
-        self.refresh_point_deltas()
-        self.preview.set_recording(self._mw.recording)
-        # Frame-Anzahl kann sich seit dem Aufbau des Dialogs geaendert haben
-        # (z.B. neue Aufnahme geladen, waehrend der Dialog noch offen war).
+        # Bugfix: muss VOR refresh_point_deltas() laufen -- Frame-Anzahl kann
+        # sich seit dem Aufbau des Dialogs geaendert haben (z.B. ein Projekt
+        # mit einer KUERZEREN Aufnahme waehrend der Dialog noch offen/mit
+        # einer hohen Bild-Nr. stand); setMaximum() klemmt spin_manual_frame
+        # automatisch mit, sodass refresh_point_deltas() direkt danach immer
+        # einen gueltigen Bild-Index liest. In alter Reihenfolge griff
+        # refresh_point_deltas() noch auf den VERALTETEN, zu hohen Wert zu
+        # und loeste einen IndexError in _cleaning_point_delta() aus.
         max_frame = max(1, self._mw.recording.n_frames if self._mw.recording else 1)
         for spin in (self.spin_manual_frame, self.spin_range_start, self.spin_range_end):
             spin.setMaximum(max_frame)
+        self.refresh_point_deltas()
+        self.preview.set_recording(self._mw.recording)
         self._refresh_preview()
         self.refresh_candidates()
 
@@ -364,7 +375,24 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         Punkten/Schwellenwert) -- jede Checkbox bedeutet "ausblenden",
         angehakt ist der jeweilige Standardzustand. Jede Neuberechnung
         wendet den Standardzustand SOFORT an (siehe _mw._apply_cleaning_
-        exclusions unten), kein separater "Anwenden"-Knopf."""
+        exclusions unten), kein separater "Anwenden"-Knopf.
+
+        Bugfix: das abschliessende processEvents() (siehe unten) kann einen
+        waehrenddessen eintreffenden zweiten Szenen-Klick (sehr schnelles
+        Doppelklicken auf die Vorschau) verarbeiten und dadurch DIESE Methode
+        rekursiv erneut aufrufen, waehrend der aeussere Aufruf noch mitten im
+        Neuaufbau der Checkbox-Liste steckt -- die Re-Entranz-Sperre
+        verhindert, dass zwei Durchlaeufe gleichzeitig an self._candidate_
+        checks/self._candidates_layout schreiben."""
+        if self._refreshing_candidates:
+            return
+        self._refreshing_candidates = True
+        try:
+            self._refresh_candidates_impl()
+        finally:
+            self._refreshing_candidates = False
+
+    def _refresh_candidates_impl(self) -> None:
         while self._candidate_checks:
             _, chk = self._candidate_checks.popitem()
             chk.setParent(None)

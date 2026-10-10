@@ -232,7 +232,15 @@ class _ExportVisualsMixin:
         self.frame_marker.setPen(_dash_pen(round(1 * ps)))
         self.live_frame_marker.setPen(_dash_pen(round(1 * ps)))
 
-        legends = [lg for lg in (self.timeseries_legend,) if lg is not None]
+        # Bugfix: fehlten bisher Schwindung/Querschnitt -- deren Legenden
+        # blieben beim skalierten Export (hohe DPI) in Bildschirm-Pixelgroesse
+        # stehen, waehrend alles andere auf dem Graphen korrekt mitskalierte
+        # (stumm falsches Ergebnis, kein Fehler). Dieselbe Dreier-Liste wie
+        # _temporary_best_legend_placement weiter unten.
+        legends = [
+            lg for lg in (self.timeseries_legend, self.shrinkage_legend, self.crosssection_legend)
+            if lg is not None
+        ]
         old_legend_transforms = [lg.transform() for lg in legends]
         for lg in legends:
             lg.setTransform(QtGui.QTransform.fromScale(scale, scale))

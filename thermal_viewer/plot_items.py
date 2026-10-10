@@ -27,7 +27,12 @@ def _dash_pen(width: int) -> QtGui.QPen:
 def _fraction_of(index: int, last_index: int) -> float:
     """Position von index innerhalb [0, last_index], geklemmt auf [0, 1] --
     fuer die Zeitleiste in _draw_video_timeline_overlay (dort fuer Start/
-    Ende/aktuellen Frame gebraucht)."""
+    Ende/aktuellen Frame gebraucht). Der einzige Aufrufer uebergibt dafuer
+    bereits max(1, n_frames - 1) als last_index -- die Null-Pruefung hier
+    ist ausschliesslich Verteidigung gegen einen kuenftigen Aufrufer, der
+    last_index=0 (z.B. ein Einzelbild) ungeklemmt durchreicht."""
+    if last_index == 0:
+        return 0.0
     return max(0.0, min(1.0, index / last_index))
 
 

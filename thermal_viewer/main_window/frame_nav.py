@@ -667,6 +667,15 @@ class _FrameNavMixin:
     def _on_level_mode_changed(self, _button: QtWidgets.QAbstractButton | None, checked: bool) -> None:
         if not checked:
             return
+        # _button ist nur bei einem ECHTEN Nutzerklick gesetzt (QButtonGroup.
+        # buttonToggled liefert immer den Button) -- _set_level_mode() ruft
+        # diese Methode fuer programmatische Wechsel (Projekt laden, Export-
+        # Override) bewusst mit _button=None auf (siehe dort), ein Snapshot
+        # waere dafuer falsch (Projekt laden loescht die Undo-History ohnehin
+        # direkt danach, ein Export-Override soll die History gar nicht erst
+        # beruehren).
+        if _button is not None:
+            self._push_undo_snapshot()
         manual = self.radio_level_manual.isChecked()
         self.spin_level_min.setEnabled(manual)
         self.spin_level_max.setEnabled(manual)
@@ -707,6 +716,14 @@ class _FrameNavMixin:
     def _on_level_spin_changed(self) -> None:
         if self._level_mode() != "manual":
             return
+        # Feuert live bei jedem Tastendruck/Pfeiltasten-Schritt -- gruppiert
+        # wie die ROI-Positions-Spinboxen (siehe roi_ops.py/roi_panel_build.py:
+        # editingFinished.connect(self._end_grouped_undo_edit) unten), damit
+        # Strg+Z eine ganze Eingabe-Sitzung statt einzelner Ziffern rueckgaengig
+        # macht. Programmatische Aenderungen (_set_level_spins ueber
+        # _set_widget_value) laufen mit blockSignals und loesen dieses
+        # valueChanged gar nicht erst aus.
+        self._begin_grouped_undo_edit()
         lo, hi = self.spin_level_min.value(), self.spin_level_max.value()
         if hi <= lo:
             return

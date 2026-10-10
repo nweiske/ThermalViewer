@@ -17,6 +17,7 @@ from thermal_viewer.data import (
     load_paths,
     parse_frame_text,
     render_filename_template,
+    tiff_crop_to_temperature,
     validate_filename_template,
 )
 
@@ -142,6 +143,37 @@ def test_parse_frame_text_fast_path_falls_back_on_malformed_value():
     text = "1,0;2,0;abc;4,0\n5,0;6,0;7,0;8,0"
     with pytest.raises(RecordingError, match="Ungültiger Zahlenwert in Zeile"):
         parse_frame_text(text, settings)
+
+
+def test_parse_frame_text_fast_path_falls_back_on_negative_skip_trailing_columns():
+    # Bugfix: ein NEGATIVES skip_trailing_columns (ueber QSettings moeglich,
+    # die Dialog-Spinbox selbst erlaubt nur 0-100) liess _try_fast_parse_
+    # lines() ein stop > arr.shape[1] berechnen -- numpy-Slicing klemmte das
+    # frueher STILLSCHWEIGEND auf die volle Spaltenzahl, waehrend derselbe
+    # Settings-Wert im Fallback (parts[:-skip_trailing_columns], bei
+    # negativem Wert ein POSITIVES Slice-Ende) ein voellig anderes, viel
+    # kuerzeres Ergebnis lieferte. Beide Pfade muessen identisch sein.
+    settings = ImportSettings(skip_trailing_columns=-2)
+    text = "1,0;2,0;3,0;4,0;5,0\n6,0;7,0;8,0;9,0;10,0"
+    result = parse_frame_text(text, settings)
+    assert result.tolist() == [[1.0, 2.0], [6.0, 7.0]]
+
+
+def test_tiff_crop_to_temperature_clamps_out_of_range_crop():
+    # Bugfix (Verteidigung): ein negatives x0/y0 wuerde ohne Klemmung per
+    # numpy-Wraparound-Indexierung (statt eines klaren Fehlers oder des
+    # erwarteten Ausschnitts) einen verschobenen, falschen Bildausschnitt
+    # liefern. Der einzige Aufrufer (TiffImportDialog) klemmt bereits selbst,
+    # diese tiefste Parsing-Schicht soll trotzdem robust bleiben.
+    import numpy as np
+
+    gray = np.arange(100, dtype=np.float64).reshape(10, 10)
+    # crop=(x0, y0, x1, y1) -- negative/ueberschiessende Werte werden auf
+    # [0, Breite]/[0, Hoehe] geklemmt, identisch zum bereits geklemmten
+    # Ausschnitt (0, 0, 10, 10).
+    clamped = tiff_crop_to_temperature(gray, (-5, -5, 20, 20), t_min=0.0, t_max=1.0)
+    reference = tiff_crop_to_temperature(gray, (0, 0, 10, 10), t_min=0.0, t_max=1.0)
+    assert np.array_equal(clamped, reference)
 
 
 def test_deduplicate_timestamps_forces_strictly_increasing_sequence():

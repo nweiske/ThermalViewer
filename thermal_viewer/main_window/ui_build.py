@@ -565,13 +565,14 @@ class _UIBuildMixin:
         timeseries_layout.setContentsMargins(4, 4, 4, 4)
         timeseries_layout.addWidget(self.timeseries_plot)
 
-        # Punkt 8: zusaetzlich (opt-in), den Live-Cursor-Verlauf direkt mit in
-        # diesen Graphen einzublenden, statt extra ins Live-Panel wechseln zu
-        # muessen.
+        # Punkt 8: zusaetzlich (opt-in), den Live-Cursor-Verlauf direkt in
+        # diesen Graphen einzublenden (der inzwischen entfernte, separate
+        # "Live (Cursor)"-Tab zeigte frueher dieselbe Kurve, siehe live_dock
+        # weiter unten).
         self.chk_show_live_in_timeseries = QtWidgets.QCheckBox("Live-Cursor-Kurve zusätzlich anzeigen")
         self.chk_show_live_in_timeseries.setToolTip(
-            "Blendet den Temperaturverlauf des Live-Cursor-Pixels zusätzlich ein\n"
-            "(dieselbe Kurve wie im Live-Panel)."
+            "Blendet den Temperaturverlauf des Live-Cursor-Pixels\n"
+            "zusätzlich in diesem Graphen ein."
         )
         self.chk_show_live_in_timeseries.toggled.connect(self._on_show_live_in_timeseries_toggled)
         timeseries_layout.addWidget(self.chk_show_live_in_timeseries)

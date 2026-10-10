@@ -241,7 +241,12 @@ class _CrossSectionMixin:
             self.crosssection_plot.removeItem(item)
         self._crosssection_markers = []
 
-        if self.recording is None or self._crosssection_row is None or self._crosssection_col is None:
+        if (
+            self.recording is None
+            or self.recording.n_frames == 0
+            or self._crosssection_row is None
+            or self._crosssection_col is None
+        ):
             self.crosssection_curve.clear()
             return
 
@@ -348,7 +353,13 @@ class _CrossSectionMixin:
                 return
             edges = span
         else:
-            rows_hit = [r for r, (c0, c1) in spans.items() if c0 <= self._crosssection_col <= c1]
+            # c1 ist (wie ueberall in shrinkage_ops.py, siehe _row_runs)
+            # ende-EXKLUSIV -- derselbe Halboffen-Vergleich wie bei
+            # _add_crosssection_roi_markers/_add_crosssection_shrinkage_
+            # box_markers oben (col0 <= x < col1), sonst zaehlt eine Spalte
+            # genau einen Pixel hinter dem wahren rechten Rand faelschlich
+            # noch als innerhalb der Kontur-Zeile.
+            rows_hit = [r for r, (c0, c1) in spans.items() if c0 <= self._crosssection_col < c1]
             if not rows_hit:
                 return
             edges = (min(rows_hit), max(rows_hit))

@@ -361,7 +361,17 @@ def _try_fast_parse_lines(lines: list[str], settings: ImportSettings) -> np.ndar
             return None
         start = settings.skip_leading_columns
         stop = arr.shape[1] - settings.skip_trailing_columns if settings.skip_trailing_columns else arr.shape[1]
-        if start < 0 or stop <= start:
+        # Bugfix: ein NEGATIVES skip_trailing_columns (ueber QSettings
+        # moeglich, siehe import_ops.py -- die Dialog-Spinbox selbst erlaubt
+        # nur 0-100, siehe import_dialogs.py) ergab hier stop > arr.shape[1],
+        # was von numpy-Slicing stillschweigend auf die volle Spaltenzahl
+        # geklemmt wurde -- GENAU dasselbe Settings-Objekt liefert im
+        # Fallback (_parse_data_line: parts[:-skip_trailing_columns], bei
+        # negativem skip_trailing_columns ein POSITIVES Slice-Ende) ein
+        # voellig anderes, viel kuerzeres Ergebnis. Der fehlende stop >
+        # arr.shape[1]-Check unten liess diese Abweichung durchrutschen,
+        # statt auf den Fallback zurueckzufallen.
+        if start < 0 or settings.skip_trailing_columns < 0 or stop <= start or stop > arr.shape[1]:
             return None
         if start or stop != arr.shape[1]:
             arr = arr[:, start:stop]
@@ -520,6 +530,19 @@ def tiff_crop_to_temperature(
     Farbskala/Legende des Original-Exports bereits ausschliessen, sonst
     verfälschen deren Extremwerte (reines Schwarz/Weiss) t_min/t_max."""
     x0, y0, x1, y1 = crop
+    # Bugfix (Verteidigung): der einzige Aufrufer (TiffImportDialog.
+    # crop_rect()) klemmt/normalisiert crop bereits VOR dem Aufruf, aber
+    # diese tiefste Parsing-Schicht soll laut Projekt-Konvention robust
+    # gegenueber jedem Eingabewert bleiben -- ein negativer x0/y0 wuerde
+    # sonst per numpy-Wraparound-Indexierung (statt eines klaren Fehlers)
+    # einen verschobenen, falschen Bildausschnitt liefern.
+    height, width = gray.shape[:2]
+    if x1 < x0:
+        x0, x1 = x1, x0
+    if y1 < y0:
+        y0, y1 = y1, y0
+    x0, x1 = max(0, x0), min(width, x1)
+    y0, y1 = max(0, y0), min(height, y1)
     region = gray[y0:y1, x0:x1]
     if region.size == 0:
         raise RecordingError("Der gewählte Bildausschnitt ist leer.")
@@ -769,6 +792,16 @@ def append_paths(
             )
         else:
             loaded.append((p, ts, frame))
+
+    # Bugfix: eine Datei, die dauerhaft fehlschlaegt (z.B. permanent
+    # fehlerhaft/nie fertig geschrieben), bleibt fuer die Live-Ueberwachung
+    # (MainWindow._check_for_new_files, alle 10s) ausserhalb von
+    # recording.paths und damit bei JEDEM Durchlauf erneut ein "neuer"
+    # Kandidat -- ohne diese Bereinigung wuerde sich ihr Fehler hier bei
+    # jedem Poll ein weiteres Mal an die bereits von vorherigen Durchlaeufen
+    # uebernommene skipped-Liste anhaengen und ueber eine lange Sitzung
+    # unbegrenzt anwachsen. Letzter (= aktuellster) Eintrag pro Pfad gewinnt.
+    skipped = list({p: (p, msg) for p, msg in skipped}.values())
 
     if not loaded:
         return Recording(

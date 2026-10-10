@@ -212,6 +212,18 @@ class _ImageExportMixin:
 
         layer_categories = export_dialog.export_layer_categories()
         prev_level_state = self._capture_level_widgets_state() if use_custom_colors else None
+        # Re-Entranz-Sperre (Bugfix): ab hier ist kein modaler Dialog mehr
+        # offen, der Rendervorgang unten pumpt aber mehrfach processEvents()
+        # -- ein zweiter, waehrenddessen gestarteter Export wuerde denselben
+        # gemeinsamen Live-Zustand (Farbskala/Legenden-Position/Kurven-
+        # Sichtbarkeit) gleichzeitig mutieren. Alle Dialoge DAVOR sind echt
+        # modal, dort kann kein zweiter Export angestossen werden.
+        if self._export_busy:
+            QtWidgets.QMessageBox.information(
+                self, "Export läuft bereits", "Bitte warten, bis der aktuelle Export abgeschlossen ist."
+            )
+            return
+        self._export_busy = True
         try:
             # Das Anwenden der Eigene-Einstellungen-Farbskala INNERHALB des
             # try -- sonst wuerde ein Fehler hier (vor dem try) die Anzeige
@@ -243,9 +255,22 @@ class _ImageExportMixin:
             # Fang wuerde so ein Fehler ohne jeden Dialog nur als Konsolen-
             # Traceback durchschlagen, statt dass der Nutzer ueberhaupt
             # erfaehrt, dass der Export fehlgeschlagen ist.
+            # Bugfix: ohne das hier liegt bei einem Fehler MITTEN im Schreiben
+            # (Platte voll, Rechte entzogen, Netzlaufwerk getrennt) eine
+            # angefangene, unvollstaendige/kaputte Datei unter dem vom Nutzer
+            # gewaehlten Pfad -- leicht spaeter mit einem echten, gueltigen
+            # Export zu verwechseln. Gleiches Muster wie export_video.py.
+            # is_file(): path_obj koennte je nach Fehlerursache auch ein vom
+            # Nutzer gewaehltes VERZEICHNIS sein -- unlink() darauf wuerde
+            # selbst einen Fehler werfen und den hier behandelten OSError
+            # verdecken (siehe export_csv.py fuer denselben, per Test
+            # gefundenen Fall).
+            if path_obj.is_file():
+                path_obj.unlink(missing_ok=True)
             self._show_export_error("Konnte Grafik nicht speichern", exc)
             return
         finally:
+            self._export_busy = False
             if use_custom_colors:
                 self._apply_level_widgets_state(prev_level_state)
 
@@ -355,7 +380,20 @@ class _ImageExportMixin:
         pen_scale = scale * self._SVG_PEN_SCALE_FACTOR if is_svg else scale
 
         sizes_px: dict[str, tuple[int, int]] = {}
+        # VOR dem try deklariert (statt erst innerhalb, direkt vor der ersten
+        # Verwendung) -- der except-Block unten muss sie auch dann lesen
+        # koennen, wenn der Fehler schon waehrend des Vorwaermens/Context-
+        # Manager-Aufbaus auftritt, also bevor die bisherige Stelle erreicht
+        # wurde.
+        saved_paths: list[Path] = []
         prev_level_state = self._capture_level_widgets_state() if use_custom_colors else None
+        # Re-Entranz-Sperre -- siehe _export_single_graph fuer den vollen Grund.
+        if self._export_busy:
+            QtWidgets.QMessageBox.information(
+                self, "Export läuft bereits", "Bitte warten, bis der aktuelle Export abgeschlossen ist."
+            )
+            return False
+        self._export_busy = True
         try:
             # Innerhalb des try (siehe _export_single_graph fuer den vollen
             # Grund): sonst bliebe die Anzeige bei einem Fehler hier
@@ -389,7 +427,6 @@ class _ImageExportMixin:
                 # unabhaengige Checkboxen -- beide angehakt erzeugt in EINEM
                 # Durchgang sowohl die kombinierte Grafik als auch die
                 # Einzeldateien, statt sich gegenseitig auszuschliessen.
-                saved_paths = []
                 if want_separate:
                     image_path = path_obj.with_name(f"{path_obj.stem}_Bild{path_obj.suffix}")
                     sizes_px[image_path.name] = self._save_single_part(self.glw, image_path, scale, image_bg, is_svg)
@@ -425,9 +462,15 @@ class _ImageExportMixin:
             # Bewusst breit (siehe _export_single_graph) -- derselbe
             # mehrteilige Renderpfad (Thermobild + Kurve, ggf. SVG) kann auch
             # andere Exception-Typen als OSError werfen.
+            # Bugfix: bereits erfolgreich geschriebene Teildateien (bei
+            # "Getrennt" z.B. das Thermobild, bevor ein spaeterer Graph
+            # fehlschlaegt) blieben bisher als halbfertiger Datei-Rest liegen.
+            for p in saved_paths:
+                p.unlink(missing_ok=True)
             self._show_export_error("Konnte Grafik nicht speichern", exc)
             return False
         finally:
+            self._export_busy = False
             if use_custom_colors:
                 self._apply_level_widgets_state(prev_level_state)
 

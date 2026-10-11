@@ -104,30 +104,39 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # ohne Graphen-Auswahl auftreten) auf "Bild & Maßstab" zurueck. Die
         # anderen drei Tabs existieren immer.
         #
-        # Folgeanfrage ("die Tab-Seite 'Graphen' ist noch recht lang"): die
-        # vier Bloecke dieser Seite (welche Graphen / Achsen / Graph-Inhalt /
-        # Querschnitt-Inhalt) stehen jetzt in einem 2x2-Raster statt
-        # untereinander -- oben die beiden kompakten Bloecke (welche
-        # Graphen/Achsen), unten die beiden INHALTS-Auswahllisten (Graph-
-        # Inhalt/Querschnitt-Inhalt, beide potenziell mehrzeilig) nebeneinander
-        # statt gestapelt, das spart am meisten Hoehe. graph_related_col
-        # bleibt NUR fuer die Achsen-/Zeitachsen-Box die Zielspalte (oben
-        # rechts im Raster, bzw. "Bild & Maßstab" ohne Graphen-Auswahl).
-        graphs_grid = None
+        # Folgeanfrage ("die Tab-Seite 'Graphen' ist noch recht lang", dann
+        # erneute Folgeanfrage "das Platz-Problem ist immer noch da ...
+        # Achsen nach links unterhalb der Checkboxen, Graph-Inhalt nach oben
+        # rechts"): statt eines 2x2-Rasters (das bei unterschiedlich hohen
+        # Nachbarn in derselben Zeile zwangslaeufig Leerraum unter dem
+        # kuerzeren Kasten liess, z.B. unter "welche Graphen" neben der
+        # hoeheren "Achsen"-Box) jetzt ZWEI UNABHAENGIGE Spalten: links
+        # "welche Graphen" + "Achsen" UNTEREINANDER, rechts "Graph-Inhalt" +
+        # "Querschnitt-Inhalt" UNTEREINANDER -- jede Spalte wird nur noch von
+        # der SUMME ihrer eigenen zwei Boxen hoch, nicht mehr vom jeweils
+        # hoechsten Kasten der GEGENUEBERLIEGENDEN Spalte in derselben Zeile.
+        # graph_related_col bleibt NUR fuer die Achsen-/Zeitachsen-Box die
+        # Zielspalte (links, unter "welche Graphen", bzw. "Bild & Maßstab"
+        # ohne Graphen-Auswahl).
+        graphs_row = None
         cell_graphs: QtWidgets.QVBoxLayout | None = None
         cell_content: QtWidgets.QVBoxLayout | None = None
         cell_crosssection: QtWidgets.QVBoxLayout | None = None
         if show_graph_source_choice:
-            graphs_grid = QtWidgets.QGridLayout()
-            graphs_grid.setHorizontalSpacing(16)
-            cell_graphs = QtWidgets.QVBoxLayout()
-            cell_axis = QtWidgets.QVBoxLayout()
-            cell_content = QtWidgets.QVBoxLayout()
-            cell_crosssection = QtWidgets.QVBoxLayout()
-            graphs_grid.addLayout(cell_graphs, 0, 0)
-            graphs_grid.addLayout(cell_axis, 0, 1)
-            graphs_grid.addLayout(cell_content, 1, 0)
-            graphs_grid.addLayout(cell_crosssection, 1, 1)
+            graphs_row = QtWidgets.QHBoxLayout()
+            graphs_row.setSpacing(16)
+            cell_left = QtWidgets.QVBoxLayout()
+            cell_right = QtWidgets.QVBoxLayout()
+            graphs_row.addLayout(cell_left, 1)
+            graphs_row.addLayout(cell_right, 1)
+            # cell_graphs/cell_axis bzw. cell_content/cell_crosssection sind
+            # bewusst DIESELBE Spalten-Layout-Instanz (nicht vier getrennte
+            # Zellen) -- die beiden Boxen je Spalte werden dadurch einfach
+            # der Reihe nach UNTEREINANDER in dieselbe QVBoxLayout gehaengt.
+            cell_graphs = cell_left
+            cell_axis = cell_left
+            cell_content = cell_right
+            cell_crosssection = cell_right
             graph_related_col = cell_axis
         else:
             graph_related_col = overlays_col
@@ -148,25 +157,26 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.chk_graph_schwindung = None
         self.chk_graph_querschnitt = None
         if show_graph_source_choice:
-            # Bewusst OHNE eigene QGroupBox/Ueberschrift ("Unnötige
-            # Verschachtelungen entfernen" -- der Tab selbst heisst bereits
-            # "Graphen", eine zusaetzliche gleichnamige Box direkt darunter
-            # war rein redundant) -- Tooltip sitzt stattdessen auf diesem
-            # unsichtbaren Container-Widget.
-            graphs_choice_widget = QtWidgets.QWidget()
-            graphs_layout = QtWidgets.QVBoxLayout(graphs_choice_widget)
-            graphs_layout.setContentsMargins(0, 0, 0, 0)
+            # Folgeanfrage ("die drei Checkboxen sind in keinem Menübereich
+            # drin, die anderen Bereiche auf dieser Seite aber schon --
+            # einheitliches UI-Bild"): jetzt doch eine eigene QGroupBox, wie
+            # "Achsen"/"Graph-Inhalt"/"Querschnitt-Inhalt" daneben/darunter --
+            # bewusst NICHT "Graphen" betitelt (das war der vorherige,
+            # explizit als redundant bemaengelte Titel direkt unter dem
+            # gleichnamigen Tab-Reiter), sondern "Anzuzeigende Graphen".
+            graphs_choice_box = QtWidgets.QGroupBox("Anzuzeigende Graphen")
+            graphs_layout = QtWidgets.QVBoxLayout(graphs_choice_box)
             self.chk_graph_zeitverlauf = QtWidgets.QCheckBox("Zeitverlauf")
             self.chk_graph_zeitverlauf.setChecked(True)  # bisheriger Standard, keine Ueberraschung
             self.chk_graph_schwindung = QtWidgets.QCheckBox("Schwindung")
             self.chk_graph_querschnitt = QtWidgets.QCheckBox("Querschnitt")
             for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
                 graphs_layout.addWidget(chk)
-            graphs_choice_widget.setToolTip(
+            graphs_choice_box.setToolTip(
                 "Beliebig viele gleichzeitig einbettbar.\n"
                 "\"Schwindung\"/\"Querschnitt\" exportieren die aktuellen Hauptfenster-Einstellungen."
             )
-            cell_graphs.addWidget(graphs_choice_widget)
+            cell_graphs.addWidget(graphs_choice_box)
             # Bugfix: ein Graph ohne jede Daten liess sich bisher trotzdem
             # anhaken und exportierte dann ein leeres Koordinatensystem --
             # alle drei jetzt gesperrt, wenn es nichts zu zeigen gibt.
@@ -394,14 +404,15 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self._preview_panel = ExportPreviewPanel(min_width=260, min_height=160)
         self._preview_panel.group_box.setVisible(False)
 
-        if graphs_grid is not None:
-            # Jede Zelle oben ausgerichtet (unterschiedlich hohe Nachbarn,
-            # z.B. "welche Graphen" vs. die potenziell mehrzeilige
-            # "Graph-Inhalt"-Liste, sollen sich nicht gegenseitig vertikal
-            # zentrieren).
-            for cell in (cell_graphs, cell_axis, cell_content, cell_crosssection):
+        if graphs_row is not None:
+            # Jede Spalte oben ausgerichtet (die beiden Spalten koennen
+            # unterschiedlich hoch werden, z.B. bei vielen Querschnitt-
+            # Eintraegen) -- ein etwaiger Hoehen-Unterschied bleibt dadurch
+            # EIN einzelner Leerraum unten in der kuerzeren Spalte, statt
+            # sich (wie zuvor im 2x2-Raster) auf mehrere Kaesten zu verteilen.
+            for cell in (cell_left, cell_right):
                 cell.addStretch(1)
-            graphs_col.addLayout(graphs_grid)
+            graphs_col.addLayout(graphs_row)
         for col in (graphs_col, overlays_col, color_col, output_col):
             col.addStretch(1)
         self._tabs.addTab(graphs_tab, "Graphen")
@@ -950,26 +961,28 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # live_frame_marker) im Zeitverlauf, genau wie im Hauptfenster
         # (Bugreport: "genauso wie in der UI").
         #
-        # Folgeanfrage ("die Tab-Seite 'Graphen' ist noch recht lang" +
-        # "Unnötige Verschachtelungen entfernen"): dieselbe 2x2-Raster-
-        # Aufteilung wie bei GraphicExportDialog, siehe dortigen Kommentar --
-        # und OHNE die bisherige eigene "Graphen"-Box samt 20px-Einrueckung
-        # (der Tab selbst heisst bereits "Graphen", die Box + Einrueckung war
-        # rein redundante Verschachtelung ohne eigenen Informationsgehalt).
-        graphs_grid = QtWidgets.QGridLayout()
-        graphs_grid.setHorizontalSpacing(16)
-        cell_graphs = QtWidgets.QVBoxLayout()
-        cell_axis = QtWidgets.QVBoxLayout()
-        cell_content = QtWidgets.QVBoxLayout()
-        cell_crosssection = QtWidgets.QVBoxLayout()
-        graphs_grid.addLayout(cell_graphs, 0, 0)
-        graphs_grid.addLayout(cell_axis, 0, 1)
-        graphs_grid.addLayout(cell_content, 1, 0)
-        graphs_grid.addLayout(cell_crosssection, 1, 1)
+        # Folgeanfrage ("die Tab-Seite 'Graphen' ist noch recht lang", dann
+        # erneute Folgeanfrage "das Platz-Problem ist immer noch da ...
+        # Achsen nach links unterhalb der Checkboxen, Graph-Inhalt nach oben
+        # rechts ... einheitliches UI-Bild"): dieselbe Zwei-Spalten-
+        # Aufteilung (keine Grid-Zeilen mehr, siehe GraphicExportDialog fuer
+        # die volle Begruendung) UND dieselbe eigene QGroupBox um die drei
+        # Checkboxen (jetzt konsistent mit "Achsen"/"Graph-Inhalt"/
+        # "Querschnitt-Inhalt" -- NICHT "Graphen" betitelt, um nicht erneut
+        # redundant zum gleichnamigen Tab-Reiter zu wirken).
+        graphs_row = QtWidgets.QHBoxLayout()
+        graphs_row.setSpacing(16)
+        cell_left = QtWidgets.QVBoxLayout()
+        cell_right = QtWidgets.QVBoxLayout()
+        graphs_row.addLayout(cell_left, 1)
+        graphs_row.addLayout(cell_right, 1)
+        cell_graphs = cell_left
+        cell_axis = cell_left
+        cell_content = cell_right
+        cell_crosssection = cell_right
 
-        graphs_choice_widget = QtWidgets.QWidget()
-        graphs_layout = QtWidgets.QVBoxLayout(graphs_choice_widget)
-        graphs_layout.setContentsMargins(0, 0, 0, 0)
+        graphs_choice_box = QtWidgets.QGroupBox("Anzuzeigende Graphen")
+        graphs_layout = QtWidgets.QVBoxLayout(graphs_choice_box)
         # Bisheriger Standard war HIER (anders als bei GraphicExportDialog)
         # "kein Graph" (chk_show_graph.setChecked(...) wurde nie aufgerufen)
         # -- alle drei bleiben daher unangehakt, keine Ueberraschung.
@@ -978,11 +991,11 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.chk_graph_querschnitt = QtWidgets.QCheckBox("Querschnitt")
         for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
             graphs_layout.addWidget(chk)
-        graphs_choice_widget.setToolTip(
+        graphs_choice_box.setToolTip(
             "Beliebig viele gleichzeitig exportierbar, mit wandernder Zeit-Markierung.\n"
             "\"Schwindung\"/\"Querschnitt\" exportieren die aktuellen Hauptfenster-Einstellungen."
         )
-        cell_graphs.addWidget(graphs_choice_widget)
+        cell_graphs.addWidget(graphs_choice_box)
         # Bugfix: siehe GraphicExportDialog -- kein leerer Graph exportierbar.
         # Deckt sowohl den Video- als auch den Bildstapel-Export ab (beides
         # derselbe Dialog, siehe radio_output_images weiter unten).
@@ -1026,7 +1039,10 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.combo_graph_position.setCurrentIndex(self.combo_graph_position.findData("rechts"))  # Standard
         position_form = QtWidgets.QFormLayout()
         position_form.addRow("Position:", self.combo_graph_position)
-        cell_graphs.addLayout(position_form)
+        # In dieselbe Box gehaengt (nicht lose zwischen "Anzuzeigende
+        # Graphen" und "Achsen") -- einheitliches UI-Bild, keine
+        # unverpackten Steuerelemente zwischen zwei betitelten Kaesten.
+        graphs_layout.addLayout(position_form)
 
         # Nur anbieten, wenn ueberhaupt ein Graph exportiert werden kann
         # (current_axis_state wird von MainWindow nur dann mitgegeben) --
@@ -1040,9 +1056,12 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
             chk.toggled.connect(self._update_graph_export_enabled)
         self._update_graph_export_enabled()
-        for cell in (cell_graphs, cell_axis, cell_content, cell_crosssection):
+        # Siehe GraphicExportDialog fuer die volle Begruendung (ein
+        # Hoehen-Unterschied bleibt dadurch ein einzelner Leerraum unten in
+        # der kuerzeren Spalte, statt sich auf mehrere Kaesten zu verteilen).
+        for cell in (cell_left, cell_right):
             cell.addStretch(1)
-        graphs_col.addLayout(graphs_grid)
+        graphs_col.addLayout(graphs_row)
 
         # Nutzerwunsch: "Ebenen" (ROI-Messbereiche/Schwindungsmessung) im
         # exportierten THERMOBILD per Ankreuzliste waehlbar, unabhaengig vom

@@ -68,7 +68,7 @@ class ScaleContentSelector:
             grid.setHorizontalSpacing(16)
             cols = 3
             for i, (number, name) in enumerate(measurement_entries):
-                chk = QtWidgets.QCheckBox(name)
+                chk = QtWidgets.QCheckBox(name.replace("&", "&&"))  # "&" sonst Mnemonic (Fusion: sichtbarer Unterstrich)
                 self.checks[number] = chk
                 grid.addWidget(chk, i // cols, i % cols)
             outer.addLayout(grid)

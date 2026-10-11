@@ -45,7 +45,7 @@ class GraphContentSelector:
             grid.setHorizontalSpacing(16)
             cols = 3
             for i, (number, name) in enumerate(roi_entries):
-                chk = QtWidgets.QCheckBox(name)
+                chk = QtWidgets.QCheckBox(name.replace("&", "&&"))  # "&" sonst Mnemonic (Fusion: sichtbarer Unterstrich)
                 chk.setChecked(True)
                 self.checks[number] = chk
                 grid.addWidget(chk, i // cols, i % cols)
@@ -122,7 +122,7 @@ class CrosssectionContentSelector:
             grid.setHorizontalSpacing(16)
             cols = 3
             for i, (number, name) in enumerate(crosssection_entries):
-                chk = QtWidgets.QCheckBox(name)
+                chk = QtWidgets.QCheckBox(name.replace("&", "&&"))  # "&" sonst Mnemonic (Fusion: sichtbarer Unterstrich)
                 chk.setChecked(True)
                 self.checks[number] = chk
                 grid.addWidget(chk, i // cols, i % cols)

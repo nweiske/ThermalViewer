@@ -7153,7 +7153,7 @@ def test_interp_frame_outside_evaluation_shows_dezent_non_blocking_warning():
 
         entry.chk_interp.setChecked(True)
         assert entry.lbl_interp_start_warning.isVisible() is True, "Start (Bild 1) liegt vor der Auswertung (ab 2)"
-        assert "außerhalb" in entry.lbl_interp_start_warning.toolTip()
+        assert "außerhalb" in entry.lbl_interp_start_warning.toolTip().lower()
         assert entry.lbl_interp_end_warning.isVisible() is False, "Ende (Bild n) liegt innerhalb"
 
         # Zurueck in den Bereich -> Hinweis verschwindet wieder, live beim

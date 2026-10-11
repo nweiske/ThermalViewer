@@ -68,10 +68,13 @@ class CrosssectionEntry:
     (sample_height_ops.py), aber mit fester Richtung (horizontal/vertikal)
     statt immer nur horizontal."""
 
-    def __init__(self, number: int, color: str, direction: str, view_box: pg.ViewBox, curve: pg.PlotDataItem):
+    def __init__(
+        self, number: int, color: str, direction: str, name: str,
+        view_box: pg.ViewBox, curve: pg.PlotDataItem,
+    ):
         self.number = number
         self.color = color
-        self.name = f"Querschnitt {number}"
+        self.name = name
         self.direction = direction  # "horizontal" oder "vertical", fest ab Erzeugung
         self.position = 0  # Zeile (horizontal) bzw. Spalte (vertikal)
         self.enabled = True
@@ -363,14 +366,31 @@ class _CrosssectionEntryMixin:
         self.btn_add_crosssection_horizontal.setEnabled(not at_max)
         self.btn_add_crosssection_vertical.setEnabled(not at_max)
 
-    def _create_crosssection_entry(self, number: int, color: str, direction: str) -> CrosssectionEntry:
+    def _next_crosssection_entry_name(self, direction: str) -> str:
+        """Standard-Name einer neuen Querschnitt-Linie (Folgeanfrage:
+        "Horizontalschnitt X bzw. Vertikalschnitt Y" statt "Querschnitt N"
+        fuer beide Richtungen gemeinsam) -- EIGENE, nie abnehmende Zaehler
+        je Richtung (siehe window.py:_crosssection_entry_next_horizontal/
+        _vertical), unabhaengig von der globalen Erzeugungsnummer (number,
+        bleibt fuer Farbe/Projektdatei-Identitaet unveraendert)."""
+        if direction == "horizontal":
+            n = self._crosssection_entry_next_horizontal
+            self._crosssection_entry_next_horizontal += 1
+            return f"Horizontalschnitt {n}"
+        n = self._crosssection_entry_next_vertical
+        self._crosssection_entry_next_vertical += 1
+        return f"Vertikalschnitt {n}"
+
+    def _create_crosssection_entry(
+        self, number: int, color: str, direction: str, name: str,
+    ) -> CrosssectionEntry:
         """Gemeinsame Stelle fuer die beiden "+ Horizontal"/"+ Vertikal"-
         Knoepfe UND das Wiederherstellen aus einer Projektdatei/einem
         Undo-Snapshot (siehe project_io.py:_load_project_crosssection_
         entries), damit die Signal-Verdrahtung an GENAU einer Stelle passiert
         (analog zu sample_height_ops.py:_create_sample_height_entry)."""
-        curve = self.crosssection_plot.plot(pen=pg.mkPen(color, width=2), name=f"Querschnitt {number}")
-        entry = CrosssectionEntry(number, color, direction, self.view_box, curve)
+        curve = self.crosssection_plot.plot(pen=pg.mkPen(color, width=2), name=name)
+        entry = CrosssectionEntry(number, color, direction, name, self.view_box, curve)
         # sigPositionChanged feuert bei JEDEM Zwischenschritt eines Drags
         # (Folgeanfrage: "beim Verschieben der Linie aktiv die Textbox zu
         # jedem Zeitpunkt mitverschieben" -- betraf hier sowohl die Kurve
@@ -391,7 +411,8 @@ class _CrosssectionEntryMixin:
         self._push_undo_snapshot()
         number = self._crosssection_entry_next_number
         self._crosssection_entry_next_number += 1
-        entry = self._create_crosssection_entry(number, _crosssection_entry_color(number), direction)
+        name = self._next_crosssection_entry_name(direction)
+        entry = self._create_crosssection_entry(number, _crosssection_entry_color(number), direction, name)
         entry.position = position
         self._update_crosssection_entry_line_pos(entry)
         self._crosssection_entries.append(entry)
@@ -619,6 +640,8 @@ class _CrosssectionEntryMixin:
             entry.remove_from_view(self.view_box, self.crosssection_plot)
         self._crosssection_entries.clear()
         self._crosssection_entry_next_number = 1
+        self._crosssection_entry_next_horizontal = 1
+        self._crosssection_entry_next_vertical = 1
         self._refresh_crosssection_entry_rows()
 
     def _reset_crosssection_entries_for_recording(self) -> None:

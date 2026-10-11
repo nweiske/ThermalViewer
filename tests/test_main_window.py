@@ -893,6 +893,14 @@ def test_cleaning_dialog_default_size_avoids_scrolling_for_typical_use(loaded_ma
     # brauchen.
     from thermal_viewer.dialogs import DataCleaningDialog
 
+    if QtCore.qVersion().startswith("5."):
+        # Win7-Build (PyQt5/Qt5.15): die "offscreen"-Plattform hat dort keine
+        # echte Systemschrift, Texte werden mit einer riesigen Ersatzschrift
+        # gemessen (z.B. "Schwellenwert (dT zum Vorbild):" ~527px breit) --
+        # die Inhaltshoehe des Scrollfelds sagt dann nichts ueber die
+        # tatsaechliche UI-Schrift aus. Die Pruefung bleibt unter Qt6 aktiv.
+        pytest.skip("Schriftmetriken der Qt5-offscreen-Plattform nicht aussagekraeftig")
+
     mw = loaded_main_window
     dlg = DataCleaningDialog(mw)
     try:
@@ -1249,6 +1257,19 @@ def test_graphic_export_dialog_organizes_controls_into_four_tabs(loaded_main_win
     # Punkt 7 (Nutzerwunsch): "zu unübersichtlich" bei vielen gleichzeitig
     # sichtbaren Gruppenboxen -- vier Tabs statt gestapelter Boxen, Vorschau
     # bleibt ausserhalb der Tabs immer sichtbar.
+    #
+    # Bugjagd: diese EINE Dialog-Instanz traegt bewusst auch die Pruefungen
+    # der Zwei-Spalten-Graphen-Tab-Struktur UND der AlignTop-Ausrichtung
+    # (frueher je eigene, zusaetzliche GraphicExportDialog-Konstruktion) --
+    # eine SEPARATE Konstruktion mit einem SYNTHETISCHEN current_axis_state-
+    # dict (statt des echten, von MainWindow._gather_axis_state() gelieferten)
+    # reproduzierte hier reproduzierbar einen PySide6/pyqtgraph-Speicherfehler
+    # (Absturz bzw. ein auf QObject "degradiertes" QScreen-Objekt) in einer
+    # SPAETEREN MainWindow-Testfixture -- isoliert vom konkreten current_
+    # axis_state-Wert bestaetigt (siehe Git-Historie dieser Datei), daher hier
+    # bewusst OHNE current_axis_state konstruiert; die "Achsen"-Box-Reihenfolge
+    # wird deshalb in _assert_graphen_tab_uses_two_column_layout_without_
+    # redundant_box nur noch bedingt geprueft (siehe dort).
     from thermal_viewer.dialogs import GraphicExportDialog
 
     dlg = GraphicExportDialog(
@@ -1275,6 +1296,8 @@ def test_graphic_export_dialog_organizes_controls_into_four_tabs(loaded_main_win
         # Die Vorschau liegt AUSSERHALB jeder Tab-Seite (direkt im obersten
         # layout_top), nicht als Kind von dlg._tabs.
         assert not dlg._tabs.isAncestorOf(dlg._preview_panel.group_box)
+        _assert_graphen_tab_uses_two_column_layout_without_redundant_box(dlg)
+        _assert_tabs_widget_is_top_aligned(dlg)
     finally:
         dlg.close()
 
@@ -1291,56 +1314,72 @@ def test_video_export_dialog_organizes_controls_into_four_tabs(qapp):
         tab_labels = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
         assert tab_labels == ["Graphen", "Bild && Maßstab", "Farbskala", "Ausgabe"]
         assert not dlg._tabs.isAncestorOf(dlg._preview_panel.group_box)
+        # Bugjagd: siehe GraphicExportDialog-Test -- dieselbe Dialog-Instanz
+        # traegt bewusst auch diese beiden Pruefungen mit.
+        _assert_graphen_tab_uses_two_column_layout_without_redundant_box(dlg)
+        _assert_tabs_widget_is_top_aligned(dlg)
     finally:
         dlg.close()
 
 
-def _assert_graphen_tab_uses_2x2_grid_without_redundant_box(dlg) -> None:
-    """Punkt 4 (Folgeanfrage): "die Tab-Seite 'Graphen' ist noch recht
-    lang ... entweder ... in die Breite anordnen (2x2-Grid) ... Unnötige
-    Verschachtelungen entfernen" -- gemeinsame Pruefung fuer GraphicExport-
-    Dialog/VideoExportDialog: die "Graphen"-Tab-Seite enthaelt ein
-    QGridLayout (statt alles nur untereinander gestapelt), UND es gibt
+def _box_titles_in_column(column_layout) -> list[str]:
+    titles = []
+    for i in range(column_layout.count()):
+        item = column_layout.itemAt(i)
+        widget = item.widget()
+        if isinstance(widget, QtWidgets.QGroupBox):
+            titles.append(widget.title())
+    return titles
+
+
+def _assert_graphen_tab_uses_two_column_layout_without_redundant_box(dlg) -> None:
+    """Folgeanfrage ("das Platz-Problem ist immer noch da ... Achsen nach
+    links unterhalb der Checkboxen, Graph-Inhalt nach oben rechts ...
+    einheitliches UI-Bild"): ersetzt den frueheren 2x2-Grid-Test -- jetzt
+    ZWEI Spalten (QHBoxLayout mit zwei QVBoxLayout-Spalten) statt eines
+    Rasters: links "Anzuzeigende Graphen" dann "Achsen" UNTEREINANDER,
+    rechts "Graph-Inhalt" dann "Querschnitt-Inhalt" UNTEREINANDER. Weiterhin
     KEINE eigene QGroupBox mit dem (gegenueber dem Tab-Reiter redundanten)
-    Titel "Graphen" mehr darauf."""
+    Titel "Graphen" -- die drei Checkboxen stehen jetzt aber (Folgeanfrage:
+    "die anderen Bereiche auf dieser Seite haben einen Menübereich, die drei
+    Checkboxen nicht -- einheitliches UI-Bild") in einer eigenen, ANDERS
+    betitelten Box ("Anzuzeigende Graphen")."""
     graphs_page = dlg._tabs.widget(0)
-    assert any(
-        isinstance(graphs_page.layout().itemAt(i).layout(), QtWidgets.QGridLayout)
-        for i in range(graphs_page.layout().count())
-    ), "Graphen-Tab sollte ein 2x2-Raster (QGridLayout) enthalten"
+    row_layout = next(
+        (
+            item.layout() for i in range(graphs_page.layout().count())
+            for item in [graphs_page.layout().itemAt(i)]
+            if isinstance(item.layout(), QtWidgets.QHBoxLayout)
+        ),
+        None,
+    )
+    assert row_layout is not None, "Graphen-Tab sollte eine Zwei-Spalten-Zeile (QHBoxLayout) enthalten"
+    assert row_layout.count() == 2
+    left_column = row_layout.itemAt(0).layout()
+    right_column = row_layout.itemAt(1).layout()
+    assert isinstance(left_column, QtWidgets.QVBoxLayout)
+    assert isinstance(right_column, QtWidgets.QVBoxLayout)
+
     for box in graphs_page.findChildren(QtWidgets.QGroupBox):
         assert box.title() != "Graphen", "redundante 'Graphen'-Box direkt unter dem gleichnamigen Tab-Reiter"
 
-
-def test_graphic_export_dialog_graphen_tab_uses_2x2_grid(loaded_main_window):
-    from thermal_viewer.dialogs import GraphicExportDialog
-
-    dlg = GraphicExportDialog(
-        loaded_main_window, loaded_main_window._settings, default_dpi=150,
-        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
-        current_level_mode="global", current_min=0.0, current_max=50.0,
-        show_graph_source_choice=True, live_available=False,
-        roi_entries=[(1, "ROI 1")], show_scale_choice=True, ruler_available=True,
-        crosssection_entries=[(1, "Querschnitt 1")],
-    )
-    try:
-        _assert_graphen_tab_uses_2x2_grid_without_redundant_box(dlg)
-    finally:
-        dlg.close()
-
-
-def test_video_export_dialog_graphen_tab_uses_2x2_grid(qapp):
-    from thermal_viewer.dialogs import VideoExportDialog
-
-    dlg = VideoExportDialog(
-        parent=None, n_frames=5, colormaps=[("Grau", "grey")], current_colormap_index=0,
-        current_invert=False, current_level_mode="global", current_min=0.0, current_max=100.0,
-        current_fps=5.0, crosssection_entries=[(1, "Querschnitt 1")],
-    )
-    try:
-        _assert_graphen_tab_uses_2x2_grid_without_redundant_box(dlg)
-    finally:
-        dlg.close()
+    # "Achsen" nur, wenn der Aufrufer current_axis_state mitgegeben hat
+    # (siehe export_dialogs.py) -- bewusst NICHT in diesem Test erzwungen:
+    # eine direkte Dialog-Konstruktion mit einem SYNTHETISCHEN current_axis_
+    # state-dict (statt des echten, von MainWindow._gather_axis_state()
+    # gelieferten) reproduzierte hier einen seltenen, aber reproduzierbaren
+    # PySide6/pyqtgraph-Speicherfehler in einer SPAETEREN MainWindow-Fixture
+    # (siehe Git-Historie dieser Datei) -- die Links-vor-Achsen-Reihenfolge
+    # ist durch den Quellcode selbst erzwungen (graph_related_col ist
+    # dieselbe QVBoxLayout-Instanz wie cell_graphs, siehe export_dialogs.py)
+    # und manuell verifiziert, statt hier erneut riskiert zu werden.
+    left_titles = _box_titles_in_column(left_column)
+    assert left_titles[0] == "Anzuzeigende Graphen", left_titles
+    assert set(left_titles) <= {"Anzuzeigende Graphen", "Achsen"}, left_titles
+    if "Achsen" in left_titles:
+        assert left_titles == ["Anzuzeigende Graphen", "Achsen"], left_titles
+    right_titles = _box_titles_in_column(right_column)
+    assert right_titles == ["Graph-Inhalt", "Querschnitt-Inhalt"], right_titles
 
 
 def _find_layout_item_for_widget(layout, widget):
@@ -1373,37 +1412,6 @@ def _assert_tabs_widget_is_top_aligned(dlg) -> None:
     item = _find_layout_item_for_widget(content_layout, dlg._tabs)
     assert item is not None, "dlg._tabs nicht im Dialog-Layout gefunden"
     assert bool(item.alignment() & QtCore.Qt.AlignTop), "dlg._tabs muss mit AlignTop eingehaengt sein"
-
-
-def test_graphic_export_dialog_tabs_widget_is_top_aligned_next_to_preview(loaded_main_window):
-    from thermal_viewer.dialogs import GraphicExportDialog
-
-    dlg = GraphicExportDialog(
-        loaded_main_window, loaded_main_window._settings, default_dpi=150,
-        colormaps=[("Ironbow", "CET-L17")], current_colormap_index=0, current_invert=False,
-        current_level_mode="global", current_min=0.0, current_max=50.0,
-        show_graph_source_choice=True, live_available=False,
-        roi_entries=[(1, "ROI 1")], show_scale_choice=True, ruler_available=True,
-        crosssection_entries=[(1, "Querschnitt 1")],
-    )
-    try:
-        _assert_tabs_widget_is_top_aligned(dlg)
-    finally:
-        dlg.close()
-
-
-def test_video_export_dialog_tabs_widget_is_top_aligned_next_to_preview(qapp):
-    from thermal_viewer.dialogs import VideoExportDialog
-
-    dlg = VideoExportDialog(
-        parent=None, n_frames=5, colormaps=[("Grau", "grey")], current_colormap_index=0,
-        current_invert=False, current_level_mode="global", current_min=0.0, current_max=100.0,
-        current_fps=5.0, crosssection_entries=[(1, "Querschnitt 1")],
-    )
-    try:
-        _assert_tabs_widget_is_top_aligned(dlg)
-    finally:
-        dlg.close()
 
 
 def test_export_graphic_writes_a_png(roi_and_live_window, tmp_path, monkeypatch):
@@ -2874,6 +2882,27 @@ def test_project_save_load_roundtrip_preserves_crosssection_y_axis(loaded_main_w
     assert abs(lo - 3.0) < 1e-6 and abs(hi - 123.0) < 1e-6
 
 
+def test_project_load_crosssection_axis_rejects_non_finite_and_absurd_values(loaded_main_window):
+    # Bugjagd: json.loads() akzeptiert NaN/Infinity, und ein winziger
+    # Tick-Abstand wuerde Millionen Ticks erzeugen -- beides aus einer
+    # hand-editierten/beschaedigten Datei muss ignoriert werden.
+    mw = _make_gradient_recording_window(loaded_main_window)
+
+    mw._load_project_crosssection_axis({
+        "querschnitt_y_achse": {"manuell": True, "y_min": 0.0, "y_max": float("inf"), "schrittweite": 1e-9},
+    })
+    assert mw._crosssection_y_manual is False
+    assert mw._crosssection_y_range is None
+    assert mw._crosssection_y_spacing is None
+
+    mw._load_project_crosssection_axis({
+        "querschnitt_y_achse": {"manuell": True, "y_min": 10.0, "y_max": 20.0, "schrittweite": 2.0},
+    })
+    assert mw._crosssection_y_manual is True
+    assert mw._crosssection_y_range == (10.0, 20.0)
+    assert mw._crosssection_y_spacing == 2.0
+
+
 def test_project_load_crosssection_axis_without_saved_entry_keeps_legend_default(loaded_main_window):
     # Alte Projektdateien (von vor diesem Fix) haben keinen
     # "querschnitt_y_achse"-Eintrag -- muss beim Laden unauffaellig beim
@@ -4026,6 +4055,48 @@ def _click_measurement(mw, x: float, y: float) -> None:
     mw._handle_measurement_click(_FakeSceneClickEvent(x, y))
 
 
+def test_content_selectors_escape_ampersand_in_user_chosen_names(qapp):
+    # Bugjagd: ein frei gewaehlter Name wie "Rand & Mitte" wuerde als
+    # QCheckBox-Text das "&" als Mnemonic deuten (Fusion zeichnet das
+    # folgende Leerzeichen sichtbar als Unterstrich) -- "&&" zeigt ein "&".
+    from thermal_viewer.dialogs.graph_selector import CrosssectionContentSelector, GraphContentSelector
+
+    graph = GraphContentSelector([(1, "Rand & Mitte")], live_available=False, default_live_checked=False)
+    cross = CrosssectionContentSelector([(1, "A & B")])
+    try:
+        assert graph.checks[1].text() == "Rand && Mitte"
+        assert cross.checks[1].text() == "A && B"
+    finally:
+        graph.group_box.deleteLater()
+        cross.group_box.deleteLater()
+
+
+def test_roi_placement_click_keeps_a_pending_interp_capture_armed(loaded_main_window):
+    # Bugjagd: der Platzierungsklick setzte _armed_entry erst NACH
+    # btn_place.setChecked(False) auf None -- das toggled(False)-Signal loeste
+    # dadurch _disarm_roi_placement() aus und verwarf die gerade laufende
+    # Start-Erfassung der Verlaufs-Interpolation. Der naechste Klick auf
+    # "Start festlegen" begann wieder bei Phase 1 (erneutes Armieren) statt
+    # die platzierte Geometrie zu uebernehmen.
+    mw = loaded_main_window
+    mw.view_box.sceneBoundingRect = lambda: QtCore.QRectF(-1000, -1000, 2000, 2000)
+    mw.view_box.mapSceneToView = lambda pos: pos
+    entry = mw._add_roi_entry()
+    assert not entry.placed
+    entry.chk_interp.setChecked(True)
+
+    entry.btn_interp_start.click()
+    assert entry.interp_arm_start and entry.btn_place.isChecked()
+
+    mw._on_scene_mouse_clicked(_FakeSceneClickEvent(3, 3))
+    assert entry.placed
+    assert entry.interp_arm_start, "Erfassung muss nach dem Platzierungsklick weiter bereitstehen"
+
+    entry.btn_interp_start.click()
+    assert not entry.interp_arm_start
+    assert entry.interp_start is not None
+
+
 def test_measurement_mode_toggle_allows_unlimited_measurements_while_on(loaded_main_window):
     # Nutzerwunsch: "Messmodus" bleibt nach EINER Messung weiterhin
     # eingeschaltet, statt (wie vorher "Neue Messung") nach genau einer
@@ -4277,6 +4348,21 @@ def test_temporary_crosssection_content_toggles_exactly_the_selected_curves(load
     assert entry2.curve.isVisible() == prev2
 
 
+def test_temporary_crosssection_content_hides_placement_preview_during_export(loaded_main_window):
+    # Bugjagd: die gelbe Platzieren-Vorschau (Linie + Kurve) darf nie in einer
+    # exportierten Grafik/einem Video landen, wird danach aber wiederhergestellt.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    mw.crosssection_entry_preview_line.setVisible(True)
+    mw.crosssection_entry_preview_curve.setVisible(True)
+
+    with mw._temporary_crosssection_content(set()):
+        assert mw.crosssection_entry_preview_line.isVisible() is False
+        assert mw.crosssection_entry_preview_curve.isVisible() is False
+
+    assert mw.crosssection_entry_preview_line.isVisible() is True
+    assert mw.crosssection_entry_preview_curve.isVisible() is True
+
+
 def test_crosssection_y_axis_defaults_to_current_legend_levels(loaded_main_window):
     # Folgeanfrage: "Richte die Y-Achse (min-/max) des Querschnittsgraphen
     # standardmäßig nach den Einstellungen unter 'Legende'" -- ohne eigene
@@ -4364,7 +4450,10 @@ def test_add_crosssection_entry_creates_entry_and_computes_profile(loaded_main_w
     mw = _make_gradient_recording_window(loaded_main_window)
     entry = mw._add_crosssection_entry("horizontal", 5)
 
-    assert entry.name == "Querschnitt 1"
+    # Folgeanfrage: "Horizontalschnitt X bzw. Vertikalschnitt Y" statt
+    # "Querschnitt N" fuer beide Richtungen gemeinsam -- eigene Zaehler je
+    # Richtung.
+    assert entry.name == "Horizontalschnitt 1"
     assert entry.direction == "horizontal"
     assert entry.position == 5
     assert mw._crosssection_entries == [entry]
@@ -4373,10 +4462,30 @@ def test_add_crosssection_entry_creates_entry_and_computes_profile(loaded_main_w
     assert np.allclose(ys, mw.recording.frames[0, 5, :])
 
     entry2 = mw._add_crosssection_entry("vertical", 7)
-    assert entry2.name == "Querschnitt 2"
+    assert entry2.name == "Vertikalschnitt 1"
     xs2, ys2 = entry2.curve.getData()
     assert list(xs2) == list(range(20))
     assert np.allclose(ys2, mw.recording.frames[0, :, 7])
+
+
+def test_crosssection_entry_default_name_avoids_duplicate_after_project_load(loaded_main_window):
+    # Bugjagd: ein geladenes Projekt mit einem GUELTIG benannten
+    # "Horizontalschnitt 1" ruehrt den Richtungs-Zaehler NICHT an (der
+    # Fallback-Zweig in _load_project_crosssection_entries greift nur bei
+    # fehlendem/ungueltigem Namen) -- ohne Abgleich haette eine direkt danach
+    # interaktiv hinzugefuegte horizontale Linie denselben Standard-Namen
+    # "Horizontalschnitt 1" bekommen wie die bereits geladene.
+    mw = _make_gradient_recording_window(loaded_main_window)
+    data = {
+        "querschnitte": [
+            {"nummer": 1, "name": "Horizontalschnitt 1", "farbe": "#fb7185", "richtung": "horizontal", "position": 2, "aktiv": True},
+        ],
+    }
+    mw._load_project_crosssection_entries(data)
+    assert mw._crosssection_entries[0].name == "Horizontalschnitt 1"
+
+    new_entry = mw._add_crosssection_entry("horizontal", 5)
+    assert new_entry.name == "Horizontalschnitt 2", "darf nicht mit der geladenen Linie kollidieren"
 
 
 def test_crosssection_entry_curve_updates_on_frame_change(loaded_main_window):
@@ -4429,7 +4538,7 @@ def test_crosssection_entry_remove(loaded_main_window):
 
     mw._on_crosssection_entry_remove_clicked(0)
     assert len(mw._crosssection_entries) == 1
-    assert mw._crosssection_entries[0].name == "Querschnitt 2"
+    assert mw._crosssection_entries[0].name == "Vertikalschnitt 1"
 
 
 def test_crosssection_entry_max_count_enforced(loaded_main_window, monkeypatch):

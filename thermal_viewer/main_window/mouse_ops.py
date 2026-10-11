@@ -44,8 +44,18 @@ class _MouseMixin:
             self._push_undo_snapshot()
             entry.place(view_pos.x(), view_pos.y(), entry.spin_width.value(), entry.spin_height.value())
             self._sync_roi_spinboxes(entry)
-            entry.btn_place.setChecked(False)
+            # Bugjagd: _armed_entry MUSS VOR btn_place.setChecked(False) auf
+            # None gesetzt werden -- das toggled(False)-Signal ruft sonst
+            # _on_roi_place_toggled auf, das wegen "_armed_entry is entry"
+            # _disarm_roi_placement() ausloest und dort eine gerade
+            # laufende Start-/Ende-Erfassung der Verlaufs-Interpolation
+            # (interp_arm_start/_end) zuruecksetzt: der naechste Klick auf
+            # "Start/Ende festlegen" begann dadurch wieder bei Phase 1
+            # (erneutes Armieren) statt die frisch platzierte Geometrie zu
+            # uebernehmen -- bei einem noch unplatzierten Messbereich eine
+            # Endlosschleife.
             self._armed_entry = None
+            entry.btn_place.setChecked(False)
             self._recompute_curves(entries=[entry])
             self._refresh_idle_guidance()
             return

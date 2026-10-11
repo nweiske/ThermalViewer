@@ -107,6 +107,15 @@ class MainWindow(
         # solange der jeweilige "+ ..."-Knopf aktiv ist, sonst None.
         self._crosssection_entries: list = []
         self._crosssection_entry_next_number = 1
+        # Folgeanfrage: Standard-Namen "Horizontalschnitt X"/"Vertikalschnitt Y"
+        # statt "Querschnitt N" fuer beide Richtungen gemeinsam -- EIGENE,
+        # nie abnehmende Zaehler je Richtung (analog zu _crosssection_entry_
+        # next_number oben, siehe crosssection_entry_ops.py:_next_
+        # crosssection_entry_name), unabhaengig von der globalen
+        # Erzeugungsnummer (die bleibt fuer Farbe/Projektdatei-Identitaet
+        # unveraendert).
+        self._crosssection_entry_next_horizontal = 1
+        self._crosssection_entry_next_vertical = 1
         self._crosssection_entry_armed_direction: str | None = None
         # Y-Achse des Querschnitt-Graphen (Folgeanfrage): folgt standardmaessig
         # der aktuellen Farbskala/Legende (_crosssection_y_manual=False),

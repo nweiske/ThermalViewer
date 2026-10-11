@@ -1157,9 +1157,15 @@ class _ProjectMixin:
                 color = item.get("farbe")
                 if not (isinstance(color, str) and QtGui.QColor(color).isValid()):
                     color = _crosssection_entry_color(number)
-                entry = self._create_crosssection_entry(number, color, direction)
                 name = item.get("name")
-                entry.set_name(name if isinstance(name, str) and name.strip() else f"Querschnitt {number}")
+                if not (isinstance(name, str) and name.strip()):
+                    # Fehlender/ungueltiger Name (z.B. altes Projekt von vor
+                    # der "Horizontalschnitt X"/"Vertikalschnitt Y"-
+                    # Umbenennung) -- denselben richtungsabhaengigen
+                    # Standard-Namen wie bei einer neu platzierten Linie
+                    # erzeugen (siehe _next_crosssection_entry_name).
+                    name = self._next_crosssection_entry_name(direction)
+                entry = self._create_crosssection_entry(number, color, direction, name)
                 try:
                     position_val = int(float(item.get("position", 0)))
                 except (TypeError, ValueError):
@@ -1172,6 +1178,26 @@ class _ProjectMixin:
                 self._crosssection_entries.append(entry)
                 max_number = max(max_number, number)
             self._crosssection_entry_next_number = max_number + 1
+            # Bugjagd: ohne diesen Abgleich konnte eine neu (interaktiv)
+            # hinzugefuegte Linie direkt nach dem Laden denselben Standard-
+            # namen wie eine bereits geladene Linie bekommen (z.B. geladen:
+            # "Horizontalschnitt 1" mit gueltigem, unveraendertem Namen --
+            # der Richtungs-Zaehler oben wird dann NIE beruehrt, da der
+            # Fallback-Zweig nur bei fehlendem/ungueltigem Namen greift,
+            # blieb also z.B. bei seinem Anfangswert 1 stehen). Wie bei
+            # _crosssection_entry_next_number oben (max_number + 1) auf den
+            # tatsaechlich geladenen Bestand je Richtung hochgezogen --
+            # NIEMALS verkleinert (max(...)), da die Zaehler ueber die
+            # gesamte Sitzung hinweg monoton bleiben (siehe
+            # _next_crosssection_entry_name).
+            loaded_horizontal = sum(1 for e in self._crosssection_entries if e.direction == "horizontal")
+            loaded_vertical = sum(1 for e in self._crosssection_entries if e.direction == "vertical")
+            self._crosssection_entry_next_horizontal = max(
+                self._crosssection_entry_next_horizontal, loaded_horizontal + 1
+            )
+            self._crosssection_entry_next_vertical = max(
+                self._crosssection_entry_next_vertical, loaded_vertical + 1
+            )
 
         self._refresh_crosssection_entry_rows()
         self._update_all_crosssection_entries()
@@ -1189,16 +1215,25 @@ class _ProjectMixin:
         manual = False
         if isinstance(axis_data, dict):
             y_min, y_max = axis_data.get("y_min"), axis_data.get("y_max")
+            # math.isfinite: json.loads() akzeptiert NaN/Infinity klaglos
+            # (siehe _finite_float) -- ein hand-editiertes "y_max": Infinity
+            # wuerde setYRange() sonst mit einem unendlichen Bereich fuettern.
             if (
                 axis_data.get("manuell") is True
                 and isinstance(y_min, (int, float)) and not isinstance(y_min, bool)
                 and isinstance(y_max, (int, float)) and not isinstance(y_max, bool)
-                and y_max > y_min
+                and math.isfinite(y_min) and math.isfinite(y_max) and y_max > y_min
             ):
                 manual = True
                 self._crosssection_y_range = (float(y_min), float(y_max))
             spacing = axis_data.get("schrittweite")
-            if isinstance(spacing, (int, float)) and not isinstance(spacing, bool) and spacing > 0:
+            # 0.01..1000: derselbe Wertebereich wie spin_y_spacing im
+            # AxisSettingsDialog (misc_dialogs.py) -- ein winziger Wert aus
+            # einer manipulierten Datei wuerde sonst Millionen Ticks erzeugen.
+            if (
+                isinstance(spacing, (int, float)) and not isinstance(spacing, bool)
+                and math.isfinite(spacing) and 0.01 <= spacing <= 1000.0
+            ):
                 self._crosssection_y_spacing = float(spacing)
             else:
                 self._crosssection_y_spacing = None

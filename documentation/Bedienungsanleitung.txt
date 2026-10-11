@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-10-10
+Stand: 2026-10-11
 Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
 (Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
 zusaetzliche Software.
@@ -745,7 +745,7 @@ die Temperatur dort entwickelt hat.
      alle drei (Standard: nur "Zeitverlauf" an, wie bisher). "Schwindung"
      wird dabei immer mit der AKTUELL im Hauptfenster gezeigten Kenngroesse
      exportiert -- dafuer gibt es keine eigene Export-Einstellung.
-     Darunter "Graph-Inhalt" -> nur relevant, solange "Zeitverlauf"
+     Daneben "Graph-Inhalt" -> nur relevant, solange "Zeitverlauf"
      angehakt ist: per Checkbox waehlen, welche Kurve(n) darin erscheinen
      -- JEDER platzierte Messbereich einzeln UND (sofern gerade verfuegbar,
      siehe Abschnitt 8) "Live-Cursor" -- "Alle auswaehlen"/"Keine
@@ -1029,7 +1029,7 @@ Alle uebrigen Einstellungen im Dialog:
     exportieren" aus). Der Zeitverlauf-Graph zeigt dabei dieselbe
     wandernde Zeit-Markierungslinie wie im Hauptfenster; "Schwindung"
     wird immer mit der AKTUELL im Hauptfenster gezeigten Kenngroesse
-    exportiert. "Graph-Inhalt" darunter ist nur relevant, solange
+    exportiert. "Graph-Inhalt" daneben ist nur relevant, solange
     "Zeitverlauf" angehakt ist, und waehlt PER CHECKBOX, welche
     Kurve(n) darin erscheinen: jeder platzierte Messbereich einzeln
     (Standard: alle an) und/oder "Live-Cursor" (nur verfuegbar, wenn

@@ -808,9 +808,19 @@ class _ExportVisualsMixin:
         for entry in self._crosssection_entries:
             prev_entry_visible[entry.number] = entry.curve.isVisible()
             entry.curve.setVisible(entry.number in selected_numbers)
+        # Bugjagd: die gelbe Platzieren-Vorschau (Linie im Thermobild + Kurve
+        # im Querschnitt-Graphen, nur sichtbar waehrend "+ Horizontal"/"+
+        # Vertikal" armiert ist und die Maus zuletzt ueber dem Bild stand)
+        # darf nie in einer exportierten Grafik/einem Video landen.
+        preview_items = (self.crosssection_entry_preview_line, self.crosssection_entry_preview_curve)
+        prev_preview_visible = [item.isVisible() for item in preview_items]
+        for item in preview_items:
+            item.setVisible(False)
         try:
             yield
         finally:
+            for item, was_visible in zip(preview_items, prev_preview_visible):
+                item.setVisible(was_visible)
             for entry in self._crosssection_entries:
                 if entry.number in prev_entry_visible:
                     entry.curve.setVisible(prev_entry_visible[entry.number])

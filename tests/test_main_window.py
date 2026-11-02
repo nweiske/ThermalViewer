@@ -200,7 +200,7 @@ def test_idle_guidance_reflects_current_state(loaded_main_window):
 
     mw.roi_entries[0].place(2, 2, 3, 3)
     mw._refresh_idle_guidance()
-    assert mw._activity_label.text() == "Bereit."
+    assert "Weiter:" in mw._activity_label.text()
 
     mw._watched_folder = mw.recording.paths[0].parent
     mw._live_watch_timer.start()
@@ -4008,6 +4008,109 @@ def test_number_key_shortcut_is_noop_without_recording(main_window):
     assert mw._armed_entry is None
 
 
+def test_digit_shortcuts_cover_one_to_nine_and_zero(loaded_main_window):
+    mw = loaded_main_window
+    keys = {shortcut.key().toString() for shortcut in mw._nav_shortcuts}
+    assert {str(d) for d in range(10)} <= keys
+
+
+def test_digit_shortcuts_arm_extra_rois_and_zero_means_ten(loaded_main_window):
+    mw = loaded_main_window
+    # Nummer 7 existiert noch nicht -> Hinweis in der Statuszeile, nichts armiert.
+    mw._on_arm_roi_shortcut(7)
+    assert mw._armed_entry is None
+    assert "existiert nicht" in mw.statusBar().currentMessage()
+
+    for _ in range(4):
+        mw._on_add_roi_clicked()
+    assert [e.number for e in mw.roi_entries][-4:] == [7, 8, 9, 10]
+    mw._on_arm_roi_shortcut(7)
+    assert mw._armed_entry is mw.roi_entries[6]
+    mw._on_arm_roi_shortcut(10)  # Taste "0"
+    assert mw._armed_entry is mw.roi_entries[9]
+    assert mw.roi_list.currentItem() is mw.roi_entries[9].list_item
+
+
+def test_clicking_already_selected_roi_row_rearms_placement(loaded_main_window):
+    mw = loaded_main_window
+    entry = mw.roi_entries[2]
+    mw._select_roi(entry)
+    assert mw._armed_entry is entry
+    entry.place(5, 5, 3, 3)
+    mw._armed_entry = None
+    entry.btn_place.setChecked(False)
+
+    # Zeile ist weiter "aktuell" -> currentRowChanged feuert nicht; der
+    # Klick-Handler muss trotzdem wieder armieren.
+    item = entry.list_item
+    mw._on_roi_list_item_pressed(item)
+    mw._on_roi_list_item_clicked(item)
+    assert mw._armed_entry is entry
+    assert entry.btn_place.isChecked()
+
+
+def test_clicking_roi_visibility_checkbox_does_not_arm(loaded_main_window):
+    mw = loaded_main_window
+    entry = mw.roi_entries[0]
+    mw._select_roi(entry)
+    mw._armed_entry = None
+    entry.btn_place.setChecked(False)
+    item = entry.list_item
+    mw._on_roi_list_item_pressed(item)
+    item.setCheckState(QtCore.Qt.CheckState.Unchecked)  # Haekchen-Klick aendert den Zustand
+    mw._on_roi_list_item_clicked(item)
+    assert mw._armed_entry is None
+
+
+def test_status_guidance_follows_roi_selection_and_placement(loaded_main_window):
+    mw = loaded_main_window
+    entry = mw.roi_entries[2]
+    mw._select_roi(entry)
+    assert mw._armed_entry is entry
+    assert entry.name in mw._activity_label.text()
+    assert "ins Bild klicken" in mw._activity_label.text()
+
+    # Platzieren per Bildklick -> Hinweis wechselt auf Verschieben/Skalieren.
+    entry.place(5, 5, 3, 3)
+    mw._armed_entry = None
+    entry.btn_place.setChecked(False)
+    assert "verschieben" in mw._activity_label.text()
+    assert entry.name in mw._activity_label.text()
+
+
+def test_roi_drag_throttles_curve_recompute_but_final_release_is_exact(loaded_main_window, monkeypatch):
+    mw = loaded_main_window
+    entry = mw.roi_entries[0]
+    entry.place(5, 5, 3, 3)
+    calls = []
+    original = mw._recompute_curves
+    monkeypatch.setattr(mw, "_recompute_curves", lambda entries=None: (calls.append(entries), original(entries))[1])
+    monkeypatch.setattr(mw, "_roi_drag_in_progress", lambda: True)
+
+    for _ in range(5):
+        mw._on_roi_region_changed(entry)
+    # Erster Schritt sofort, die uebrigen vier sind nur gesammelt.
+    assert len(calls) == 1
+    assert mw._roi_drag_pending == [entry]
+
+    mw._on_roi_region_finished(entry)
+    assert len(calls) == 2
+    assert mw._roi_drag_pending == []
+    assert not mw._roi_drag_timer.isActive()
+
+
+def test_roi_region_change_without_mouse_drag_recomputes_immediately(loaded_main_window, monkeypatch):
+    mw = loaded_main_window
+    entry = mw.roi_entries[0]
+    entry.place(5, 5, 3, 3)
+    calls = []
+    original = mw._recompute_curves
+    monkeypatch.setattr(mw, "_recompute_curves", lambda entries=None: (calls.append(entries), original(entries))[1])
+    mw._on_roi_region_changed(entry)
+    mw._on_roi_region_changed(entry)
+    assert len(calls) == 2
+
+
 def test_shrinkage_enable_switches_tab_but_disable_does_not(loaded_main_window):
     mw = loaded_main_window
     mw._set_active_layer_tab("roi")
@@ -4674,3 +4777,191 @@ def test_export_graphic_computes_querschnitt_available_from_entries(loaded_main_
     mw._add_crosssection_entry("horizontal", 3)
     mw._export_graphic()
     assert captured["querschnitt_available"] is True
+
+
+# ------------------------------------------- Statuszeile: immer die naechste Aktion
+
+def test_guidance_names_next_step_for_every_armed_tool(loaded_main_window):
+    mw = loaded_main_window
+    mw.roi_entries[0].place(2, 2, 3, 3)
+
+    mw._ruler_armed = True
+    mw._refresh_idle_guidance()
+    assert "Startpunkt der Referenzlinie" in mw._activity_label.text()
+    mw._ruler_start = (1.0, 1.0)
+    mw._refresh_idle_guidance()
+    assert "Endpunkt der Referenzlinie" in mw._activity_label.text()
+    mw._cancel_ruler_tool()
+    assert "Referenzlinie" not in mw._activity_label.text()
+
+    mw._measurement_armed = True
+    mw._refresh_idle_guidance()
+    assert "Messmodus" in mw._activity_label.text()
+    mw._cancel_measurement_tool()
+
+    mw._sample_height_armed = True
+    mw._refresh_idle_guidance()
+    assert "Probenhöhen-Modus" in mw._activity_label.text()
+    mw._cancel_sample_height_tool()
+
+    mw._crosssection_entry_armed_direction = "vertical"
+    mw._refresh_idle_guidance()
+    assert "vertikale" in mw._activity_label.text()
+    mw._cancel_crosssection_entry_tool()
+    assert "vertikale" not in mw._activity_label.text()
+
+
+def test_guidance_follows_layer_tab_and_shrinkage_state(loaded_main_window):
+    mw = loaded_main_window
+    mw.roi_entries[0].place(2, 2, 3, 3)
+    mw._set_active_layer_tab("scale")
+    assert "Maßstab" in mw._activity_label.text()
+    mw._set_active_layer_tab("shrinkage")
+    assert "Aktivieren" in mw._activity_label.text()
+    mw.chk_shrinkage_enabled.setChecked(True)
+    assert "Berechnen" in mw._activity_label.text()
+    assert "Fläche" in mw._activity_label.text()
+    mw.combo_shrinkage_mode.setCurrentIndex(mw.combo_shrinkage_mode.findData("width"))
+    assert "Referenzfenster" in mw._activity_label.text()
+
+
+# ------------------------------------------- Schwindung: Messart "Breite"
+
+def _make_width_mode_recording_window(loaded_main_window):
+    """Probe (rows 4:15) schrumpft von 30 auf 22 px Breite; Hintergrund 10,
+    Probentisch (untere Zeilen) 25 -- die Referenzfenster liegen links/rechts
+    und ueberdecken beides."""
+    mw = loaded_main_window
+    rows, cols, n = 20, 60, 5
+    frames = np.full((n, rows, cols), 10.0, dtype=np.float32)
+    frames[:, 15:, :] = 25.0
+    for i in range(n):
+        frames[i, 4:15, 10 + i:40 - i] = 50.0
+    mw.recording.frames = frames
+    mw._set_recording(mw.recording)
+    mw.chk_shrinkage_enabled.setChecked(True)
+    mw.combo_shrinkage_mode.setCurrentIndex(mw.combo_shrinkage_mode.findData("width"))
+    mw.roi_shrink_width_band.setPos((4, 8), update=False)
+    mw.roi_shrink_width_band.setSize((52, 4))
+    mw.roi_shrink_ref_left.setPos((0, 12), update=False)
+    mw.roi_shrink_ref_left.setSize((3, 7))
+    mw.roi_shrink_ref_right.setPos((57, 12), update=False)
+    mw.roi_shrink_ref_right.setSize((3, 7))
+    return mw
+
+
+def test_width_mode_tracks_shrinking_sample_with_reference_windows(loaded_main_window):
+    mw = _make_width_mode_recording_window(loaded_main_window)
+    assert mw._shrinkage_mode == "width"
+    assert mw.roi_shrink_width_band.isVisible()
+    assert mw.roi_shrink_ref_left.isVisible() and mw.roi_shrink_ref_right.isVisible()
+    assert not mw.roi_shrink_area.isVisible()
+
+    mw._on_shrinkage_compute_clicked()
+    result = mw._shrinkage_result
+    assert result is not None and result["mode"] == "width"
+    assert result["warmer"] is True
+    widths = result["rect_widths_px"]
+    assert len(widths) == 5
+    assert list(widths) == sorted(widths, reverse=True), widths
+    assert widths[0] - widths[-1] == pytest.approx(8.0, abs=1.0)
+    assert widths[0] == pytest.approx(30.0, abs=1.0)
+    assert result["edge_touch_fraction"] == 0.0
+    # Breiten-Messart kennt keine Flaechen-Kenngroesse.
+    assert mw.combo_shrinkage_metric.findData("flaeche") == -1
+    assert not mw._shrinkage_metric_is_area()
+
+
+def test_switching_shrinkage_mode_keeps_both_results(loaded_main_window):
+    mw = _make_width_mode_recording_window(loaded_main_window)
+    mw._on_shrinkage_compute_clicked()
+    width_result = mw._shrinkage_result
+
+    mw.combo_shrinkage_mode.setCurrentIndex(mw.combo_shrinkage_mode.findData("area"))
+    assert mw._shrinkage_mode == "area"
+    assert mw._shrinkage_result is None
+    assert mw.roi_shrink_area.isVisible()
+    assert not mw.roi_shrink_width_band.isVisible()
+    assert mw.combo_shrinkage_metric.findData("flaeche") != -1
+
+    mw.roi_shrink_area.setPos((5, 3), update=False)
+    mw.roi_shrink_area.setSize((50, 13))
+    mw._on_shrinkage_compute_clicked()
+    area_result = mw._shrinkage_result
+    assert area_result is not None and area_result is not width_result
+
+    mw.combo_shrinkage_mode.setCurrentIndex(mw.combo_shrinkage_mode.findData("width"))
+    assert mw._shrinkage_result is width_result
+    mw.combo_shrinkage_mode.setCurrentIndex(mw.combo_shrinkage_mode.findData("area"))
+    assert mw._shrinkage_result is area_result
+
+
+def test_width_mode_rejects_reference_window_on_sample_center(loaded_main_window, monkeypatch):
+    mw = _make_width_mode_recording_window(loaded_main_window)
+    mw.roi_shrink_ref_left.setPos((25, 8), update=False)
+    mw.roi_shrink_ref_left.setSize((10, 4))
+    shown = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: shown.append(a[2])))
+    mw._on_shrinkage_compute_clicked()
+    assert mw._shrinkage_result is None
+    assert shown and "Referenzfenster" in shown[0]
+
+
+def test_width_mode_state_roundtrips_through_project_dict(loaded_main_window):
+    mw = _make_width_mode_recording_window(loaded_main_window)
+    state = mw._shrinkage_state_dict()
+    assert state["modus"] == "width"
+    assert state["kenngroesse_je_modus"]["width"] == "breite_rechteckig"
+
+    mw._set_shrinkage_mode("area")
+    mw.roi_shrink_width_band.setPos((1, 1), update=False)
+    mw._load_project_shrinkage({"schwindung": state}, recompute=False)
+    assert mw._shrinkage_mode == "width"
+    assert tuple(mw.roi_shrink_width_band.pos()) == (4.0, 8.0)
+    assert mw.combo_shrinkage_mode.currentData() == "width"
+    # Alte Projekte ohne "modus" laden als Messart "Fläche".
+    legacy = {k: v for k, v in state.items() if k not in ("modus", "kenngroesse_je_modus")}
+    legacy["kenngroesse"] = "flaeche"
+    mw._load_project_shrinkage({"schwindung": legacy}, recompute=False)
+    assert mw._shrinkage_mode == "area"
+
+
+def test_undo_of_mode_switch_keeps_both_results(loaded_main_window):
+    mw = _make_width_mode_recording_window(loaded_main_window)
+    mw._on_shrinkage_compute_clicked()
+    width_result = mw._shrinkage_result
+    mw.combo_shrinkage_mode.setCurrentIndex(mw.combo_shrinkage_mode.findData("area"))
+    mw._on_shrinkage_compute_clicked()
+    area_result = mw._shrinkage_result
+
+    # Zurueck in die Messart "Breite" per Undo-Zustand: Ergebnisse bleiben erhalten.
+    state = mw._shrinkage_state_dict()
+    state["modus"] = "width"
+    state["kenngroesse_je_modus"] = {"area": "flaeche", "width": "breite_rechteckig"}
+    mw._load_project_shrinkage({"schwindung": state}, recompute=False)
+    assert mw._shrinkage_mode == "width"
+    assert mw._shrinkage_result is width_result
+    state["modus"] = "area"
+    mw._load_project_shrinkage({"schwindung": state}, recompute=False)
+    assert mw._shrinkage_result is area_result
+
+
+def test_sample_height_columns_follow_visible_window_in_width_mode(loaded_main_window):
+    mw = _make_width_mode_recording_window(loaded_main_window)
+    col0, col1, _seed = mw._sample_height_col_range()
+    band = mw.roi_shrink_width_band.bounds_px(mw.recording.shape)
+    assert (col0, col1) == (band[2], band[3])
+    mw.combo_shrinkage_mode.setCurrentIndex(mw.combo_shrinkage_mode.findData("area"))
+    col0, col1, _seed = mw._sample_height_col_range()
+    area = mw.roi_shrink_area.bounds_px(mw.recording.shape)
+    assert (col0, col1) == (area[2], area[3])
+
+
+def test_width_mode_hints_when_reference_window_covers_the_sample(loaded_main_window):
+    mw = _make_width_mode_recording_window(loaded_main_window)
+    # Zwischen Probe (Spalten 10-40) und Probenfenster-Ende, aber ueber der Probenbreite.
+    mw.roi_shrink_ref_left.setPos((12, 15), update=False)
+    mw.roi_shrink_ref_left.setSize((6, 4))
+    mw._on_shrinkage_compute_clicked()
+    assert mw._shrinkage_result is not None
+    assert "Referenzfenster liegt über" in mw.statusBar().currentMessage()

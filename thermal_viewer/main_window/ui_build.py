@@ -841,18 +841,23 @@ class _UIBuildMixin:
             (QtCore.Qt.Key_Home, self._jump_to_first_frame),
             (QtCore.Qt.Key_End, self._jump_to_last_frame),
             (QtCore.Qt.Key_Space, self._on_space_pressed),
-            # Nutzerwunsch: Tasten 1-6 armieren direkt den jeweiligen
-            # Standard-Messbereich zum Platzieren (siehe roi_ops.py:
-            # _on_arm_roi_shortcut) -- Ziffern werden von einem fokussierten
-            # Spinbox-/Textfeld weiterhin automatisch als Zahlen-Eingabe
-            # vorrangig behandelt (Qt ShortcutOverride, dasselbe Prinzip wie
-            # oben bei Pfeiltasten/Pos1/Ende).
+            # Nutzerwunsch: Tasten 1-9 und 0 armieren direkt den jeweiligen
+            # Messbereich (Erzeugungsnummer 1-9, "0" = Nummer 10) zum
+            # Platzieren (siehe roi_ops.py:_on_arm_roi_shortcut) -- Ziffern
+            # werden von einem fokussierten Spinbox-/Textfeld weiterhin
+            # automatisch als Zahlen-Eingabe vorrangig behandelt (Qt
+            # ShortcutOverride, dasselbe Prinzip wie oben bei Pfeiltasten/
+            # Pos1/Ende).
             (QtCore.Qt.Key_1, partial(self._on_arm_roi_shortcut, 1)),
             (QtCore.Qt.Key_2, partial(self._on_arm_roi_shortcut, 2)),
             (QtCore.Qt.Key_3, partial(self._on_arm_roi_shortcut, 3)),
             (QtCore.Qt.Key_4, partial(self._on_arm_roi_shortcut, 4)),
             (QtCore.Qt.Key_5, partial(self._on_arm_roi_shortcut, 5)),
             (QtCore.Qt.Key_6, partial(self._on_arm_roi_shortcut, 6)),
+            (QtCore.Qt.Key_7, partial(self._on_arm_roi_shortcut, 7)),
+            (QtCore.Qt.Key_8, partial(self._on_arm_roi_shortcut, 8)),
+            (QtCore.Qt.Key_9, partial(self._on_arm_roi_shortcut, 9)),
+            (QtCore.Qt.Key_0, partial(self._on_arm_roi_shortcut, 10)),
         ]
         self._nav_shortcuts: list[QtGui.QShortcut] = []
         for key, slot in shortcut_specs:

@@ -26,7 +26,7 @@ from ..roi_entry import (
 )
 from .crosssection_entry_ops import MAX_CROSSSECTION_ENTRY_COUNT, _crosssection_entry_color
 from .sample_height_ops import MAX_SAMPLE_HEIGHT_COUNT, _sample_height_color
-from .shrinkage_ops import _SHRINKAGE_METRIC_LABELS
+from .shrinkage_ops import _SHRINKAGE_METRIC_LABELS, _SHRINKAGE_MODE_LABELS, _SHRINKAGE_WIDTH_METRIC_LABELS
 
 
 def _finite_float(value) -> float:
@@ -301,13 +301,29 @@ class _ProjectMixin:
         Schluesselnamen wie vor der Vereinheitlichung auf EINE Box -- alte
         Projektdateien laden ihre Boxposition/-farbe dadurch weiterhin
         korrekt."""
+        metric_by_mode = dict(self._shrinkage_metric_by_mode)
+        metric_by_mode[self._shrinkage_mode] = self._shrinkage_metric
         return {
             "aktiviert": self._shrinkage_enabled,
             "kenngroesse": self._shrinkage_metric,
             "box_flaeche": _shrink_box_data(self.roi_shrink_area),
             "box_flaeche_farbe": self._shrinkage_color_area,
             "kontur_farbe": self._shrinkage_color_contour,
+            # Messart "Breite" (Probenfenster + Referenzfenster), siehe
+            # shrinkage_ops.py. Aeltere Projekte ohne diese Schluessel laden
+            # als Messart "Fläche" mit Standard-Fenstern.
+            "modus": self._shrinkage_mode,
+            "kenngroesse_je_modus": metric_by_mode,
+            "box_breite": _shrink_box_data(self.roi_shrink_width_band),
+            "box_referenz_links": _shrink_box_data(self.roi_shrink_ref_left),
+            "box_referenz_rechts": _shrink_box_data(self.roi_shrink_ref_right),
         }
+
+    @staticmethod
+    def _shrinkage_inputs(state: dict) -> dict:
+        """Der Teil von "schwindung", der die Berechnung beeinflusst (ohne
+        Messart/Kenngroesse, die nur die Anzeige waehlen)."""
+        return {k: v for k, v in state.items() if k not in ("modus", "kenngroesse", "kenngroesse_je_modus")}
 
     def _sample_heights_state_list(self) -> list:
         """Baut die "probenhoehen"-Liste aus dem AKTUELLEN Live-Zustand --
@@ -944,10 +960,10 @@ class _ProjectMixin:
         """Schwindungsmessung (Box, Kenngroesse, Aktivieren-Haken) aus der
         Projektdatei uebernehmen -- Nutzerwunsch: vollstaendiger Programm-
         zustand beim Speichern/Laden eines Projekts (siehe _save_project).
-        Kein Schwellenwert/keine "wärmer/kälter"-Auswahl/kein Messart-Modus
-        mehr zu laden (siehe shrinkage_ops.py-Moduldocstring) -- die Probe
-        wird immer mit EINER Box vormarkiert, alles andere automatisch
-        erkannt. recompute=False (Undo/Redo, siehe undo_ops.py) ueberspringt
+        Kein Schwellenwert/keine "wärmer/kälter"-Auswahl zu laden (siehe
+        shrinkage_ops.py-Moduldocstring) -- die Probe wird mit EINER Box
+        (Messart "Fläche") bzw. Probenfenster + Referenzfenstern (Messart
+        "Breite") vormarkiert, alles andere automatisch erkannt. recompute=False (Undo/Redo, siehe undo_ops.py) ueberspringt
         die Neuberechnung am Ende -- die kann bei aktivierter Messung laut
         shrinkage_ops.py-Moduldocstring mehrere SEKUNDEN dauern, waere also
         bei jedem einzelnen Rueckgaengig/Wiederholen voellig unangemessen.
@@ -971,15 +987,41 @@ class _ProjectMixin:
         Einstellungen SELBST dabei gar nicht geaendert haben -- sonst zeigt
         die Kurve weiterhin die VOR dem Undo/Redo ausgeblendeten Bilder an."""
         shrink_data = data.get("schwindung")
-        unchanged = not recompute and self.recording is not None and shrink_data == self._shrinkage_state_dict()
+        # Messart und Kenngroesse beeinflussen die BERECHNUNG nicht (alle
+        # Ergebnisse liegen fertig vor) -- ein Undo/Redo, das nur sie
+        # aendert, darf deshalb keine Ergebnisse verwerfen, sondern stellt
+        # sie aus der Ablage wieder her (siehe _set_shrinkage_mode).
+        display_only_change = (
+            not recompute and self.recording is not None and isinstance(shrink_data, dict)
+            and self._shrinkage_inputs(shrink_data) == self._shrinkage_inputs(self._shrinkage_state_dict())
+        )
+        if display_only_change:
+            mode = shrink_data.get("modus")
+            # Fehlt "modus" (altes Projekt), gilt wie im allgemeinen Ladepfad "area".
+            self._set_shrinkage_mode(mode if mode in _SHRINKAGE_MODE_LABELS else "area")
+            stored_metrics = shrink_data.get("kenngroesse_je_modus")
+            if isinstance(stored_metrics, dict):
+                if stored_metrics.get("area") in _SHRINKAGE_METRIC_LABELS:
+                    self._shrinkage_metric_by_mode["area"] = stored_metrics["area"]
+                if stored_metrics.get("width") in _SHRINKAGE_WIDTH_METRIC_LABELS:
+                    self._shrinkage_metric_by_mode["width"] = stored_metrics["width"]
+                self._shrinkage_metric = self._shrinkage_metric_by_mode[self._shrinkage_mode]
+                self._refresh_shrinkage_mode_ui()
+        unchanged = display_only_change or (
+            not recompute and self.recording is not None and shrink_data == self._shrinkage_state_dict()
+        )
         if not unchanged and isinstance(shrink_data, dict) and self.recording is not None:
-            self._shrinkage_result = None
+            self._discard_shrinkage_results()
             self.lbl_shrinkage_result.setText("Noch nicht berechnet.")
             self.lbl_shrinkage_result.setToolTip("")
             self.shrinkage_curve.clear()
             rows, cols = self.recording.shape
 
             _apply_shrink_box_data(self.roi_shrink_area, shrink_data.get("box_flaeche"), rows, cols)
+            _apply_shrink_box_data(self.roi_shrink_width_band, shrink_data.get("box_breite"), rows, cols)
+            _apply_shrink_box_data(self.roi_shrink_ref_left, shrink_data.get("box_referenz_links"), rows, cols)
+            _apply_shrink_box_data(self.roi_shrink_ref_right, shrink_data.get("box_referenz_rechts"), rows, cols)
+            self._sync_shrink_width_labels()
 
             color = shrink_data.get("box_flaeche_farbe")
             if isinstance(color, str) and QtGui.QColor(color).isValid():
@@ -1004,11 +1046,22 @@ class _ProjectMixin:
                     metric = "breite_rechteckig"
                 else:
                     metric = "flaeche"
-            self._shrinkage_metric = metric
-            combo_idx = self.combo_shrinkage_metric.findData(metric)
-            self.combo_shrinkage_metric.blockSignals(True)
-            self.combo_shrinkage_metric.setCurrentIndex(max(0, combo_idx))
-            self.combo_shrinkage_metric.blockSignals(False)
+            mode = shrink_data.get("modus")
+            if mode not in _SHRINKAGE_MODE_LABELS:
+                mode = "area"
+            metric_by_mode = {"area": "flaeche", "width": "breite_rechteckig"}
+            if mode == "area":
+                metric_by_mode["area"] = metric
+            stored_metrics = shrink_data.get("kenngroesse_je_modus")
+            if isinstance(stored_metrics, dict):
+                if stored_metrics.get("area") in _SHRINKAGE_METRIC_LABELS:
+                    metric_by_mode["area"] = stored_metrics["area"]
+                if stored_metrics.get("width") in _SHRINKAGE_WIDTH_METRIC_LABELS:
+                    metric_by_mode["width"] = stored_metrics["width"]
+            self._shrinkage_mode = mode
+            self._shrinkage_metric_by_mode = metric_by_mode
+            self._shrinkage_metric = metric_by_mode[mode]
+            self._refresh_shrinkage_mode_ui()
 
             enabled = bool(shrink_data.get("aktiviert", False))
             self._shrinkage_enabled = enabled
@@ -1024,7 +1077,7 @@ class _ProjectMixin:
             # veraltet dazustehen (ausser beim Undo/Redo-Wiederherstellen,
             # siehe recompute-Parameter oben).
             if recompute:
-                self._compute_shrinkage()
+                self._compute_shrinkage(interactive=False)
 
         self._update_shrinkage_curve()
         self._update_status_bar()

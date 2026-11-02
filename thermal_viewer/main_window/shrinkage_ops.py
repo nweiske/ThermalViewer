@@ -102,6 +102,36 @@ _SHRINKAGE_METRIC_KEYS = {
     "breite_rund": "round_widths_px",
 }
 
+# Zweite Messart (Nutzerwunsch): Breitenschwindung ueber ein schmales
+# Probenfenster plus zwei Referenzfenster statt der Flaechen-Box. Hier gibt
+# es keine Flaeche -- nur die beiden Breiten-Kenngroessen, mit eigenen Namen.
+_SHRINKAGE_MODE_LABELS = {
+    "area": "Fläche (Box über die Probe)",
+    "width": "Breite (Probenfenster + Referenzen)",
+}
+_SHRINKAGE_WIDTH_METRIC_LABELS = {
+    "breite_rechteckig": "Breite (Probenfenster, Median)",
+    "breite_rund": "Breite (Probenfenster, Maximum)",
+}
+_SHRINKAGE_REF_COLOR = "#38bdf8"
+_SHRINKAGE_INFO_TEXTS = {
+    "area": (
+        "Einen Bereich über die gesamte Probe -- mit etwas Rand -- ziehen. Das Programm sucht "
+        "darin automatisch die tatsächliche, zusammenhängende Kontur der Probe (geometrieunabhängig "
+        "-- funktioniert für eckige wie runde Proben gleichermaßen) und zeigt sie als Linie im "
+        "Thermobild an. Schwellenwert und Polarität (wärmer/kälter als Hintergrund) werden "
+        "automatisch erkannt. Experimentell: sehr kleine Schwindungen (oft < 1%) sind je nach "
+        "Kamera-Auflösung u.U. nicht zuverlässig auflösbar."
+    ),
+    "width": (
+        "1) Probenfenster: breiter als die Probe, aber niedriger als sie, mittig auf der Probe. "
+        "2) Je ein Referenzfenster links und rechts neben der Probe (blau), jeweils halb auf dem "
+        "Hintergrund, halb auf dem Probentisch -- die Probe muss sich von beiden abheben. "
+        "3) „Berechnen“: im Probenfenster wird die Probenkontur über alle Bilder angepasst und "
+        "daraus die Breitenschwindung berechnet."
+    ),
+}
+
 
 def _otsu_threshold(values: np.ndarray) -> float:
     """Automatischer Schwellenwert (Otsu-Verfahren) fuer eine Menge von
@@ -548,6 +578,99 @@ def _track_sample_width_at_row(
     return widths, lefts, rights
 
 
+def _window_values(frame: np.ndarray, window: tuple[int, int, int, int]) -> np.ndarray:
+    row0, row1, col0, col1 = window
+    return frame[row0:row1, col0:col1].ravel()
+
+
+def _reference_values(frame: np.ndarray, refs: list[tuple[int, int, int, int]]) -> np.ndarray:
+    return np.concatenate([_window_values(frame, ref) for ref in refs])
+
+
+def _detect_polarity_reference(
+    frame: np.ndarray, band: tuple[int, int, int, int], refs: list[tuple[int, int, int, int]],
+) -> bool:
+    """Polaritaet fuer die Breiten-Messung (Messfenster + Referenzfenster):
+    vergleicht, ob das Messfenster staerker nach OBEN oder nach UNTEN vom
+    Median der Referenzfenster (= "Nicht-Probe") abweicht -- True = Probe
+    waermer. Percentile (P90/P10) statt Mittelwert/Extrema, damit weder die
+    Position der Probe im Fenster noch einzelne Ausreisser eine Rolle spielen."""
+    band_vals = _window_values(frame, band)
+    ref_vals = _reference_values(frame, refs)
+    if band_vals.size == 0 or ref_vals.size == 0:
+        return True
+    ref_median = float(np.median(ref_vals))
+    above = float(np.percentile(band_vals, 90)) - ref_median
+    below = ref_median - float(np.percentile(band_vals, 10))
+    return above >= below
+
+
+def _reference_threshold(band_values: np.ndarray, ref_values: np.ndarray, warmer: bool) -> float:
+    """Schwellenwert zwischen Probe und Nicht-Probe aus den Referenzfenstern:
+    Mitte zwischen der typischen Probentemperatur (Median der Fensterwerte
+    jenseits einer groben ersten Schwelle) und dem der Probe NAECHSTLIEGENDEN
+    Referenzwert (P90 der Referenzen bei warmer, P10 bei kalter Probe) --
+    die Referenzfenster liegen laut Anleitung ueber BEIDEN Nicht-Probe-
+    Bereichen (Hintergrund + Probentisch), die Probe muss sich von beiden
+    abheben. Wird PRO BILD neu ermittelt (Probe kuehlt ab)."""
+    ref = ref_values[np.isfinite(ref_values)]
+    vals = band_values[np.isfinite(band_values)]
+    if ref.size == 0 or vals.size == 0:
+        return _otsu_threshold(band_values)
+    if warmer:
+        background = float(np.percentile(ref, 90))
+        extreme = float(np.percentile(vals, 90))
+        coarse = (extreme + background) / 2.0
+        sample = vals[vals > coarse]
+    else:
+        background = float(np.percentile(ref, 10))
+        extreme = float(np.percentile(vals, 10))
+        coarse = (extreme + background) / 2.0
+        sample = vals[vals < coarse]
+    typical = float(np.median(sample)) if sample.size else extreme
+    return (typical + background) / 2.0
+
+
+def _track_sample_width_in_window(
+    frames: np.ndarray, band: tuple[int, int, int, int], refs: list[tuple[int, int, int, int]], warmer: bool,
+) -> tuple[dict[int, dict[int, tuple[int, int]]], np.ndarray, float]:
+    """Verfolgt die Probenbreite ueber ALLE Bilder innerhalb des Messfensters
+    (band = row0, row1, col0, col1) -- derselbe Zeilen-Span-Mechanismus wie
+    _track_sample_blob (Saat in der Fenstermitte, Glaettung, Kanten-
+    Verfeinerung), aber mit einem Schwellenwert aus den Referenzfenstern
+    (_reference_threshold) statt Otsu ueber das ganze Fenster. Gibt (spans je
+    Bild, Schwellenwert je Bild, Anteil der Bilder zurueck, in denen die
+    Kontur den linken/rechten Fensterrand beruehrt -- Hinweis, dass das
+    Messfenster zu schmal gezogen ist)."""
+    row0, row1, col0, col1 = band
+    blur_kernel = _adaptive_blur_kernel(col1 - col0)
+    edge_search_radius = max(1, blur_kernel // 2)
+    seed_row_local = (row1 - row0) // 2
+    seed_col_local = (col1 - col0) // 2
+    n = len(frames)
+    spans_by_frame: dict[int, dict[int, tuple[int, int]]] = {}
+    thresholds = np.empty(n, dtype=float)
+    touching = 0
+    for idx in range(n):
+        frame = frames[idx]
+        region = _horizontal_blur_region(frame[row0:row1, col0:col1], blur_kernel)
+        threshold = _reference_threshold(region, _reference_values(frame, refs), warmer)
+        thresholds[idx] = threshold
+        mask = region > threshold if warmer else region < threshold
+        spans = _sweep_spans_from_seed(mask, seed_row_local, seed_col_local, row0, col0)
+        spans = _refine_run_edges(spans, _sobel_gradient_magnitude(region), row0, col0, edge_search_radius)
+        spans = _smooth_spans(_smooth_spans(spans))
+        spans_by_frame[idx] = spans
+        if spans:
+            at_edge = sum(
+                1 for c0, c1 in spans.values()
+                if c0 <= col0 + edge_search_radius or c1 >= col1 - edge_search_radius
+            )
+            if at_edge * 2 > len(spans):
+                touching += 1
+    return spans_by_frame, thresholds, touching / n if n else 0.0
+
+
 class _ShrinkageMixin:
     def _build_shrinkage_panel(self) -> None:
         # EINE Box im Bild (siehe roi.py:AdjustableROI) -- Standardgroesse/
@@ -563,6 +686,33 @@ class _ShrinkageMixin:
         # (siehe undo_ops.py-Moduldocstring) -- EIN Snapshot pro Drag.
         self.roi_shrink_area.sigRegionChangeStarted.connect(self._push_undo_snapshot)
         self.view_box.addItem(self.roi_shrink_area)
+
+        # Messart "Breite": Probenfenster (Boxfarbe) + zwei Referenzfenster,
+        # Geometrie wird wie bei der Box erst mit der Aufnahme bekannt (siehe
+        # _place_default_width_windows).
+        self.roi_shrink_width_band = AdjustableROI(
+            (10, 30), [60, 6], pen=pg.mkPen(self._shrinkage_color_area, width=2),
+        )
+        self.roi_shrink_ref_left = AdjustableROI((2, 25), [6, 15], pen=pg.mkPen(_SHRINKAGE_REF_COLOR, width=2))
+        self.roi_shrink_ref_right = AdjustableROI((92, 25), [6, 15], pen=pg.mkPen(_SHRINKAGE_REF_COLOR, width=2))
+        self._shrink_width_rois = {
+            self.roi_shrink_width_band: "Probenfenster",
+            self.roi_shrink_ref_left: "Referenz links",
+            self.roi_shrink_ref_right: "Referenz rechts",
+        }
+        self._shrink_width_labels = {}
+        for roi, text in self._shrink_width_rois.items():
+            roi.setVisible(False)
+            roi.sigRegionChangeStarted.connect(self._push_undo_snapshot)
+            roi.sigRegionChanged.connect(self._sync_shrink_width_labels)
+            self.view_box.addItem(roi)
+            color = _SHRINKAGE_REF_COLOR if roi is not self.roi_shrink_width_band else self._shrinkage_color_area
+            label = pg.TextItem(text=text, color=color, anchor=(0, 1), fill=(0, 0, 0, 140))
+            label.setZValue(11)
+            label.setVisible(False)
+            self.view_box.addItem(label)
+            self._shrink_width_labels[roi] = label
+        self._sync_shrink_width_labels()
 
         # Kontur-Ueberlagerung im Thermobild NACH "Berechnen" (Nutzerwunsch:
         # die tatsaechlich erkannte Kontur sehen) -- EINE geschlossene Linie,
@@ -601,22 +751,31 @@ class _ShrinkageMixin:
         # Blocksatz (Nutzerwunsch: UI "professioneller") fuer die
         # mehrzeiligen Erklaerungstexte -- setAlignment(AlignJustify)
         # zusaetzlich zu setWordWrap.
-        info = QtWidgets.QLabel(
-            "Einen Bereich über die gesamte Probe -- mit etwas Rand -- ziehen. Das Programm sucht "
-            "darin automatisch die tatsächliche, zusammenhängende Kontur der Probe (geometrieunabhängig "
-            "-- funktioniert für eckige wie runde Proben gleichermaßen) und zeigt sie als rote Linie im "
-            "Thermobild an. Schwellenwert und Polarität (wärmer/kälter als Hintergrund) werden "
-            "automatisch erkannt. Experimentell: sehr kleine Schwindungen (oft < 1%) sind je nach "
-            "Kamera-Auflösung u.U. nicht zuverlässig auflösbar."
-        )
+        info = QtWidgets.QLabel(_SHRINKAGE_INFO_TEXTS[self._shrinkage_mode])
         info.setWordWrap(True)
         info.setAlignment(QtCore.Qt.AlignJustify)
         info.setStyleSheet("color:#6b7280;")
+        self.lbl_shrinkage_info = info
         layout.addWidget(info)
 
         self.chk_shrinkage_enabled = QtWidgets.QCheckBox("Aktivieren (Bereich im Bild einblenden)")
         self.chk_shrinkage_enabled.toggled.connect(self._on_shrinkage_enabled_toggled)
         layout.addWidget(self.chk_shrinkage_enabled)
+
+        mode_row = QtWidgets.QHBoxLayout()
+        mode_row.addWidget(QtWidgets.QLabel("Messart:"))
+        self.combo_shrinkage_mode = QtWidgets.QComboBox()
+        for value, label in _SHRINKAGE_MODE_LABELS.items():
+            self.combo_shrinkage_mode.addItem(label, value)
+        self.combo_shrinkage_mode.setCurrentIndex(self.combo_shrinkage_mode.findData(self._shrinkage_mode))
+        self.combo_shrinkage_mode.setToolTip(
+            "Fläche: eine Box über die ganze Probe.\n"
+            "Breite: schmales Probenfenster + zwei Referenzfenster.\n"
+            "Beide Ergebnisse bleiben beim Umschalten erhalten."
+        )
+        self.combo_shrinkage_mode.currentIndexChanged.connect(self._on_shrinkage_mode_changed)
+        mode_row.addWidget(self.combo_shrinkage_mode, 1)
+        layout.addLayout(mode_row)
 
         # KEIN manueller Schwellenwert/keine manuelle "wärmer/kälter"-Wahl
         # (siehe Modul-Docstring) -- wird bei "Berechnen" automatisch
@@ -696,19 +855,30 @@ class _ShrinkageMixin:
         for widget in (
             self.combo_shrinkage_metric, self.btn_shrinkage_compute,
             self.btn_shrinkage_color, self.btn_shrinkage_contour_color,
+            self.combo_shrinkage_mode,
         ):
             widget.setEnabled(enabled)
 
     def _apply_shrinkage_roi_visibility(self) -> None:
-        """Zentrale Stelle, ob die Box gerade sichtbar sein soll -- haengt
-        von "Aktivieren" UND dem aktiven Ebenen-Tab ab, siehe
+        """Zentrale Stelle, ob die Box (Messart "Fläche") bzw. Probenfenster
+        + Referenzfenster (Messart "Breite") gerade sichtbar sein sollen --
+        haengt von "Aktivieren" UND dem aktiven Ebenen-Tab ab, siehe
         _on_shrinkage_enabled_toggled/_clear_shrinkage_for_new_recording."""
         visible = (
             self._shrinkage_enabled and self.recording is not None
             and self._is_layer_tab_active("shrinkage")
         )
-        self.roi_shrink_area.setVisible(visible)
+        self.roi_shrink_area.setVisible(visible and self._shrinkage_mode == "area")
+        width_visible = visible and self._shrinkage_mode == "width"
+        for roi, label in self._shrink_width_labels.items():
+            roi.setVisible(width_visible)
+            label.setVisible(width_visible)
         self._rebuild_shrinkage_contour_overlay()
+
+    def _sync_shrink_width_labels(self, *_args) -> None:
+        for roi, label in self._shrink_width_labels.items():
+            x, y = roi.pos()
+            label.setPos(x, y)
 
     def _on_shrinkage_color_clicked(self) -> None:
         color = QtWidgets.QColorDialog.getColor(QtGui.QColor(self._shrinkage_color_area), self, "Farbe der Box wählen")
@@ -725,6 +895,8 @@ class _ShrinkageMixin:
         (siehe project_io.py). Die Kontur-Linie selbst hat eine eigene,
         unabhaengig waehlbare Farbe, siehe _apply_shrinkage_contour_color."""
         self.roi_shrink_area.setPen(pg.mkPen(self._shrinkage_color_area, width=2))
+        self.roi_shrink_width_band.setPen(pg.mkPen(self._shrinkage_color_area, width=2))
+        self._shrink_width_labels[self.roi_shrink_width_band].setColor(self._shrinkage_color_area)
         self.btn_shrinkage_color.setStyleSheet(
             f"background-color:{self._shrinkage_color_area}; border:1px solid #333; border-radius:4px;"
         )
@@ -792,6 +964,7 @@ class _ShrinkageMixin:
         elif self._shrinkage_result is not None:
             self.shrinkage_curve.setVisible(True)
         self._rebuild_shrinkage_contour_overlay()
+        self._refresh_idle_guidance()
 
     def _on_shrinkage_metric_changed(self, _index: int) -> None:
         """Kenngroessen-Dropdown gewechselt -- wirkt SOFORT auf Kurve/
@@ -800,7 +973,94 @@ class _ShrinkageMixin:
         result vor, siehe Modul-Docstring."""
         self._push_undo_snapshot()
         self._shrinkage_metric = self.combo_shrinkage_metric.currentData()
+        self._shrinkage_metric_by_mode[self._shrinkage_mode] = self._shrinkage_metric
         self._update_shrinkage_curve()
+
+    def _discard_shrinkage_results(self) -> None:
+        """Verwirft das Ergebnis der aktiven UND das aufgehobene der anderen
+        Messart -- einzige Stelle dafuer, damit kein Aufraeum-Pfad die
+        zweite Ablage vergisst."""
+        self._shrinkage_result = None
+        self._shrinkage_results_by_mode.clear()
+
+    def _on_shrinkage_mode_changed(self, _index: int) -> None:
+        mode = self.combo_shrinkage_mode.currentData()
+        if mode == self._shrinkage_mode:
+            return
+        self._push_undo_snapshot()
+        self._set_shrinkage_mode(mode)
+
+    def _set_shrinkage_mode(self, mode: str) -> None:
+        """Wechselt zwischen den Messarten "area" und "width". Das Ergebnis
+        der verlassenen Messart wird aufgehoben und beim Zurueckwechseln
+        wiederhergestellt (nur, wenn es noch zur Bildzahl der Aufnahme passt),
+        so dass man ohne neues "Berechnen" hin- und herschalten kann.
+        self._shrinkage_result bleibt dabei IMMER das Ergebnis der aktiven
+        Messart -- Export/Kurve/Kontur muessen nichts von den Messarten
+        wissen."""
+        old = self._shrinkage_mode
+        if mode == old:
+            return
+        self._shrinkage_results_by_mode[old] = self._shrinkage_result
+        self._shrinkage_metric_by_mode[old] = self._shrinkage_metric
+        self._shrinkage_mode = mode
+        self._shrinkage_metric = self._shrinkage_metric_by_mode[mode]
+        stored = self._shrinkage_results_by_mode.get(mode)
+        n = self.recording.n_frames if self.recording is not None else 0
+        if stored is not None and len(stored["areas_px"]) != n:
+            stored = None
+        self._shrinkage_result = stored
+        self._refresh_shrinkage_mode_ui()
+        self._apply_shrinkage_roi_visibility()
+        self._update_shrinkage_curve()
+        if stored is not None:
+            self._set_shrinkage_polarity_label(stored["warmer"])
+        else:
+            self._reset_shrinkage_polarity_label()
+        if self._sample_height_entries:
+            self._recompute_all_sample_heights()
+        self._refresh_idle_guidance()
+
+    def _refresh_shrinkage_mode_ui(self) -> None:
+        """Gleicht Info-Text, Messart-Auswahl und Kenngroessen-Dropdown mit
+        self._shrinkage_mode ab (ohne dabei Signale auszuloesen)."""
+        self.lbl_shrinkage_info.setText(_SHRINKAGE_INFO_TEXTS[self._shrinkage_mode])
+        self.combo_shrinkage_mode.blockSignals(True)
+        self.combo_shrinkage_mode.setCurrentIndex(max(0, self.combo_shrinkage_mode.findData(self._shrinkage_mode)))
+        self.combo_shrinkage_mode.blockSignals(False)
+        labels = _SHRINKAGE_WIDTH_METRIC_LABELS if self._shrinkage_mode == "width" else _SHRINKAGE_METRIC_LABELS
+        self.combo_shrinkage_metric.blockSignals(True)
+        self.combo_shrinkage_metric.clear()
+        for value, label in labels.items():
+            self.combo_shrinkage_metric.addItem(label, value)
+        self.combo_shrinkage_metric.setCurrentIndex(max(0, self.combo_shrinkage_metric.findData(self._shrinkage_metric)))
+        self.combo_shrinkage_metric.blockSignals(False)
+        self._shrinkage_metric = self.combo_shrinkage_metric.currentData()
+        self._shrinkage_metric_by_mode[self._shrinkage_mode] = self._shrinkage_metric
+
+    def _reset_shrinkage_polarity_label(self) -> None:
+        self.lbl_shrinkage_polarity.setText(
+            "Polarität (wärmer/kälter als Hintergrund): wird bei \"Berechnen\" automatisch erkannt."
+        )
+
+    def _place_default_width_windows(self, rows: int, cols: int) -> None:
+        """Startgeometrie der Messart "Breite": breites, niedriges
+        Probenfenster mittig, links/rechts davon je ein Referenzfenster."""
+        band_h = max(3.0, rows * 0.1)
+        band_w = max(8.0, cols * 0.76)
+        band_x = (cols - band_w) / 2
+        band_y = (rows - band_h) / 2
+        ref_w = max(3.0, cols * 0.08)
+        ref_h = max(4.0, rows * 0.3)
+        ref_y = (rows - ref_h) / 2
+        for roi, (x, y, w, h) in (
+            (self.roi_shrink_width_band, (band_x, band_y, band_w, band_h)),
+            (self.roi_shrink_ref_left, (cols * 0.03, ref_y, ref_w, ref_h)),
+            (self.roi_shrink_ref_right, (cols * 0.97 - ref_w, ref_y, ref_w, ref_h)),
+        ):
+            roi.setPos((x, y), update=False)
+            roi.setSize((w, h))
+        self._sync_shrink_width_labels()
 
     def _clear_shrinkage_for_new_recording(self) -> None:
         """Positioniert die Box neu passend zur (neu geladenen) Aufnahme und
@@ -823,7 +1083,7 @@ class _ShrinkageMixin:
         den beiden anderen Listen-Merkmalen) aktuell keine Rolle, weil die
         Box immer schon durch DIESE Methode sinnvoll positioniert wurde,
         bevor jener Aufruf greift."""
-        self._shrinkage_result = None
+        self._discard_shrinkage_results()
         self.lbl_shrinkage_result.setText("Noch nicht berechnet.")
         self.lbl_shrinkage_result.setToolTip("")
         self.lbl_shrinkage_polarity.setText(
@@ -837,6 +1097,7 @@ class _ShrinkageMixin:
         rows, cols = self.recording.shape
         self.roi_shrink_area.setPos((cols * 0.05, rows * 0.1), update=False)
         self.roi_shrink_area.setSize((cols * 0.9, rows * 0.8))
+        self._place_default_width_windows(rows, cols)
         self._apply_shrinkage_roi_visibility()
 
     def _reset_shrinkage_for_recording(self) -> None:
@@ -856,7 +1117,7 @@ class _ShrinkageMixin:
         _apply_appended_recording). Ein vorhandenes Ergebnis bezieht sich
         auf die ALTE Frame-Anzahl und wird in jedem Fall verworfen -- ohne
         erneutes "Berechnen" liesse es sich nicht zuverlaessig weiternutzen."""
-        self._shrinkage_result = None
+        self._discard_shrinkage_results()
         self.lbl_shrinkage_result.setText("Noch nicht berechnet.")
         self.lbl_shrinkage_result.setToolTip("")
         self.lbl_shrinkage_polarity.setText(
@@ -883,7 +1144,79 @@ class _ShrinkageMixin:
             return
         self._compute_shrinkage()
 
-    def _compute_shrinkage(self) -> None:
+    def _shrinkage_width_windows(self) -> tuple[tuple[int, int, int, int], list[tuple[int, int, int, int]]]:
+        shape = self.recording.shape
+        band = self.roi_shrink_width_band.bounds_px(shape)
+        refs = [self.roi_shrink_ref_left.bounds_px(shape), self.roi_shrink_ref_right.bounds_px(shape)]
+        return band, refs
+
+    @staticmethod
+    def _shrinkage_width_problem(band: tuple[int, int, int, int], refs: list[tuple[int, int, int, int]]) -> str | None:
+        """Gibt eine verstaendliche Fehlermeldung zurueck, wenn die drei
+        Fenster der Messart "Breite" nicht sinnvoll gesetzt sind, sonst None."""
+        if band[1] - band[0] < 3 or band[3] - band[2] < 8:
+            return "Das Probenfenster ist zu klein (mindestens 3 Zeilen hoch und 8 Spalten breit)."
+        for name, ref in zip(("links", "rechts"), refs):
+            if ref[1] - ref[0] < 2 or ref[3] - ref[2] < 2:
+                return f"Das Referenzfenster {name} ist zu klein (mindestens 2 x 2 Pixel)."
+        seed_row = (band[0] + band[1]) // 2
+        seed_col = (band[2] + band[3]) // 2
+        for name, ref in zip(("links", "rechts"), refs):
+            if ref[0] <= seed_row < ref[1] and ref[2] <= seed_col < ref[3]:
+                return (
+                    f"Das Referenzfenster {name} liegt auf der Mitte des Probenfensters -- "
+                    "es muss neben der Probe auf dem Hintergrund/Probentisch liegen."
+                )
+        return None
+
+    def _compute_shrinkage_width(self, interactive: bool) -> None:
+        band, refs = self._shrinkage_width_windows()
+        problem = self._shrinkage_width_problem(band, refs)
+        if problem is not None:
+            if interactive:
+                QtWidgets.QMessageBox.warning(self, "Breiten-Messung", problem)
+            else:
+                self.statusBar().showMessage(f"Breiten-Messung nicht berechnet: {problem}", 8000)
+            return
+        self._push_undo_snapshot()
+        n = self.recording.n_frames
+        frames = self.recording.frames
+        self.statusBar().showMessage(f"Breitenberechnung läuft… ({n} Bilder)")
+        QtWidgets.QApplication.setOverrideCursor(QtGui.QCursor(QtCore.Qt.WaitCursor))
+        QtWidgets.QApplication.processEvents()
+        try:
+            warmer = _detect_polarity_reference(frames[min(self.current_index, n - 1)], band, refs)
+            spans_by_frame, thresholds, touching = _track_sample_width_in_window(frames, band, refs, warmer)
+            areas_px = np.empty(n, dtype=float)
+            rect_widths_px = np.empty(n, dtype=float)
+            round_widths_px = np.empty(n, dtype=float)
+            for i in range(n):
+                areas_px[i], rect_widths_px[i], round_widths_px[i] = _spans_metrics(spans_by_frame[i])
+            self._shrinkage_result = {
+                "areas_px": areas_px, "rect_widths_px": rect_widths_px, "round_widths_px": round_widths_px,
+                "warmer": warmer, "spans": spans_by_frame, "mode": "width",
+                "thresholds": thresholds, "edge_touch_fraction": touching,
+            }
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        self._update_shrinkage_curve()
+        self._set_shrinkage_polarity_label(warmer)
+        self._refresh_idle_guidance()
+        message = f"Breitenberechnung abgeschlossen ({n} Bilder)."
+        if touching > 0.5:
+            message += " Hinweis: Die Kontur reicht an den Rand des Probenfensters -- Fenster breiter ziehen."
+        first_spans = spans_by_frame.get(0) or {}
+        if first_spans:
+            sample_c0 = min(c0 for c0, _c1 in first_spans.values())
+            sample_c1 = max(c1 for _c0, c1 in first_spans.values())
+            if any(ref[2] < sample_c1 and sample_c0 < ref[3] for ref in refs):
+                message += " Hinweis: Ein Referenzfenster liegt über der erkannten Probenbreite -- neben die Probe setzen."
+        self.statusBar().showMessage(message, 8000)
+
+    def _compute_shrinkage(self, interactive: bool = True) -> None:
+        if self._shrinkage_mode == "width":
+            self._compute_shrinkage_width(interactive)
+            return
         self._push_undo_snapshot()
         rows, cols = self.recording.shape
         row0, row1, col0, col1 = self.roi_shrink_area.bounds_px((rows, cols))
@@ -929,6 +1262,7 @@ class _ShrinkageMixin:
             QtWidgets.QApplication.restoreOverrideCursor()
         self._update_shrinkage_curve()
         self._set_shrinkage_polarity_label(warmer)
+        self._refresh_idle_guidance()
         self.statusBar().showMessage(f"Schwindungsberechnung abgeschlossen ({n} Bilder).", 4000)
 
     def _set_shrinkage_polarity_label(self, warmer: bool) -> None:
@@ -943,6 +1277,8 @@ class _ShrinkageMixin:
         return _SHRINKAGE_METRIC_KEYS[self._shrinkage_metric]
 
     def _shrinkage_metric_label(self) -> str:
+        if self._shrinkage_mode == "width":
+            return _SHRINKAGE_WIDTH_METRIC_LABELS.get(self._shrinkage_metric, _SHRINKAGE_METRIC_LABELS[self._shrinkage_metric])
         return _SHRINKAGE_METRIC_LABELS[self._shrinkage_metric]
 
     def _shrinkage_metric_is_area(self) -> bool:

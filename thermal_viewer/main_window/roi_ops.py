@@ -3,7 +3,7 @@ from __future__ import annotations
 
 
 import numpy as np
-from qtpy import QtGui, QtWidgets
+from qtpy import QtCore, QtGui, QtWidgets
 
 from ..roi import bounds_px_for
 from ..roi_entry import (
@@ -77,16 +77,25 @@ class _RoiMixin:
         entry.set_color(color.name())
 
     def _on_arm_roi_shortcut(self, number: int) -> None:
-        """Tasten 1-6 (siehe ui_build.py:_build_shortcuts) armieren direkt
-        den Messbereich mit dieser (1-basierten) Erzeugungsnummer zum
-        Platzieren -- 1=Oben, 2=Links, 3=Mitte, 4=Rechts, 5=Unten,
-        6=Hintergrund (siehe DEFAULT_ROI_NAMES in roi_entry.py). setChecked(True) laesst
-        _on_roi_place_toggled unveraendert die komplette Mutual-Exclusion/
-        Statuszeilen-Logik erledigen, exakt wie ein echter Knopfklick."""
+        """Tasten 1-9 und 0 (siehe ui_build.py:_build_shortcuts; "0" =
+        Nummer 10) armieren direkt den Messbereich mit dieser (1-basierten)
+        Erzeugungsnummer zum Platzieren -- 1=Oben, 2=Links, 3=Mitte,
+        4=Rechts, 5=Unten, 6=Hintergrund (siehe DEFAULT_ROI_NAMES in
+        roi_entry.py), 7-10 sind selbst angelegte weitere Messbereiche.
+        setChecked(True) laesst _on_roi_place_toggled unveraendert die
+        komplette Mutual-Exclusion/Statuszeilen-Logik erledigen, exakt wie
+        ein echter Knopfklick."""
         if self.recording is None:
             return
         entry = next((e for e in self.roi_entries if e.number == number), None)
-        if entry is not None and entry.btn_place is not None:
+        if entry is None:
+            shown = number % 10
+            self.statusBar().showMessage(
+                f"Taste {shown}: Messbereich {number} existiert nicht (mit „+ Messbereich“ anlegen).", 4000
+            )
+            return
+        if entry.btn_place is not None:
+            self._select_roi(entry)
             entry.btn_place.setChecked(True)
 
     def _on_roi_place_toggled(self, entry: RoiEntry, checked: bool) -> None:
@@ -120,6 +129,7 @@ class _RoiMixin:
             self.statusBar().showMessage(f"{entry.name}: Klick ins Bild zum Platzieren.")
         elif self._armed_entry is entry:
             self._disarm_roi_placement(entry)
+        self._refresh_idle_guidance()
 
     def _on_roi_apply_clicked(self, entry: RoiEntry, *_args) -> None:
         # *_args faengt den von spin.valueChanged(float) mitgesendeten neuen
@@ -193,6 +203,7 @@ class _RoiMixin:
         if target.interp_arm_start or target.interp_arm_end:
             self._reset_interp_arm_state(target)
             self._apply_interp_focus_visuals()
+        self._refresh_idle_guidance()
 
     def _apply_interp_focus_visuals(self) -> None:
         """Waehrend eine Verlaufs-Interpolation gerade per Start-/Ende-Knopf
@@ -371,14 +382,54 @@ class _RoiMixin:
         # live mitlaufen statt erst nach dem Loslassen zu aktualisieren.
         self._sync_roi_spinboxes(entry)
         entry.sync_label_pos()
-        if self.recording is not None and entry.placed:
-            self._recompute_curves(entries=[entry])
-            self._update_roi_temperature_labels(self.current_index, entries=[entry])
+        if self.recording is None or not entry.placed:
+            return
+        # Billig (nur der aktuelle Frame) -- laeuft deshalb bei JEDEM
+        # Zwischenschritt, damit die Beschriftung im Bild fluessig mitlaeuft.
+        self._update_roi_temperature_labels(self.current_index, entries=[entry])
+        # Die Kurvenberechnung dagegen geht ueber ALLE Frames (bei grossen
+        # Aufnahmen teuer, bei interpolierten Messbereichen noch mehr) --
+        # waehrend des Ziehens mit gedrueckter Maustaste hoechstens alle
+        # 60 ms (erster Schritt sofort, Rest gesammelt, siehe window.py),
+        # sonst wirkte das Ziehen schwerfaellig. Programmatische Aenderungen
+        # (Spinbox, Undo, Projekt laden) haben keine gedrueckte Maustaste
+        # und rechnen weiterhin sofort.
+        if self._roi_drag_in_progress():
+            if self._roi_drag_timer.isActive():
+                if not any(e is entry for e in self._roi_drag_pending):
+                    self._roi_drag_pending.append(entry)
+                return
+            self._roi_drag_timer.start()
+        self._recompute_curves(entries=[entry])
 
     def _on_roi_region_finished(self, entry: RoiEntry, *_args) -> None:
+        self._roi_drag_timer.stop()
+        others = [e for e in self._roi_drag_pending if e is not entry and e in self.roi_entries and e.placed]
+        self._roi_drag_pending = []
+        if others:
+            self._recompute_curves(entries=others)
         if not entry.placed:
             return
         self._recompute_curves(entries=[entry])
+        self._refresh_idle_guidance()
+
+    def _flush_roi_drag_recompute(self) -> None:
+        pending = [e for e in self._roi_drag_pending if e in self.roi_entries and e.placed]
+        self._roi_drag_pending = []
+        if pending:
+            self._recompute_curves(entries=pending)
+
+    def _roi_drag_in_progress(self) -> bool:
+        """True, solange der Nutzer mit gedrueckter linker Maustaste einen
+        Messbereich verschiebt oder an einem Handle skaliert."""
+        if not (QtWidgets.QApplication.mouseButtons() & QtCore.Qt.MouseButton.LeftButton):
+            return False
+        for entry in self.roi_entries:
+            if entry.roi.isMoving:
+                return True
+            if any(handle["item"].isMoving for handle in entry.roi.handles):
+                return True
+        return False
 
     def _sync_roi_spinboxes(self, entry: RoiEntry) -> None:
         cx, cy = entry.center()

@@ -54,6 +54,7 @@ class _MeasurementMixin:
             self._hide_ruler_visuals()
         self._ruler_armed = False
         self._ruler_start = None
+        self._refresh_idle_guidance()
 
     def _hide_ruler_visuals(self) -> None:
         if self._ruler_preview_marker is not None:
@@ -100,6 +101,7 @@ class _MeasurementMixin:
         else:
             self.scale_label.setText("Kein Maßstab definiert.")
         self.btn_scale_clear.setEnabled(has_scale)
+        self._refresh_idle_guidance()
         can_measure = has_scale and self.recording is not None
         self.btn_add_measurement.setEnabled(can_measure)
         if not has_scale:
@@ -420,6 +422,7 @@ class _MeasurementMixin:
             self.btn_add_measurement.blockSignals(True)
             self.btn_add_measurement.setChecked(False)
             self.btn_add_measurement.blockSignals(False)
+        self._refresh_idle_guidance()
 
     def _hide_measurement_visuals(self) -> None:
         """Blendet ALLE platzierten Messungen aus (z.B. beim Laden einer neuen

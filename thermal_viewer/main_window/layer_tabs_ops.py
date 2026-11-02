@@ -119,6 +119,7 @@ class _LayerTabsMixin:
         # Hintergrund, exakt wie ein manueller Klick auf dessen Tab-Reiter.
         getattr(self, _LAYER_TAB_GRAPH_DOCK[tab]).raise_()
         self._apply_layer_tab_visibility()
+        self._refresh_idle_guidance()
 
     def _on_panel_tab_widget_changed(self, index: int) -> None:
         """Gegenstueck zu _on_layer_tab_bar_changed fuer das rechte Panel --

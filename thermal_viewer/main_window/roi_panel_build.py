@@ -341,6 +341,7 @@ class _RoiPanelBuildMixin:
         # Zwischenschritt waehrend des Ziehens -- Probenhöhen-Neuberechnung
         # ist zwar schnell, aber unnoetig bei jedem einzelnen Mausereignis.
         self.roi_shrink_area.sigRegionChangeFinished.connect(self._on_shrink_box_changed_for_sample_heights)
+        self.roi_shrink_width_band.sigRegionChangeFinished.connect(self._on_shrink_box_changed_for_sample_heights)
 
         # -- ROI-Auswahl als senkrechte Namensliste + Inhaltsflaeche (statt
         # fuenf untereinander gestapelter Boxen ODER eines QTabWidget mit
@@ -360,6 +361,8 @@ class _RoiPanelBuildMixin:
         for entry in self.roi_entries:
             self._add_roi_tab_page(entry)
         self.roi_list.currentRowChanged.connect(self._on_roi_list_row_changed)
+        self.roi_list.itemPressed.connect(self._on_roi_list_item_pressed)
+        self.roi_list.itemClicked.connect(self._on_roi_list_item_clicked)
         self.roi_list.itemChanged.connect(self._on_roi_list_item_changed)
 
         self.btn_add_roi = QtWidgets.QPushButton("+ Messbereich")
@@ -394,6 +397,7 @@ class _RoiPanelBuildMixin:
             # unberuehrt, nur das Platzieren-Armieren wird zurueckgenommen.
             if self._armed_entry is not None:
                 self._armed_entry.btn_place.setChecked(False)
+            self._roi_selected_by_user = False
 
         # Das rechte Panel als ECHTES QTabWidget statt gestapelter
         # Gruppenboxen -- zeigt immer nur die gerade relevanten Optionen.
@@ -508,6 +512,11 @@ class _RoiPanelBuildMixin:
     def _on_roi_clicked_in_image(self, entry: "RoiEntry", *_args) -> None:
         self._select_roi(entry)
 
+    def _selected_roi_entry(self) -> "RoiEntry | None":
+        roi_list = getattr(self, "roi_list", None)
+        item = roi_list.currentItem() if roi_list is not None else None
+        return item.data(QtCore.Qt.UserRole) if item is not None else None
+
     def _on_roi_list_row_changed(self, row: int) -> None:
         if row < 0:
             return
@@ -515,12 +524,36 @@ class _RoiPanelBuildMixin:
         entry = item.data(QtCore.Qt.UserRole) if item is not None else None
         if entry is None:
             return
+        self._roi_selected_by_user = True
         self.roi_stack.setCurrentWidget(entry.tab_widget)
         # Auswahl aktiviert direkt "Messbereich setzen" fuer den neu
         # gewaehlten Messbereich, damit ein Klick ins Bild sofort platziert
         # werden kann, ohne extra den Knopf suchen zu muessen.
         if entry.btn_place is not None:
             entry.btn_place.setChecked(True)
+        self._refresh_idle_guidance()
+
+    def _on_roi_list_item_pressed(self, item: QtWidgets.QListWidgetItem) -> None:
+        self._roi_list_press = (item, item.checkState())
+
+    def _on_roi_list_item_clicked(self, item: QtWidgets.QListWidgetItem) -> None:
+        """Ein Klick auf eine Zeile, die bereits die aktuelle ist (z.B. nach
+        dem Platzieren), loest KEIN currentRowChanged aus -- ohne diesen
+        Handler waere das Messbereich-Setzen dort nicht erneut aktivierbar.
+        Ein Klick auf das Sichtbarkeits-Haekchen (Check-Status hat sich seit
+        dem Druecken geaendert) zaehlt nicht."""
+        pressed_item, pressed_state = getattr(self, "_roi_list_press", (None, None))
+        self._roi_list_press = (None, None)
+        if pressed_item is not item or item.checkState() != pressed_state:
+            return
+        entry = item.data(QtCore.Qt.UserRole)
+        if entry is None or entry.btn_place is None or self.recording is None:
+            return
+        if self._armed_entry is entry:
+            return  # currentRowChanged hat bereits armiert
+        self._roi_selected_by_user = True
+        entry.btn_place.setChecked(True)
+        self._refresh_idle_guidance()
 
     def _on_roi_list_item_changed(self, item: QtWidgets.QListWidgetItem) -> None:
         """Reagiert auf eine Aenderung eines Listeneintrags -- entweder der

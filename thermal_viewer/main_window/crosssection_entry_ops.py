@@ -469,6 +469,7 @@ class _CrosssectionEntryMixin:
 
     def _cancel_crosssection_entry_tool(self) -> None:
         self._crosssection_entry_armed_direction = None
+        self._refresh_idle_guidance()
         self.crosssection_entry_preview_line.setVisible(False)
         self.crosssection_entry_preview_curve.setVisible(False)
         for btn in (self.btn_add_crosssection_horizontal, self.btn_add_crosssection_vertical):

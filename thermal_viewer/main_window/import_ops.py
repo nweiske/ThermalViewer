@@ -542,8 +542,8 @@ class _ImportMixin:
         # muss bewusst erneut auf "Berechnen" klicken. Probenhöhen-Breiten
         # sind dagegen günstig genug (kein "Berechnen"-Knopf vorhanden,
         # siehe sample_height_ops.py), um sie automatisch neu zu berechnen.
-        if self._shrinkage_result is not None:
-            self._shrinkage_result = None
+        if self._shrinkage_result is not None or self._shrinkage_results_by_mode:
+            self._discard_shrinkage_results()
             self.lbl_shrinkage_result.setText(
                 "Neue Bilder hinzugekommen -- bitte erneut auf „Berechnen“ klicken."
             )

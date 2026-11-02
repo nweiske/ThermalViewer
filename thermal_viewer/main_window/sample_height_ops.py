@@ -188,7 +188,10 @@ class _SampleHeightMixin:
         die volle Bildbreite, falls die Box (z.B. manuell) auf Breite 0
         gezogen wurde."""
         rows, cols = self.recording.shape
-        _row0, _row1, col0, col1 = self.roi_shrink_area.bounds_px((rows, cols))
+        # In der Messart "Breite" ist die Flaechen-Box ausgeblendet -- dann
+        # gibt das sichtbare Probenfenster den Spaltenbereich vor.
+        roi = self.roi_shrink_width_band if self._shrinkage_mode == "width" else self.roi_shrink_area
+        _row0, _row1, col0, col1 = roi.bounds_px((rows, cols))
         if col1 <= col0:
             col0, col1 = 0, cols
         return col0, col1, (col0 + col1) // 2
@@ -463,6 +466,7 @@ class _SampleHeightMixin:
             self.btn_add_sample_height.blockSignals(True)
             self.btn_add_sample_height.setChecked(False)
             self.btn_add_sample_height.blockSignals(False)
+        self._refresh_idle_guidance()
 
     def _handle_sample_height_click(self, event) -> None:
         if event.button() != QtCore.Qt.LeftButton:

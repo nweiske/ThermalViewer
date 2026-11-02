@@ -64,6 +64,7 @@ class _FrameNavMixin:
         # verschieben.
         if self._armed_entry is not None:
             self._armed_entry.btn_place.setChecked(False)
+        self._roi_selected_by_user = False
         # Rohdaten-Bereinigung (siehe data_cleaning_ops.py): Referenzpunkte
         # sind Pixelkoordinaten der ALTEN Aufnahme, ausgeblendete Bild-Indizes
         # beziehen sich auf deren Frame-Anzahl -- beides fuer die neue

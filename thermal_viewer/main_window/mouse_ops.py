@@ -106,6 +106,11 @@ class _MouseMixin:
             return
         if self._live_pinned:
             return
+        # Waehrend ein Messbereich gezogen wird, ist die Live-Kurve des
+        # Cursor-Pixels (eine komplette Zeitreihe pro Mausschritt) unnoetig
+        # teuer und lenkt ohnehin nur ab.
+        if self._roi_drag_in_progress():
+            return
         row_col = self._pixel_at_scene_pos(scene_pos)
         if row_col is None:
             return
@@ -203,7 +208,13 @@ class _MouseMixin:
         if self._hover_row is not None and self._hover_col is not None:
             val = self._live_cursor_value(idx, self._hover_row, self._hover_col)
             msg += f"  |  Cursor: Zeile {self._hover_row}, Spalte {self._hover_col} = {val:.2f} °C"
-        self.statusBar().showMessage(msg)
+        # Reine Anzeige (Frame/Cursor) -- aendert nie den "Was ist zu tun"-
+        # Hinweis, die Auffrischung bei jeder Mausbewegung waere unnoetig.
+        self._guidance_refresh_suppressed = True
+        try:
+            self.statusBar().showMessage(msg)
+        finally:
+            self._guidance_refresh_suppressed = False
         self._update_live_cursor_label()
         self._update_all_crosssection_entries()
 

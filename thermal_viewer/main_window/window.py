@@ -268,6 +268,14 @@ class MainWindow(
         # shrinkage_ops.py Moduldocstring. Umschaltbar per Dropdown, OHNE
         # neu "Berechnen" zu muessen.
         self._shrinkage_metric = "flaeche"
+        # Messart: "area" (Box ueber die ganze Probe, Standard) oder "width"
+        # (Probenfenster + zwei Referenzfenster) -- siehe shrinkage_ops.py.
+        # Ergebnis/Kenngroesse der NICHT aktiven Messart werden hier
+        # aufgehoben, damit man ohne neues "Berechnen" hin- und herwechseln
+        # kann (self._shrinkage_result ist immer das der aktiven Messart).
+        self._shrinkage_mode = "area"
+        self._shrinkage_metric_by_mode = {"area": "flaeche", "width": "breite_rechteckig"}
+        self._shrinkage_results_by_mode: dict = {}
         # Boxfarbe (Nutzerwunsch: "die Farbe der Box bitte auch Farblich
         # einstellbar machen -- ich hatte gerade das Problem, die Box
         # ueberhaupt zu finden") -- anpassbar per Farb-Swatch im Panel
@@ -349,6 +357,16 @@ class MainWindow(
         self._redo_stack: list[dict] = []
         self._restoring_undo_snapshot = False
         self._active_undo_edit = False
+
+        # Drosselt die Kurvenberechnung waehrend eines ROI-Drags (siehe
+        # roi_ops.py:_on_roi_region_changed).
+        self._roi_selected_by_user = False
+        self._roi_list_press: tuple = (None, None)
+        self._roi_drag_pending: list = []
+        self._roi_drag_timer = QtCore.QTimer(self)
+        self._roi_drag_timer.setSingleShot(True)
+        self._roi_drag_timer.setInterval(60)
+        self._roi_drag_timer.timeout.connect(self._flush_roi_drag_recompute)
 
         self._build_image_canvas()
         self._build_plots()

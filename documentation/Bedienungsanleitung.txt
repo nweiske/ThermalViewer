@@ -101,15 +101,18 @@ Frames geladen wurden.
 
 AKTIVITAETSANZEIGE (unten links, dauerhaft sichtbar): zeigt, was gerade
 im Hintergrund passiert (z.B. "Lade Frames… (120/500)" mit Fortschritts-
-balken waehrend des Ladens) -- läuft gerade nichts, erscheint statt-
-dessen ein kurzer Hinweis, was als Nächstes zu tun ist: "Kein Ordner
-geladen…" (noch keine Messreihe geladen), danach so lange "…jetzt einen
-Messbereich platzieren", bis mindestens einer platziert ist -- erst
-DANACH zeigt sie stattdessen "Live-Überwachung aktiv: …", solange ein
-beobachteter Ordner auf neue Dateien geprüft wird (was nach "Ordner
-öffnen…" immer sofort automatisch startet, siehe Abschnitt 3). Unabhängig
-von den kurzlebigen Einzelmeldungen in der übrigen Statuszeile (z.B.
-"Frame X geladen"), die diese Anzeige nicht überschreiben.
+balken waehrend des Ladens) -- läuft gerade nichts, erscheint stattdessen
+IMMER ein kurzer Hinweis, was gerade zu tun ist: "Kein Ordner geladen…",
+"…jetzt einen Messbereich platzieren", bei einem wartenden Werkzeug
+(Messbereich setzen, Maßstab, Messmodus, Probenhöhen, Querschnitte) der
+nächste Klick ("Startpunkt anklicken…", "Endpunkt anklicken…", "Rechtsklick
+= abbrechen"), je nach gewähltem Reiter der nächste Schritt (Schwindungs-
+messung: Fenster setzen, dann "Berechnen"; Maßstab: "Festlegen…") und
+sonst ein Vorschlag für den Weiter-Weg. Läuft ein beobachteter Ordner
+(Live-Überwachung, startet nach "Ordner öffnen…" automatisch, siehe
+Abschnitt 3), steht "● Live-Überwachung aktiv" am Ende des Hinweises.
+Unabhängig von den kurzlebigen Einzelmeldungen in der übrigen Statuszeile
+(z.B. "Frame X geladen"), die diese Anzeige nicht überschreiben.
 
 WAR BEREITS EINE ANDERE MESSREIHE GELADEN: Beim Laden einer WEITEREN
 Messreihe (egal ob ueber "Ordner öffnen…" erneut oder aus einem anderen
@@ -326,12 +329,15 @@ editiert wird):
                               Start bereits AUSSERHALB dieses Bereichs, laeuft
                               die Wiedergabe stattdessen ungeklemmt bis zum
                               tatsaechlich letzten Frame.
-  - Ziffern 1-6            -> armieren direkt den jeweiligen Standard-
-                              Messbereich ("Oben".."Hintergrund", siehe
-                              Abschnitt 6) zum Platzieren im Bild, ohne ihn
+  - Ziffern 1-9 und 0      -> armieren direkt den jeweiligen Messbereich
+                              (1-6: "Oben".."Hintergrund", siehe Abschnitt 6;
+                              7-9 und 0 = Nr. 10: selbst angelegte weitere
+                              Bereiche) zum Platzieren im Bild, ohne ihn
                               erst in der Liste anklicken zu muessen --
                               Tippen in einem gerade fokussierten Zahlenfeld
-                              ist davon unberuehrt.
+                              ist davon unberuehrt. Die Statusleiste unten
+                              links zeigt dabei, welcher Bereich bereit ist
+                              und was der naechste Klick bewirkt.
 
 Eine separate Kurzreferenz aller Tastatur-Shortcuts liegt in
 Tastatur-Shortcuts.txt (gleicher Ordner wie diese Datei).
@@ -1619,6 +1625,33 @@ Programm erkennt darin selbst die tatsächliche Kontur. WAS am Ende
 berechnet/angezeigt wird (Fläche oder Breite), wird NACHTRÄGLICH über ein
 Dropdown gewählt -- siehe "KENNGRÖSSE WÄHLEN" unten.
 
+MESSART WÄHLEN: das Dropdown "Messart" (unter "Aktivieren") schaltet
+zwischen zwei Verfahren um -- beide Ergebnisse bleiben beim Umschalten
+erhalten, ein erneutes "Berechnen" ist nur nach Änderungen nötig:
+
+  - "Fläche (Box über die Probe)": das hier beschriebene Standardverfahren
+    mit EINER Box.
+  - "Breite (Probenfenster + Referenzen)": Breitenschwindung für Proben,
+    die im Bild als Rechteck erscheinen (z.B. ein Zylinder von der Seite):
+      a) Probenfenster: ein Rechteck MITTIG über die Probe ziehen, das
+         BREITER ist als die Probe, aber NIEDRIGER (liegt innerhalb der
+         Probenhöhe). Es erscheint in der Boxfarbe.
+      b) Referenzfenster: je ein kleineres Rechteck LINKS und RECHTS neben
+         der Probe (blau), jeweils zur Hälfte auf dem Hintergrund und zur
+         Hälfte auf dem Probentisch/Untergrund. Sie sagen dem Programm,
+         was "nicht Probe" ist; die Probe muss sich von beiden deutlich
+         abheben (wärmer oder kälter als beides).
+      c) "Berechnen": im Probenfenster wird über den gesamten Bilderstapel
+         die Probenkontur angepasst (Schwellenwert pro Bild aus den
+         Referenzfenstern, Polarität automatisch) und daraus die
+         Breitenschwindung berechnet. Kenngröße: "Median" (Standard, gerade
+         Kanten) oder "Maximum" (gewölbte Probe).
+    Die Fenster dürfen nicht klein gezogen werden (Probenfenster mind.
+    3 x 8 Pixel, Referenzfenster mind. 2 x 2) und ein Referenzfenster darf
+    nicht auf der Fenstermitte liegen -- sonst erscheint eine Meldung.
+    Reicht die erkannte Kontur an den linken/rechten Rand des Probenfensters,
+    weist die Statuszeile darauf hin: dann das Fenster breiter ziehen.
+
   1. "Aktivieren" ankreuzen -- blendet die Box im Thermobild ein.
   2. Die (Standardfarbe grüne, über das Farbfeld "Boxfarbe" änderbar) Box
      GROSSZÜGIG über die GESAMTE Probe -- mit etwas Rand -- ziehen (an den
@@ -1745,9 +1778,10 @@ Schwellenwert bestimmt (dieselbe Methode wie bei der Box, inklusive
 automatischer Erkennung, ob die Probe wärmer/kälter als der Hintergrund
 ist) -- UNABHÄNGIG davon, ob die Box-Messung selbst aktiviert/berechnet
 ist. Als Spaltenbereich (Suchbereich links/rechts) wird dabei die Breite
-der oben gezogenen Box mitverwendet, GEMEINSAM für ALLE Probenhöhen (kein
-zusätzliches Eingabefeld dafür nötig) -- ist die Box nie platziert oder
-auf Breite 0 gezogen, wird ersatzweise die volle Bildbreite verwendet.
+der oben gezogenen Box mitverwendet (in der Messart "Breite": die Breite des
+Probenfensters), GEMEINSAM für ALLE Probenhöhen (kein zusätzliches
+Eingabefeld dafür nötig) -- ist die Box nie platziert oder auf Breite 0
+gezogen, wird ersatzweise die volle Bildbreite verwendet.
 Anders als die Box (die bei vielen Bildern mehrere Sekunden dauern kann,
 siehe oben) ist eine einzelne Zeile schnell genug, um bei JEDER
 Positionsänderung sofort live neu zu rechnen -- es gibt bewusst KEINEN

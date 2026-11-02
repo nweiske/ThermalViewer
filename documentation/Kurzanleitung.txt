@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - KURZANLEITUNG FÜR DEN EINSTIEG
 ================================================================
 
-Stand: 2026-10-09
+Stand: 2026-11-02
 
 Diese Kurzanleitung zeigt den TYPISCHEN Ablauf einer Auswertung in
 wenigen Schritten, als schnelle Arbeitsanweisung für den Einstieg.
@@ -10,6 +10,9 @@ Für Details zu jeder einzelnen Funktion siehe die ausführliche
 Bedienungsanleitung.txt (gleicher Ordner) - die dort genannten
 Abschnittsnummern sind unten in Klammern vermerkt. Eine Kurzreferenz
 aller Tastatur-Shortcuts liegt separat in Tastatur-Shortcuts.txt.
+
+TIPP: Die Statuszeile unten links zeigt dauerhaft, was GERADE zu tun ist
+(z.B. "Startpunkt der Referenzlinie anklicken") - im Zweifel dort nachlesen.
 
 Die jeweils NEUESTE Version dieser App (inkl. aktueller Releases zum
 Download) ist immer hier verfügbar:
@@ -86,6 +89,12 @@ Für die Breiten-/Flächenschwindung einer Probe über die Zeit: Reiter
     ob die Probe wärmer oder kälter als der Hintergrund ist, verfolgt
     ihre Kontur über alle Bilder und zeigt Fläche/Breite als
     Prozent-Kurve relativ zum ersten Bild.
+  - BREITEN-MESSUNG (Alternative für Proben, die im Bild wie ein Rechteck
+    aussehen): Messart "Breite" wählen -> Probenfenster mittig über die
+    Probe (breiter, aber niedriger als die Probe), je ein Referenzfenster
+    links/rechts neben die Probe (halb Hintergrund, halb Probentisch) ->
+    "Berechnen". Zwischen "Fläche" und "Breite" lässt sich jederzeit
+    umschalten, beide Ergebnisse bleiben erhalten.
   - PROBENHÖHEN (zusätzlich, für mehrere unabhängige Breiten
     gleichzeitig): "+ Probenhöhe" aktivieren (bleibt an, wie der
     Messmodus) -> beliebig oft ins Bild klicken, jeder Klick setzt

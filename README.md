@@ -31,8 +31,10 @@ Abhängigkeiten (PySide6, pyqtgraph, numpy) – kein manuelles
 - Beliebig viele frei platzierbare/skalierbare Messbereiche (ROIs) mit
   Zeitverlauf-Graph, optional Verlaufs-Interpolation bei bewegten Objekten
 - Maßstab (reale mm-Größen) und freie Punkt-zu-Punkt-Streckenmessungen
-- Schwindungsmessung: eine Kontur-Box plus beliebig viele unabhängige
+- Schwindungsmessung: Fläche per Kontur-Box ODER Breite per Probenfenster
+  mit Referenzfenstern (umschaltbar), plus beliebig viele unabhängige
   "Probenhöhen"-Breitenmessungen, automatische Kantenerkennung
+- Statuszeile unten links nennt immer den nächsten Schritt
 - Querschnitt-Graph (horizontaler/vertikaler Schnitt) mit Fadenkreuz
 - Rohdaten-Bereinigung: automatisch erkannte Ausreißer-Bilder ausblenden
 - Export: Grafik (Bild + Graph), Werte (CSV/JSON/Text), Video/Bildstapel –

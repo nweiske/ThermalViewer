@@ -36,10 +36,14 @@ MESSBEREICHE (ROI) ARMIEREN
   Ziffer 4               -> Messbereich "Rechts" zum Platzieren armieren
   Ziffer 5               -> Messbereich "Unten" zum Platzieren armieren
   Ziffer 6               -> Messbereich "Hintergrund" zum Platzieren armieren
+  Ziffer 7, 8, 9         -> selbst angelegte Messbereiche Nr. 7, 8, 9
+  Ziffer 0               -> selbst angelegter Messbereich Nr. 10
 
 Wirkt wie ein Klick auf "Messbereich setzen" des jeweiligen Bereichs
 (siehe Bedienungsanleitung.txt, Abschnitt 6) -- der naechste Klick ins
-Bild platziert ihn dort. Ohne geladene Messreihe wirkungslos.
+Bild platziert ihn dort, die Statusleiste unten links nennt den Bereich.
+Existiert die Nummer (noch) nicht, erscheint nur ein Hinweis. Ohne
+geladene Messreihe wirkungslos.
 
 
 HINWEIS ZUR LEERTASTE

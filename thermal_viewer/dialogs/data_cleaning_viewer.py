@@ -33,6 +33,47 @@ def _point_label_text(number: int, delta: float | None) -> str:
     return f"{number}: ΔT={delta_text}"
 
 
+# Halbe Kantenlaenge (in Bildschirmpixeln) des Greifbereichs eines Punkts --
+# das gezeichnete "x" ist nur 14px gross; wer es per Maus "ungefaehr"
+# trifft, soll den Punkt trotzdem ziehen koennen statt (ohne Wirkung) auf
+# freier Bildflaeche zu landen.
+_POINT_GRAB_RADIUS = 16
+
+
+class _CleaningPointTarget(pg.TargetItem):
+    """pg.TargetItem mit grosszuegigem Greifbereich: das zeichnerische
+    Symbol bleibt klein, aber Hover/Drag reagieren im Umkreis von
+    _POINT_GRAB_RADIUS Pixeln (TargetItem ignoriert Transformationen, seine
+    Koordinaten sind daher Bildschirmpixel)."""
+
+    def shape(self) -> QtGui.QPainterPath:
+        # Basisklasse zeichnet shape() UND nutzt es als boundingRect/Trefferflaeche
+        # -- hier liefert shape() das grosse Quadrat (in Item-/Bildkoordinaten
+        # umgerechnet), gezeichnet wird weiter nur das kleine Symbol (paint).
+        symbol_shape = super().shape()
+        # pyqtgraph >= 0.13.4 nennt die Methode deviceTransform_(), das
+        # fuer den Win7-Build gepinnte 0.13.3 noch deviceTransform().
+        device_transform_getter = getattr(self, "deviceTransform_", None) or self.deviceTransform
+        device_transform = device_transform_getter()
+        if device_transform is None:
+            return symbol_shape
+        centre = device_transform.map(QtCore.QPointF(0, 0))
+        grab = QtGui.QPainterPath()
+        grab.addRect(
+            centre.x() - _POINT_GRAB_RADIUS, centre.y() - _POINT_GRAB_RADIUS,
+            2 * _POINT_GRAB_RADIUS, 2 * _POINT_GRAB_RADIUS,
+        )
+        device_inverse, invertible = device_transform.inverted()
+        if not invertible:
+            return symbol_shape
+        return device_inverse.map(grab)
+
+    def paint(self, painter, *_args) -> None:
+        painter.setPen(self.currentPen)
+        painter.setBrush(self.currentBrush)
+        painter.drawPath(super().shape())
+
+
 class CleaningPreviewViewer(QtWidgets.QWidget):
     def __init__(self, main_window, on_points_changed) -> None:
         """on_points_changed: aufrufbarer Callback (die Dialog-Methode
@@ -152,7 +193,7 @@ class CleaningPreviewViewer(QtWidgets.QWidget):
                 area.setZValue(11)
                 self.view_box.addItem(area)
 
-            dot = pg.TargetItem(
+            dot = _CleaningPointTarget(
                 pos=(col + 0.5, row + 0.5), size=14, symbol="x", movable=True,
                 pen=pg.mkPen("#facc15", width=2), brush=pg.mkBrush("#facc15"),
                 hoverPen=pg.mkPen("#fff7c2", width=2), hoverBrush=pg.mkBrush("#fff7c2"),

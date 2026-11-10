@@ -2,39 +2,35 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-10-11
-Diese Datei ist reiner Text und laesst sich mit dem Windows-Editor
-(Notepad) oeffnen - auch auf sehr alten Windows-Rechnern, ohne
-zusaetzliche Software.
+Stand: 2026-11-07
 
-Die jeweils NEUESTE Version dieser App (inkl. aktueller Releases zum
-Download) ist immer hier verfuegbar:
-https://github.com/nweiske/ThermalViewer.git
+Neueste Version und Downloads: https://github.com/nweiske/ThermalViewer
+Einen schnellen Einstieg bietet die Kurzanleitung.txt, alle
+Tastenkürzel stehen in Tastatur-Shortcuts.txt.
 
 
 INHALT
 ------
  1. Was ist das?
  2. Programm starten
- 3. Messreihe(n) laden
- 4. Der Bildbereich (links)
+ 3. Messreihe laden
+ 4. Der Bildbereich und die Darstellung
  5. Frame-Navigation und Wiedergabe
- 6. Messbereiche (ROI) anlegen und bearbeiten
+ 6. Messbereiche (ROI)
  7. Legende / Farbskala
- 8. Zeitverlauf-Graph und Live-Graph
+ 8. Zeitverlauf-Graph und Live-Cursor
  9. Grafik und Werte exportieren
 10. Video / Bildstapel exportieren
-11. Maßstab (Lineal), Messungen und reale Größen in mm
+11. Maßstab und Messungen
 12. Projekt speichern und laden
-13. Fenster/Panels anordnen
-14. Hinweise und Problembehebung
-15. Technische Details zum Dateiformat
-16. TIFF-Bilder importieren
-17. Rohdaten säubern (Ausreißer-Bilder erkennen/ausblenden)
-18. Schwindungsmessung (experimentell)
-19. Ebenen-Tabs (Bereiche über dem Thermobild ein-/ausblenden)
-20. Rückgängig/Wiederholen
-21. Querschnitt-Graph
+13. Fenster und Panels anordnen
+14. Probleme und Lösungen
+15. Dateiformat
+16. Rohdaten säubern
+17. Schwindungsmessung
+18. Ebenen-Tabs
+19. Rückgängig / Wiederholen
+20. Querschnitt-Graph
 
 
 ================================================================
@@ -42,1960 +38,825 @@ INHALT
 ================================================================
 
 Der Thermo-Sequenz-Viewer zeigt eine Serie von Thermokamera-Messungen
-(einzelne CSV-Dateien, je eine pro Zeitpunkt) als "Video" an und lässt
-zusätzlich beliebig viele frei platzierbare, in Breite und Höhe
-unabhängig skalierbare Messbereiche (ROIs, standardmäßig 6) definieren.
-Für jeden Messbereich wird der gemittelte Temperaturwert über alle
-geladenen Zeitpunkte hinweg als Graph dargestellt.
+(eine CSV-Datei pro Zeitpunkt) als "Video". Beliebig viele frei
+platzierbare Messbereiche (ROIs, standardmäßig 6) liefern den
+gemittelten Temperaturverlauf über alle Bilder. Außerdem lassen sich
+Maßstab und Streckenmessungen setzen, die Schwindung einer Probe
+messen, Ausreißer-Bilder ausblenden und Ergebnisse als Grafik, Werte,
+Video oder Bildstapel exportieren.
 
-Zusätzlich kann man mit der Maus über das Bild fahren und sieht live
-den Temperaturverlauf des Pixels unter dem Mauszeiger über alle Frames.
+Fährt man mit der Maus über das Bild, erscheint live der
+Temperaturverlauf des Pixels unter dem Mauszeiger.
 
 
 ================================================================
 2. PROGRAMM STARTEN
 ================================================================
 
-Es gibt zwei Varianten:
+Windows: ZIP entpacken und ThermalViewer.exe doppelklicken.
+  - ThermalViewer-<version>-windows10-11.zip    für Windows 10/11
+  - ThermalViewer-<version>-windows7-legacy.zip für Windows 7
+  Bei Unsicherheit zuerst die Variante "windows10-11" probieren.
 
-  a) Fertige ausfuehrbare Datei (empfohlen fuer normale Nutzung)
-     Unter Windows: Doppelklick auf ThermalViewer.exe. Es gibt zwei
-     Ausgaben:
-       - ThermalViewer-<version>-windows10-11.zip    (Windows 10/11)
-       - ThermalViewer-<version>-windows7-legacy.zip (Windows 7)
-     Falls unsicher, welche exe zum eigenen Rechner passt: die
-     "windows10-11"-Variante zuerst probieren. Startet sie nicht, die
-     "windows7-legacy"-Variante verwenden.
+Linux: ThermalViewer-<version>-linux.tar.gz entpacken, einmalig
+"chmod +x ThermalViewer" ausführen, dann per Doppelklick oder
+"./ThermalViewer" starten. Nötig sind die üblichen Qt-Bibliotheken,
+unter Debian/Ubuntu z.B.:
+  sudo apt install libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1
 
-     Unter Linux: ThermalViewer-<version>-linux.tar.gz entpacken, dann
-     in einem Terminal einmalig "chmod +x ThermalViewer" ausfuehren und
-     danach per Doppelklick oder "./ThermalViewer" starten. Setzt die
-     ueblichen Qt-Laufzeitbibliotheken voraus (u.a. libgl1, libegl1,
-     libxkbcommon0, die libxcb-*-Pakete, libdbus-1-3, libfontconfig1 -
-     unter Debian/Ubuntu z.B. per "sudo apt install libgl1 libegl1
-     libxkbcommon0 libdbus-1-3 libfontconfig1" nachinstallierbar).
-
-  b) Aus dem Quellcode (fuer Entwicklung)
-     Voraussetzung: Python-Paketverwaltung "uv" installiert.
-     Im Projektordner in der Konsole:
-
-         uv run python run.py
-
-     Beim ersten Start werden automatisch alle benoetigten
-     Abhaengigkeiten installiert.
+Aus dem Quellcode: mit installiertem "uv" im Projektordner
+  uv run python run.py
 
 
 ================================================================
-3. MESSREIHE(N) LADEN
+3. MESSREIHE LADEN
 ================================================================
 
-Über die Symbolleiste oben oder das Menü "Datei":
+"Datei > Ordner öffnen…" lädt alle CSV-Dateien eines Ordners als
+zeitliche Abfolge. Die Reihenfolge ergibt sich aus dem Zeitstempel im
+Dateinamen (siehe Abschnitt 15). Danach erscheint der erste Frame; die
+Statuszeile zeigt die Anzahl der geladenen Frames.
 
-  - "Ordner öffnen..."   -> laedt ALLE *.csv-Dateien aus einem Ordner
-                            als zeitliche Abfolge (Video).
+STATUSANZEIGE (unten links): Beim Laden zeigt sie den Fortschritt, sonst
+immer, was als Nächstes zu tun ist (z.B. "Startpunkt anklicken…" oder
+"Rechtsklick = abbrechen"). Bei aktiver Live-Überwachung steht dort
+zusätzlich "● Live-Überwachung aktiv".
 
-Die Reihenfolge der Frames ergibt sich automatisch aus dem Zeitstempel
-im Dateinamen (siehe Abschnitt 15). Nach dem Laden erscheint der erste
-Frame im Bildbereich, und die Statuszeile unten zeigt an, wie viele
-Frames geladen wurden.
+ANDERE MESSREIHE LADEN: Alle Messbereiche, Messungen, der Maßstab, die
+Schwindungsmessung und die Rohdaten-Bereinigung der bisherigen Messreihe
+werden verworfen. Vorher erscheint eine Rückfrage:
+  - "Speichern & fortfahren…" -> erst "Projekt speichern…", dann laden
+  - "Verwerfen"               -> sofort laden, ohne zu speichern
+  - "Abbrechen"               -> nichts ändern
+Beim ersten Laden nach dem Programmstart entfällt die Rückfrage.
 
-AKTIVITAETSANZEIGE (unten links, dauerhaft sichtbar): zeigt, was gerade
-im Hintergrund passiert (z.B. "Lade Frames… (120/500)" mit Fortschritts-
-balken waehrend des Ladens) -- läuft gerade nichts, erscheint stattdessen
-IMMER ein kurzer Hinweis, was gerade zu tun ist: "Kein Ordner geladen…",
-"…jetzt einen Messbereich platzieren", bei einem wartenden Werkzeug
-(Messbereich setzen, Maßstab, Messmodus, Probenhöhen, Querschnitte) der
-nächste Klick ("Startpunkt anklicken…", "Endpunkt anklicken…", "Rechtsklick
-= abbrechen"), je nach gewähltem Reiter der nächste Schritt (Schwindungs-
-messung: Fenster setzen, dann "Berechnen"; Maßstab: "Festlegen…") und
-sonst ein Vorschlag für den Weiter-Weg. Läuft ein beobachteter Ordner
-(Live-Überwachung, startet nach "Ordner öffnen…" automatisch, siehe
-Abschnitt 3), steht "● Live-Überwachung aktiv" am Ende des Hinweises.
-Unabhängig von den kurzlebigen Einzelmeldungen in der übrigen Statuszeile
-(z.B. "Frame X geladen"), die diese Anzeige nicht überschreiben.
+FEHLERHAFTE DATEIEN: Unlesbare Dateien oder Frames mit abweichender
+Bildauflösung werden übersprungen. Eine Warnung nennt jede Datei samt
+Grund, der Rest wird normal geladen. Haben mehrere Dateien denselben
+Zeitstempel, erscheint ebenfalls eine Warnung; die Auswertung
+funktioniert trotzdem.
 
-WAR BEREITS EINE ANDERE MESSREIHE GELADEN: Beim Laden einer WEITEREN
-Messreihe (egal ob ueber "Ordner öffnen…" erneut oder aus einem anderen
-Ordner) werden alle Messbereiche, Ad-hoc-Messungen, ein zuvor definierter
-Maßstab UND die Rohdaten-Bereinigung (siehe Abschnitt 17) der vorherigen
-Messreihe vollständig verworfen und durch den ursprünglichen Standard-
-Bestand an Messbereichen ersetzt -- sie bezogen sich auf Pixelkoordinaten/
-eine Kalibrierung des ALTEN Bilds und wären für die neue Messreihe
-bedeutungslos bzw. irreführend.
+NAMENSSCHEMA NICHT ERKANNT: Passt keine CSV-Datei zum erwarteten Schema
+(Standard "Record_YYYY-MM-DD_hh-mm-ss"), bietet die App an:
+  - "Neuen Ordner wählen"
+  - "Namenstemplate anpassen…": Schema eingeben, z.B.
+    "IMG_YYYY-MM-DD_hh-mm-ss". Platzhalter (Groß-/Kleinschreibung
+    beachten): YYYY=Jahr, MM=Monat, DD=Tag, hh=Stunde, mm=Minute,
+    ss=Sekunde; alle anderen Zeichen müssen exakt so im Dateinamen
+    stehen. Eine Live-Vorschau zeigt, welche Dateien passen.
+    Mit "Als neues Standard-Namensschema dauerhaft speichern" (Standard:
+    aus) gilt das Schema künftig immer, sonst nur für diesen Ladevorgang.
+  - "Abbrechen"
 
-Da das ein endgültiger Verlust der bisherigen Auswertung ist, erscheint
-vorher eine Rückfrage mit drei Möglichkeiten: "Speichern & fortfahren…"
-(öffnet zuerst "Projekt speichern…", danach wird die neue Messreihe
-geladen -- bricht der Speichern-Dialog selbst ab, bleibt alles beim
-Alten), "Verwerfen" (lädt sofort, ohne zu speichern) oder "Abbrechen"
-(lädt gar nicht, alles bleibt wie es war). Beim allerersten Laden nach
-dem Programmstart erscheint diese Rückfrage nicht, da noch nichts zu
-verwerfen ist.
+LIVE-ORDNER-ÜBERWACHUNG: Nach "Ordner öffnen…" prüft die App alle
+10 Sekunden automatisch, ob neue CSV-Dateien im Ordner liegen, und lädt
+sie nach. So lässt sich eine noch laufende Messung mitverfolgen. Stand
+die Anzeige beim letzten Frame, springt sie zum neuesten mit; sonst
+bleibt die Position unverändert.
 
-HINWEIS: Tragen mehrere Dateien exakt denselben Zeitstempel im Namen
-(z.B. weil eine Datei per Windows-Kopie vervielfaeltigt und nicht
-umbenannt wurde), erscheint eine Warnung. Das Programm funktioniert
-trotzdem, die Zeitachse wird dann intern minimal (Millisekunden)
-auseinandergezogen, damit die Graphen sinnvoll aussehen.
-
-HINWEIS: Ist eine einzelne CSV-Datei kaputt/unlesbar (z.B. abgebrochener
-Schreibvorgang) oder hat eine abweichende Bildaufloesung als der Rest der
-Messreihe, bricht das Laden NICHT komplett ab. Die betroffene(n) Datei(en)
-werden automatisch uebersprungen, eine Warnung listet sie mit Grund auf,
-und die restliche (gueltige) Messreihe wird ganz normal geladen.
-
-NAMENSSCHEMA NICHT ERKANNT: Passt beim "Ordner öffnen..." KEINE der
-".csv"-Dateien im gewaehlten Ordner zum erwarteten Namensschema
-(Standard: "Record_YYYY-MM-DD_hh-mm-ss", siehe Abschnitt 15), erscheint
-eine Rueckfrage mit drei Möglichkeiten:
-
-  - "Neuen Ordner wählen"      -> oeffnet erneut die Ordnerauswahl.
-  - "Namenstemplate anpassen…" -> oeffnet ein Fenster, in dem das
-                                   tatsaechliche Namensschema eingegeben
-                                   werden kann, z.B. "IMG_YYYY-MM-DD_
-                                   hh-mm-ss" fuer Dateien wie
-                                   "IMG_2026-08-24_14-30-00.csv".
-                                   Platzhalter (Groß-/Kleinschreibung
-                                   beachten): YYYY=Jahr, MM=Monat,
-                                   DD=Tag, hh=Stunde, mm=Minute,
-                                   ss=Sekunde (jeweils 2-stellig, YYYY
-                                   4-stellig) -- alle anderen Zeichen
-                                   muessen genau so im Dateinamen stehen.
-                                   Darunter zeigt eine LIVE-VORSCHAU
-                                   sofort, welche der tatsaechlich im
-                                   Ordner vorhandenen CSV-Dateien zum
-                                   gerade eingegebenen Schema passen
-                                   wuerden (Speichern erst moeglich, wenn
-                                   mindestens eine Datei passt). Ein
-                                   Haken "Als neues Standard-Namensschema
-                                   dauerhaft speichern" (Standard: AUS)
-                                   legt fest, ob das neue Schema nur fuer
-                                   diesen einen Ladevorgang gilt (danach
-                                   wieder das bisherige Schema) oder
-                                   dauerhaft als neuer Standard verwendet
-                                   wird.
-  - "Abbrechen"                -> bricht den Ladevorgang ab.
-
-LIVE-ORDNER UEBERWACHEN: Nach "Ordner öffnen..." laeuft automatisch im
-Hintergrund eine Live-Ueberwachung dieses Ordners, damit die App
-parallel zu einer noch laufenden Messung genutzt werden kann -- ohne
-dass dafuer etwas extra eingeschaltet werden muss. Alle 10 Sekunden wird
-geprueft, ob im geoeffneten Ordner neue CSV-Dateien abgelegt wurden, und
-diese werden automatisch nachgeladen - ohne die aktuelle Wiedergabe-
-position zu stoeren. War die Anzeige zuvor bereits beim letzten Frame
-(typisches "live mitschauen"), springt sie nach dem Nachladen
-automatisch zum jeweils neuesten Frame mit; wurde zuvor ein frueherer
-Frame betrachtet, bleibt die Position unveraendert. Das feste
-10-Sekunden-Intervall (statt sofortiger Reaktion auf jede neue Datei)
-verhindert, dass die App bei sehr haeufig abgelegten Dateien (z.B. alle
-500 ms) durch staendiges Nachladen unbenutzbar wird.
-
-DATENIMPORT-MANAGER (ABWEICHENDES DATEIFORMAT): Das Namensschema oben
-betrifft nur den DATEINAMEN. Weicht stattdessen der INHALT der Dateien
-vom erwarteten Rohformat ab (Standard: ';'-getrennt, Dezimalkomma, keine
-Kopf-/Fusszeilen, keine zusaetzlichen Spalten) -- z.B. bei Messreihen aus
-einer anderen Quelle/einem anderen Geraet --, schlaegt das Laden fehl und
-es erscheint eine Rueckfrage "Daten konnten nicht gelesen werden" mit der
-Option "Datenimport anpassen...". Das oeffnet den DATENIMPORT-MANAGER:
-
-  - "Trennzeichen"            -> Semikolon, Komma, Tabulator, senkrechter
-                                  Strich oder beliebig viele Leerzeichen.
-  - "Dezimaltrennzeichen"     -> Komma oder Punkt.
-  - "Zeichenkodierung"        -> UTF-8 (Standard), Windows-1252/Latin-1
-                                  oder UTF-16.
-  - "Kopfzeilen überspringen" -> Anzahl der Zeilen am Dateianfang ohne
-                                  Messwerte (z.B. Geraete-/Datumsangaben).
-  - "Fußzeilen überspringen"  -> ebenso am Dateiende.
-  - "Erste/Letzte Spalte(n)
-     entfernen"                -> z.B. eine fuehrende Index-/Zeilennummer-
-                                  Spalte, die keine Messwerte enthaelt.
-
-Links zeigt eine Beispieldatei ("Andere Datei wählen..." erlaubt einen
-Wechsel) die rohen ersten Zeilen, rechts/darunter sofort das ERGEBNIS der
-aktuellen Einstellung: entweder die erkannte Zeilen-/Spaltenzahl mit
-einem Ausschnitt der geparsten Werte, oder eine Fehlermeldung, falls die
-Einstellung (noch) nicht passt. "OK" ist erst waehlbar, sobald die
-Beispieldatei erfolgreich gelesen werden konnte. Ein Haken "Als neue
-Standardeinstellung dauerhaft speichern" (Standard: AUS) legt fest, ob
-die Anpassung nur fuer diesen einen Ladevorgang gilt oder dauerhaft als
-neuer Standard uebernommen wird. Nach dem Bestaetigen versucht die App
-automatisch erneut zu laden; passt es immer noch nicht, erscheint dieselbe
-Rueckfrage erneut.
-
-Der Datenimport-Manager laesst sich auch VORAB -- unabhaengig von einem
-fehlgeschlagenen Ladevorgang -- über "Werkzeuge > Datenimport
-anpassen..." öffnen (z.B. um sich auf eine neue, noch unbekannte
-Messreihen-Quelle vorzubereiten, bevor ueberhaupt geladen wird). Ist
-bereits eine Messreihe geladen, dient deren erste Datei als Beispiel,
-sonst fragt eine Dateiauswahl danach.
+ABWEICHENDES DATEIFORMAT (DATENIMPORT-MANAGER): Weicht der Inhalt der
+Dateien vom Standardformat ab (';'-getrennt, Dezimalkomma, keine Kopf-/
+Fußzeilen), erscheint "Daten konnten nicht gelesen werden" mit der
+Option "Datenimport anpassen…". Der Dialog bietet:
+  - Trennzeichen (Semikolon, Komma, Tabulator, senkrechter Strich,
+    Leerzeichen)
+  - Dezimaltrennzeichen (Komma oder Punkt)
+  - Zeichenkodierung (UTF-8, Windows-1252/Latin-1, UTF-16)
+  - Kopf-/Fußzeilen überspringen
+  - erste/letzte Spalten entfernen (z.B. eine Zeilennummer-Spalte)
+Eine Beispieldatei links zeigt die Rohdaten, das Ergebnis der aktuellen
+Einstellung erscheint sofort daneben. "OK" ist erst möglich, wenn die
+Beispieldatei gelesen werden kann. "Als neue Standardeinstellung
+dauerhaft speichern" (Standard: aus) übernimmt die Einstellung für
+künftige Ladevorgänge. Der Manager lässt sich auch vorab über
+"Werkzeuge > Datenimport anpassen…" öffnen.
 
 
 ================================================================
-4. DER BILDBEREICH (LINKS)
+4. DER BILDBEREICH UND DIE DARSTELLUNG
 ================================================================
 
-Im linken, zentralen Bereich wird der aktuelle Frame als Falschfarben-
-bild dargestellt. Rechts daneben liegt die Legende (Farbskala).
+Links steht der aktuelle Frame als Falschfarbenbild, rechts daneben die
+Legende (Farbskala). Über dem Bild liegen die Ebenen-Tabs (siehe
+Abschnitt 18). Das Bild lässt sich nicht verschieben oder zoomen; es ist
+immer vollständig sichtbar. Nur die Messbereiche lassen sich per Maus
+verschieben und skalieren.
 
-Direkt OBERHALB des Bildes liegen fünf Registerkarten ("Ebenen-Tabs":
-Alle / Temperatur-Messung / Schwindungsmessung / Maßstab / Querschnitte)
--- siehe Abschnitt 19 für Details, wie sie helfen, das Bild bei vielen
-gleichzeitig genutzten Werkzeugen übersichtlich zu halten. Die
-Rohdaten-Bereinigung (Abschnitt 17) hat seit ihrem Umbau zu einem
-eigenständigen modalen Dialog keinen eigenen Ebenen-Tab mehr, sondern ist
-ausschließlich über "Daten > Rohdaten säubern…" erreichbar.
+Am Cursor-Kreuz zeigt das Bild live die Temperatur des aktuellen
+Pixels (z.B. "23,4 °C"). Der Wert läuft auch bei der Wiedergabe mit,
+ohne dass die Maus bewegt werden muss.
 
-Das Bild selbst laesst sich absichtlich NICHT mit der Maus verschieben
-oder zoomen - alle relevanten Messdaten befinden sich immer vollstaendig
-im sichtbaren Bereich. Lediglich die Messbereiche (ROIs, siehe unten)
-lassen sich per Maus verschieben und in der Groesse aendern.
-
-Direkt am Cursor-Kreuz im Bild wird zusaetzlich die Temperatur DES
-AKTUELLEN Bildpunkts eingeblendet (z.B. "23,4 °C") - dieselbe Stelle,
-die auch im Live-Graph (Abschnitt 8) verfolgt wird. Der Wert
-aktualisiert sich automatisch mit: bei Mausbewegung ueber ein anderes
-Pixel ebenso wie beim Wechsel auf einen anderen Frame waehrend der
-Wiedergabe (auch ohne die Maus zu bewegen) - so laesst sich die
-Temperatur an einer fixierten Stelle live waehrend des Abspielens
-mitverfolgen.
-
-Ueber "Ansicht > Alles: Hell" bzw. "Ansicht > Alles: Dunkel" laesst sich
-das Fenster, das Thermobild UND der Graph gemeinsam auf einen Schlag auf
-das jeweilige Erscheinungsbild umstellen -- praktisch als schneller
-Ausgangspunkt. Beide Knoepfe sind reine "Auf einen Schlag setzen"-Aktionen
-(kein an-/abwaehlbarer Dauerschalter): nach ihrem Klick lassen sich alle
-drei Bereiche ueber die drei eigenen Untermenues darunter jederzeit wieder
-GEZIELT UND UNABHAENGIG voneinander aendern.
-
-ANSICHTS-MANAGER (Fenster/Thermobild/Graph unabhaengig hell/dunkel):
-Fenster-Oberflaeche, Thermobild und Kurven-Graphen (Zeitverlauf/Live)
-lassen sich UNABHAENGIG voneinander ueber drei eigene Untermenues im
-"Ansicht"-Menue zwischen Hell und Dunkel umschalten:
-
-  - "Ansicht > Fenster-Farbschema" -> Hintergrund-/Schriftfarbe von
-    Fenster, Menues und Bedienelementen (Standard: Hell).
-  - "Ansicht > Thermobild-Farbschema" -> Standard: Hell (wie der Rest der
-    Oberflaeche; weiterhin jederzeit frei auf Dunkel umschaltbar -- ein
-    bereits zuvor selbst gewaehlter eigener Wert bleibt unangetastet, der
-    neue Vorgabewert gilt nur fuer einen Rechner, auf dem noch nie eine
-    eigene Wahl gespeichert wurde).
-  - "Ansicht > Graph-Farbschema" -> Standard: Hell (wissenschaftlicher
-    Standard, gut lesbar auch beim Einfuegen in Berichte/Ausdrucke).
-
-Damit lassen sich Fenster, Thermobild und Graph vollstaendig frei UND
-unabhaengig voneinander im jeweils gewuenschten Erscheinungsbild
-darstellen. Alle drei Wahlen werden gespeichert und beim naechsten Start
-automatisch wieder eingestellt, UND das Thermobild-/Graph-Farbschema gilt
-auch fuer alle Exporte (Grafik-, Video-/Bildstapel-Export) -- ein im
-Hauptfenster auf "Hell" gestellter Graph erscheint z.B. auch im
-exportierten Video mit hellem Hintergrund, unabhaengig vom Thermobild.
+HELL / DUNKEL (Menü "Ansicht"):
+  - "Alles: Hell" / "Alles: Dunkel" setzt Fenster, Thermobild und Graphen
+    auf einmal.
+  - "Fenster-Farbschema", "Thermobild-Farbschema" und "Graph-Farbschema"
+    stellen jeden Bereich einzeln um (Standard: jeweils Hell).
+Die Wahl wird gespeichert und gilt auch für alle Exporte. Das Menü
+"Ansicht" bleibt nach dem Anklicken eines Häkchens geöffnet, sodass sich
+mehrere Optionen nacheinander setzen lassen.
 
 
 ================================================================
 5. FRAME-NAVIGATION UND WIEDERGABE
 ================================================================
 
-Die Zeitleiste befindet sich UNTERHALB des Thermobilds (nicht mehr in
-einer Symbolleiste oben) und ist genauso breit wie das Bild selbst:
+Die Zeitleiste unter dem Thermobild enthält:
+  - Play-Knopf        -> Sequenz abspielen
+  - Schieberegler     -> direkt zu einem Frame springen
+  - Zahlenfeld        -> Frame-Nummer anzeigen/setzen
+  - FPS-Feld          -> Abspielgeschwindigkeit
+Rechts daneben steht der Zeitstempel des Frames. Die Wiedergabe stoppt
+am letzten Frame; ein erneuter Klick auf Play startet wieder bei Frame 1.
 
-  - Play-Knopf (Dreieck)    -> spielt die Sequenz automatisch ab
-  - Schieberegler "Frame"   -> springt direkt zu einem bestimmten Frame
-  - Zahlenfeld daneben      -> zeigt/setzt die Frame-Nummer
-  - FPS-Feld                -> Abspielgeschwindigkeit (Frames pro Sekunde)
+Die Statuszeile unten zeigt "Frame X/Y | Zeitstempel | Laufzeit",
+bei aktivem Live-Cursor zusätzlich dessen Zeile, Spalte und Wert.
 
-Der aktuelle Zeitstempel des angezeigten Frames steht rechts daneben.
-Die Wiedergabe stoppt automatisch am letzten Frame. Erneutes Klicken auf
-Play, nachdem das letzte Bild erreicht wurde, startet die Wiedergabe
-wieder von vorne (Frame 1).
+Tastatur (nicht, solange in ein Text-/Zahlenfeld getippt wird):
+  - Pfeil rechts / links  -> ein Frame vor / zurück
+  - Bild-Auf / Bild-Ab    -> 10 Frames vor / zurück
+  - Pos1 / Ende           -> Auswertungsstart / -ende
+  - Leertaste             -> Wiedergabe starten/pausieren
+  - Ziffern 1-9 und 0     -> Messbereich 1-10 zum Platzieren wählen
+Die vollständige Liste steht in Tastatur-Shortcuts.txt.
 
-Die Statuszeile ganz unten im Fenster zeigt zu jedem Zeitpunkt
-"Frame X/Y | <Zeitstempel> | Laufzeit: HH:MM:SS" (relative Zeit seit
-Aufnahmebeginn) an, bei aktivem Live-Cursor zusaetzlich dessen Zeile/
-Spalte und aktuellen Wert.
-
-Zusaetzlich per Tastatur bedienbar (solange kein Text-/Zahlenfeld gerade
-editiert wird):
-
-  - Pfeil rechts / links   -> einen Frame vor / zurueck
-  - Bild-Auf / Bild-Ab     -> 10 Frames vor / zurueck
-  - Pos1 / Ende            -> zum Auswertungsstart / zum Auswertungsende
-                              springen (Abschnitt 6, standardmaessig
-                              erster/letzter geladener Frame, beide
-                              manuell korrigierbar)
-  - Leertaste              -> Wiedergabe starten/pausieren (wie Play-Knopf).
-                              Bleibt dabei standardmaessig auf den
-                              Auswertungsbereich (Start bis Ende, siehe
-                              Abschnitt 6) begrenzt: steht der Regler beim
-                              Start bereits AUSSERHALB dieses Bereichs, laeuft
-                              die Wiedergabe stattdessen ungeklemmt bis zum
-                              tatsaechlich letzten Frame.
-  - Ziffern 1-9 und 0      -> armieren direkt den jeweiligen Messbereich
-                              (1-6: "Oben".."Hintergrund", siehe Abschnitt 6;
-                              7-9 und 0 = Nr. 10: selbst angelegte weitere
-                              Bereiche) zum Platzieren im Bild, ohne ihn
-                              erst in der Liste anklicken zu muessen --
-                              Tippen in einem gerade fokussierten Zahlenfeld
-                              ist davon unberuehrt. Die Statusleiste unten
-                              links zeigt dabei, welcher Bereich bereit ist
-                              und was der naechste Klick bewirkt.
-
-Eine separate Kurzreferenz aller Tastatur-Shortcuts liegt in
-Tastatur-Shortcuts.txt (gleicher Ordner wie diese Datei).
+AUSWERTUNGSSTART/-ENDE: Die Felder "Auswertungsstart" und
+"Auswertungsende" unter dem Bild (Standard: erster/letzter Frame)
+begrenzen die Wiedergabe und die Sprünge mit Pos1/Ende. Beide erscheinen
+als grüne (Start) und rote (Ende) Markierung im Frame-Regler und lassen
+sich dort auch direkt per Maus verschieben. Start kann nie hinter dem
+Ende liegen: die andere Grenze folgt automatisch.
 
 
 ================================================================
-6. MESSBEREICHE (ROI) ANLEGEN UND BEARBEITEN
+6. MESSBEREICHE (ROI)
 ================================================================
 
-Im rechten Panel "Werkzeuge", Registerkarte "Temperatur-Messung" (siehe
-Abschnitt 19), gibt es links eine senkrechte Liste, einen Eintrag pro
-Messbereich, per Klick auswaehlbar -- rechts daneben die Detailansicht des
-jeweils ausgewaehlten Messbereichs. Das spart Platz, da ROI-Namen meist
-kurz sind. Standardmaessig sind sechs Messbereiche angelegt, benannt nach
-ihrer typischen Anordnung: "Oben", "Links", "Mitte", "Rechts", "Unten" und
-"Hintergrund" (in dieser Reihenfolge, letzterer z.B. fuer eine neutrale
-Referenzstelle ausserhalb der Probe). Ueber den Knopf "+ Messbereich"
-oberhalb der Liste lassen sich beliebig viele weitere hinzufuegen -- jeder
-neue Messbereich hat exakt dieselben Funktionen wie die urspruenglichen
-sechs und heisst zunaechst "ROI n". Die Trennlinie zwischen Liste und Detailansicht laesst
-sich per Maus verschieben. Das GESAMTE Panel sitzt in einem gemeinsamen
-Scrollbereich, damit bei knappem Platz alles erreichbar bleibt.
+Im rechten Panel "Werkzeuge", Reiter "Temperatur-Messung", steht links
+die Liste der Messbereiche, rechts die Details des gewählten.
+Standardmäßig gibt es sechs: "Oben", "Links", "Mitte", "Rechts",
+"Unten" und "Hintergrund". "+ Messbereich" legt beliebig viele weitere
+an ("ROI n").
 
-Jeder Listeneintrag zeigt direkt VOR dem Namen ein Haekchen zum Ein-/
-Ausblenden dieses Messbereichs (Rechteck, Beschriftung, Graph-Kurve) --
-ohne ihn zu loeschen. Der Name selbst laesst sich per DOPPELKLICK auf den
-Eintrag direkt umbenennen; leer gelassen faellt er automatisch auf den
-Standardnamen zurueck. Ein Messbereich laesst sich auf zwei Arten
-auswaehlen (beide fuehren zum selben Ergebnis und aktivieren automatisch
-"Messbereich setzen", siehe unten -- ein Klick ins Bild platziert ihn
-dann sofort, ohne extra einen Knopf suchen zu muessen):
+LISTE: Das Häkchen vor dem Namen blendet den Messbereich aus/ein
+(Rechteck, Beschriftung, Kurve). Doppelklick benennt um (leer = Standard-
+name). Auswählen geht per Klick auf den Listeneintrag oder auf das
+Rechteck im Bild; dabei wird "Messbereich setzen" automatisch aktiv, und
+der nächste Klick ins Bild platziert den Messbereich dort zentriert.
 
-  - Klick auf seinen Eintrag in der Liste, ODER
-  - Klick auf sein Rechteck direkt im Thermobild.
+DETAILS:
+  - Farbfeld               -> Farbe für Rechteck, Kurve und Beschriftung
+  - "Messbereich setzen"   -> nächster Klick ins Bild platziert ihn
+  - "Messbereich entfernen"-> löscht ihn (Rechteck, Beschriftung, Kurve)
+  - X-/Y-Position          -> Mittelpunkt in Pixeln
+  - Breite / Höhe          -> Kantenlängen in Pixeln (mit Maßstab
+                              zusätzlich in mm); jede Änderung wirkt
+                              sofort
+  - "Quadrieren"           -> Höhe auf die Breite setzen
+  - "Temperatur anzeigen"  -> Temperatur in der Bildbeschriftung
+                              (z.B. "ROI 1: 24,5 °C") ein/aus
+  - "Kreis"                -> siehe unten
+  - "Anzeige:"             -> Mittelwert, Höchstwert oder Tiefstwert
 
-Die Detailansicht des ausgewaehlten Messbereichs enthaelt (Farbe +
-"Messbereich setzen"/"Messbereich entfernen" kompakt in einer Zeile):
+IM BILD BEARBEITEN: Ein platzierter Messbereich lässt sich per Maus
+verschieben und skalieren; Kurve und Temperaturanzeige laufen dabei
+live mit. Die Eckgriffe skalieren proportional, die Kantengriffe nur in
+einer Richtung. Neue Messbereiche starten quadratisch mit 30 px.
 
-  - Farbfeld (kleines Quadrat)-> Klick oeffnet die Farbauswahl. Die
-                                 Farbe gilt fuer das Quadrat im Bild,
-                                 den Graphen und die Bild-Beschriftung.
-  - "Messbereich setzen"     -> Knopf aktivieren (oder den Messbereich
-                                 wie oben beschrieben auswaehlen), dann
-                                 einmal in den Bildbereich klicken: der
-                                 Messbereich wird dort zentriert neu
-                                 gesetzt.
-  - "Messbereich entfernen"  -> entfernt dieses ROI vollstaendig
-                                 (Rechteck, Beschriftung und Zeitverlauf-
-                                 Kurve) -- kann nicht rueckgaengig gemacht
-                                 werden.
-  - Felder X-Position /
-     Y-Position               -> exakte Pixel-Koordinaten des Mittelpunkts.
-  - Felder Breite / Hoehe    -> Kantenlaengen in Pixeln, unabhaengig
-                                 voneinander einstellbar (siehe unten).
-                                 Ist ein Massstab definiert (Abschnitt
-                                 11), erscheint darunter zusaetzlich die
-                                 reale Groesse in mm.
-                                 Jede Aenderung eines der vier Felder
-                                 (Tippen, Pfeiltasten oder Scrollrad) wird
-                                 SOFORT live auf den Messbereich angewendet
-                                 -- kein "Uebernehmen"-Knopf noetig.
-  - Rechts, untereinander:
-     Checkbox
-      "Temperatur anzeigen"   -> siehe unten (Standard: an).
-     Checkbox "Kreis"         -> siehe "ALS KREIS BEHANDELN" unten.
-     Auswahlfeld "Anzeige:"   -> siehe "ANGEZEIGTE KENNZAHL" unten.
-     "Quadrieren"             -> uebernimmt die aktuelle Breite als neue
-                                 Hoehe (Quadrat), Mittelpunkt bleibt
-                                 erhalten. (Entfernt den Messbereich NICHT
-                                 -- dafuer das Haekchen in der Liste
-                                 ausblenden ODER den Knopf "Messbereich
-                                 entfernen" verwenden, siehe oben.)
+KREIS: Die Checkbox "Kreis" zeichnet eine eingeschriebene Ellipse. Für
+Beschriftung, Kurve und Export zählen dann nur die Pixel innerhalb der
+Ellipse - sinnvoll für runde Messobjekte.
 
-Die Beschriftung eines platzierten Messbereichs direkt im Thermobild
-zeigt rechts neben dem Namen (durch Doppelpunkt getrennt, z.B.
-"ROI 1: 24,5 °C") zusaetzlich die aktuell gemittelte Temperatur dieses
-Messbereichs an -- sie aktualisiert sich automatisch mit jedem
-Frame-Wechsel. Ueber die Checkbox "Temperatur anzeigen" (Standard: an,
-rechts neben den Eingabefeldern) laesst sich das je Messbereich
-abschalten -- dann zeigt die Beschriftung nur noch den Namen, ohne die
-Temperaturangabe dahinter.
+ANZEIGE (Mittelwert/Höchstwert/Tiefstwert): Legt fest, welche Kennzahl
+des Messbereichs angezeigt und als Kurve dargestellt wird. Bei
+Höchst-/Tiefstwert steht "(Max)" bzw. "(Min)" hinter der Temperatur.
 
-Ein bereits platzierter Messbereich laesst sich auch direkt im Bild mit
-der Maus verschieben und in der Groesse aendern -- Zeitverlauf-Graph UND
-die Temperaturanzeige im Bild aktualisieren sich dabei bereits WAEHREND
-des Ziehens live mit, nicht erst nach dem Loslassen. Dabei gibt es ZWEI
-Arten von Ziehpunkten (Handles):
-
-  - An den vier ECKEN: proportionale Skalierung - das Seitenverhaeltnis
-    (Breite zu Hoehe) bleibt beim Ziehen erhalten.
-  - An den vier KANTEN (Mitte jeder Seite): es aendert sich nur die
-    jeweils betroffene Dimension (Breite ODER Hoehe), die andere bleibt
-    unveraendert.
-
-So laesst sich ein Messbereich frei rechteckig formen, nicht nur
-quadratisch. Der Knopf "Quadrieren" macht ein verzerrtes Rechteck bei
-Bedarf wieder zum Quadrat (die Breite bleibt dabei massgeblich, die
-Hoehe wird an sie angeglichen).
-
-Neu platzierte Messbereiche starten quadratisch mit 30 px Kantenlaenge;
-danach laesst sich Breite/Hoehe wie oben beschrieben frei anpassen.
-
-ALS KREIS BEHANDELN: Die Checkbox "Kreis" (rechts, Standard: AUS)
-zeichnet statt des Rechtecks eine in Breite/Hoehe eingeschriebene Ellipse
--- die Ecken-/Kanten-Ziehpunkte bleiben dabei unveraendert an derselben
-Stelle (weiterhin die Bounding-Box), nur die Darstellung wird zur Ellipse.
-Wichtiger als die Optik: die Temperaturmittelung (Beschriftung im Bild,
-Zeitverlauf-Graph, CSV-/JSON-Export) beruecksichtigt dann NUR NOCH die
-Pixel innerhalb dieser Ellipse, nicht mehr das gesamte Rechteck -- nuetzlich
-z.B. fuer runde Messobjekte, bei denen die vier Rechteck-Ecken sonst
-Hintergrund-/Umgebungstemperatur mit einrechnen wuerden.
-
-ANGEZEIGTE KENNZAHL: Das Auswahlfeld "Anzeige:" (rechts, Standard:
-"Mittelwert") legt fest, welche Kennzahl innerhalb des Messbereichs
-angezeigt und in die Zeitverlauf-Kurve uebernommen wird -- neben dem
-Mittelwert stehen "Hoechstwert" und "Tiefstwert" zur Auswahl (z.B. um bei
-einer unregelmaessig erwaermten Probe gezielt die heisseste/kaelteste
-Stelle zu verfolgen statt eines Durchschnitts). Bei "Hoechstwert"/
-"Tiefstwert" erscheint hinter dem Temperaturwert in der Bild-Beschriftung
-zusaetzlich "(Max)"/"(Min)", damit erkennbar bleibt, dass hier NICHT der
-Mittelwert gezeigt wird. Wirkt zusammen mit "Kreis" oben (die gewaehlte
-Kennzahl wird dann nur ueber die Pixel innerhalb der Ellipse gebildet).
-
-AUSWERTUNGSSTART/-ENDE FESTLEGEN:
-Unterhalb des Bildes gibt es in der zweiten Zeile der Zeitleiste die
-Felder "Auswertungsstart:" und "Auswertungsende:" -- standardmaessig der
-erste bzw. jeweils letzte geladene Frame, per Zahl frei aenderbar (z.B.
-wenn eine Aufnahme vor/nach dem eigentlich interessanten Zeitraum noch
-weiterlief). Beide werden zusaetzlich direkt im Frame-Regler als kleine
-gruene (Start) bzw. rote (Ende) Markierung angezeigt -- diese Markierungen
-lassen sich auch DIREKT MIT DER MAUS im Frame-Regler verschieben, ohne
-Umweg ueber die Zahlenfelder. Start darf dabei nie hinter das Ende geraten
-(und umgekehrt): wird eine Grenze ueber die andere hinaus verschoben,
-folgt die andere automatisch nach.
-
-Die Tasten "Pos1"/"Ende" springen zu diesem Auswertungsstart/-ende, nicht
-zwingend zum ersten/allerletzten Frame der Datei. Auch die Wiedergabe
-(Play) bleibt standardmaessig auf diesen Bereich begrenzt -- siehe
-Abschnitt 5. "Start festlegen"/"Ende festlegen" bei der Verlaufs-
-Interpolation (siehe unten) sind davon UNABHAENGIG -- dort legt ein
-eigenes, je Messbereich frei einstellbares Zahlenfeld fest, zu welchem
-Bild gesprungen wird (Standard: erstes/letztes Bild der Aufnahme).
-
-VERLAUFS-INTERPOLATION (bewegte Messbereiche):
-Manche Messobjekte bewegen sich waehrend der Aufnahme im Bild (z.B.
-durch Kamera- oder Objektdrift). Dafuer gibt es je Messbereich die
-Checkbox "Position/Groesse ueber Zeit interpolieren (Start -> Ende)".
-Standardmaessig AUS - ohne Aktivierung bleibt ein Messbereich wie
-bisher fest an einer Stelle stehen.
-
-Bei Aktivierung erscheinen zwei eigene Zeilen, "Erstes Frame:" und
-"Letztes Frame:", je mit einem Zahlenfeld und einem Knopf daneben, die
-jeweils in ZWEI Schritten bedient werden. Das Zahlenfeld legt fest, zu
-WELCHEM Bild der zugehoerige Knopf springt -- standardmaessig das erste
-bzw. letzte geladene Bild der Aufnahme, aber frei auf ein beliebiges Bild
-dieser Aufnahme aenderbar (je Messbereich unabhaengig voneinander,
-unabhaengig vom Auswertungsstart/-ende oben -- z.B. wenn sich nur EIN
-Messobjekt zwischen Bild 50 und Bild 200 einer 500 Bilder langen Aufnahme
-bewegt und davor/danach stillstehen soll). Waehrend der Erfassung treten
-alle ANDEREN Messbereiche im Bild stark verblasst in den Hintergrund,
-damit der gerade bearbeitete eindeutig im Fokus steht:
-  1. Zahlenfeld in der Zeile "Erstes Frame:" ggf. auf das gewuenschte
-     Start-Bild einstellen, dann auf "Start festlegen..." klicken -> das
-     Programm springt zu genau diesem Bild, aktiviert zugleich
-     "Messbereich setzen" und der Knopf beschriftet sich um in "Start
-     uebernehmen". Jetzt den Messbereich dort per Klick ins Bild neu
-     setzen (auch wenn er zuvor noch gar nicht platziert war) oder per
-     Maus/Eingabefeldern korrekt positionieren.
-  2. Erneut auf denselben Knopf ("Start uebernehmen") klicken, um die
-     jetzt eingestellte Position/Groesse als Start-Punkt zu speichern.
-     Der Knopf beschriftet sich danach wieder zurueck.
-  3. Genauso mit Zahlenfeld/Knopf in der Zeile "Letztes Frame:" verfahren:
-     erster Klick springt zum eingestellten Ende-Bild und beschriftet den
-     Knopf zu "Ende uebernehmen" um -- der Messbereich selbst zeigt jetzt
-     leicht verblasst noch die Start-Geometrie, deutlich weniger stark verblasst
-     als die anderen Messbereiche. Dort den Messbereich positionieren
-     (Position und/oder Groesse duerfen sich vom Start unterscheiden),
-     zweiter Klick auf "Ende uebernehmen" speichert den Ende-Punkt und
-     stellt alle Messbereiche wieder normal sichtbar dar. (Start und Ende
-     haben bewusst unterschiedliche Beschriftungen, auch wenn beide Knoepfe
-     gleichzeitig auf "uebernehmen" stehen sollten.)
-  4. Sobald beide Punkte gesetzt sind, berechnet das Programm fuer alle
-     Frames dazwischen die passende Zwischenposition/-groesse linear
-     ueber den FRAME-INDEX zwischen Start- und Ende-Bild (nicht ueber
-     reale Zeitstempel -- so ist sichergestellt, dass die Bewegung
-     tatsaechlich ueber die GESAMTE gewaehlte Bildspanne verteilt ist und
-     ihr Ziel exakt erst im Ende-Bild erreicht, auch bei unregelmaessig
-     getakteten Aufnahmen mit Pausen dazwischen). Der Messbereich
-     "wandert" beim Abspielen/Scrubben entsprechend mit, und auch der
-     Temperaturverlauf-Graph wird aus den jeweils korrekten, interpolierten
-     Bildausschnitten berechnet.
-
-     WICHTIG: das Start-Bild muss vor dem Ende-Bild liegen (beide
-     Zahlenfelder sind frei waehlbar, koennen also versehentlich vertauscht
-     werden). Ist das nicht der Fall, erscheint beim Uebernehmen des
-     zweiten Punkts eine Warnung -- der Messbereich bliebe sonst unbemerkt
-     fuer die gesamte Aufnahme auf der Start-Position eingefroren.
-
-HINWEIS AUSSERHALB DER AUSWERTUNG: Liegt das in "Erstes Frame:" oder
-"Letztes Frame:" eingestellte Bild ausserhalb des aktuellen Auswertungs-
-start/-ende (siehe oben), erscheint bei aktivierter Interpolation ein
-kleines gelb-oranges "!" direkt neben dem betroffenen Zahlenfeld (Mauszeiger
-darauf halten zeigt Details). Das ist NUR ein dezenter Hinweis, kein
-blockierender Dialog -- die Interpolation funktioniert trotzdem
-uneingeschraenkt weiter, der Hinweis macht nur darauf aufmerksam, dass der
-Teil ausserhalb der Auswertung sich in Diagramm/Export nicht bemerkbar
-macht. Er verschwindet automatisch, sobald entweder das Zahlenfeld wieder
-innerhalb der Auswertung liegt, die Auswertung selbst passend erweitert
-wird, oder die Interpolation fuer diesen Messbereich ausgeschaltet wird.
+VERLAUFS-INTERPOLATION (bewegte Messobjekte): Wandert ein Objekt im
+Bild (z.B. durch Drift), aktiviert die Checkbox "Position/Größe über Zeit
+interpolieren (Start -> Ende)" eine Bewegung des Messbereichs vom
+Start- zum Ende-Bild. Die Felder "Erstes Frame:" und "Letztes Frame:"
+legen die beiden Bilder fest (Standard: erstes/letztes der Aufnahme).
+Die anderen Messbereiche treten währenddessen verblasst zurück.
+  1. Bei "Erstes Frame:" auf "Start festlegen…" klicken: das Programm
+     springt zu diesem Bild. Messbereich per Klick ins Bild neu setzen
+     oder per Maus/Feldern positionieren.
+  2. Erneut auf den Knopf ("Start übernehmen") klicken, um die Position
+     und Größe zu speichern.
+  3. Genauso bei "Letztes Frame:" ("Ende festlegen…" / "Ende
+     übernehmen").
+Danach bewegt sich der Messbereich beim Abspielen gleichmäßig vom
+Start- zum Ende-Bild, und die Kurve wird aus den jeweiligen Bildausschnitten
+berechnet. Das Start-Bild muss vor dem Ende-Bild liegen, sonst erscheint
+eine Warnung. Liegt ein gewähltes Bild außerhalb des Auswertungsbereichs,
+zeigt ein gelbes "!" neben dem Feld einen Hinweis.
 
 
 ================================================================
 7. LEGENDE / FARBSKALA
 ================================================================
 
-Rechts neben dem Bild liegt die Farbskala (Histogramm/Legende):
+Rechts neben dem Bild liegt die Farbskala:
+  - Die beiden Grenzen der farbigen Markierung lassen sich per Maus
+    verschieben, um den Temperaturbereich anzupassen (nur im Modus
+    "Manuell").
+  - Rechtsklick auf die Skala öffnet alternative Farbverläufe.
 
-  - Die beiden Grenzen der farbigen Markierung lassen sich direkt mit
-    der Maus verschieben, um den dargestellten Temperaturbereich
-    (Kontrast) anzupassen (nur im Modus "Manuell", siehe unten).
-  - Rechtsklick auf die Farbskala oeffnet ein Menue mit alternativen
-    Farbverlaeufen.
-  - Im Panel "Werkzeuge", Registerkarte "Legende" (siehe Abschnitt 19),
-    gibt es zusaetzlich:
-      * Dropdown "Farbverlauf"    -> Auswahl der Farbpalette: u.a.
-                                      "Ironbow" (klassische Waermebild-
-                                      Optik), "Inferno", "Plasma",
-                                      "Viridis", "Magma", "Turbo",
-                                      "Graustufen", "Hot", "Cividis",
-                                      "Coolwarm" und "Rainbow". Kalt
-                                      erscheint dabei stets dunkel,
-                                      heiss stets hell.
-      * Checkbox "Invertieren"    -> kehrt den gewaehlten Farbverlauf um
-                                      (kalt/warm vertauscht). Steht direkt
-                                      unter der Farbverlauf-Auswahl, mit
-                                      dieser eingerueckt, da sie inhaltlich
-                                      dazugehoert.
-      * "Automatisch:"             -> Radioknopf, schliesst sich mit
-                                      "Manuell:" gegenseitig aus (immer
-                                      genau einer von beiden aktiv).
-                                      Darunter zwei Varianten (nur bei
-                                      aktivem "Automatisch" bedienbar):
-                                      "Pro Bild" (Min/Max werden je Frame
-                                      neu berechnet) und "Ueber gesamte
-                                      Messung" (Min/Max werden EINMAL ueber
-                                      ALLE geladenen Frames ermittelt und
-                                      durchgehend verwendet -- nuetzlich,
-                                      um die Farbskala ueber die gesamte
-                                      Aufnahme vergleichbar zu halten,
-                                      statt sie pro Bild neu zu strecken;
-                                      Standard).
-      * "Manuell:"                 -> Radioknopf, darunter die Felder
-                                      "Max"/"Min" (in dieser Reihenfolge)
-                                      fuer feste, selbst gewaehlte
-                                      Grenzwerte.
+Im Panel "Werkzeuge", Reiter "Legende":
+  - "Farbverlauf": Ironbow (klassische Wärmebild-Optik), Inferno,
+    Plasma, Viridis, Magma, Turbo, Graustufen, Hot, Cividis, Coolwarm,
+    Rainbow. Kalt ist dunkel, heiß hell.
+  - "Invertieren": kehrt den Farbverlauf um.
+  - "Automatisch": Min/Max werden berechnet, entweder "Pro Bild" (je
+    Frame neu) oder "Über gesamte Messung" (einmal über alle Frames;
+    Standard, hält die Skala über die Aufnahme vergleichbar).
+  - "Manuell": feste Grenzwerte in den Feldern "Max" und "Min".
 
 
 ================================================================
-8. ZEITVERLAUF-GRAPH UND LIVE-GRAPH
+8. ZEITVERLAUF-GRAPH UND LIVE-CURSOR
 ================================================================
 
-Rechts befindet sich der Graph "Zeitverlauf" (als eigenes Fenster
-abtrennbar - siehe Abschnitt 13): zeigt fuer jeden platzierten und
-sichtbaren Messbereich den gemittelten Temperaturwert ueber alle
-geladenen Frames hinweg. Eine gestrichelte senkrechte Linie markiert
-den aktuell angezeigten Frame. Direkt daneben liegt (als eigener, von
-Anfang an vorhandener Tab, nicht erst bei aktivierter Schwindungsmessung)
-der Graph "Schwindung" (siehe Abschnitt 18) -- eine eigene Kenngröße mit
-eigener Einheit (mm/px), die hier fachlich nicht sinnvoll mitgeplottet
-werden könnte.
+Das Panel "Temperaturverlauf" enthält die Reiter "Zeitverlauf",
+"Schwindung" (Abschnitt 17) und "Querschnitt" (Abschnitt 20).
 
-Checkbox "Live-Cursor-Kurve zusätzlich anzeigen" (Standard: AUS) blendet
-zusaetzlich die Live-Cursor-Kurve direkt in DIESEM Graphen mit ein --
-nuetzlich, um Messbereiche und eine frei gewaehlte Cursor-Stelle
-gemeinsam zu vergleichen. Unabhaengig von dieser Checkbox ist die
-Live-Cursor-Kurve beim Export dieses Graphen (Abschnitt 9) automatisch
-mit dabei, sofern gerade eine verfuegbar ist. (Ein frueherer, separater
-"Live (Cursor)"-Reiter mit identischem Inhalt wurde entfernt -- diese
-Checkbox deckt denselben Anwendungsfall bereits vollstaendig ab.)
+"Zeitverlauf" zeigt für jeden platzierten, sichtbaren Messbereich den
+Temperaturverlauf über alle Frames. Eine gestrichelte senkrechte Linie
+markiert den aktuellen Frame. Die Checkbox "Live-Cursor-Kurve zusätzlich
+anzeigen" (Standard: aus) blendet die Live-Cursor-Kurve in diesem Graphen
+mit ein.
 
-LIVE-CURSOR (Temperaturverlauf am Mauszeiger):
-Solange die Maus ueber das Bild bewegt wird, zeigt die Live-Cursor-Kurve
-den Temperaturverlauf GENAU DES PIXELS unter dem Mauszeiger, ueber alle
-Frames hinweg. Sehr nuetzlich, um schnell einen einzelnen Bildpunkt zu
-inspizieren, ohne extra einen Messbereich anzulegen.
+LIVE-CURSOR: Solange die Maus über dem Bild ist, zeigt die Live-Kurve
+den Temperaturverlauf an der Cursor-Stelle über alle Frames.
+  - Linksklick ins Bild fixiert die Stelle (ein Kreuz markiert sie), die
+    Kurve folgt der Maus dann nicht mehr.
+  - Rechtsklick ins Bild löst die Fixierung.
+Standardmäßig wird ein 5x5-Pixel-Bereich um den Cursor gemittelt. Über
+"Werkzeuge > Live-Cursor-Bereichsgröße" lässt sich 1x1, 3x3, 5x5, 7x7,
+9x9, 11x11, 13x13 oder 15x15 wählen (die Wahl wird gemerkt).
 
-Linksklick ins Bild fixiert diese Stelle (ein Kreuz markiert das Pixel
-dauerhaft) - die Kurve bleibt dann stehen und folgt der Maus nicht mehr,
-z.B. um den Wert in Ruhe abzulesen oder die Grafik zu exportieren (siehe
-Abschnitt 9). Rechtsklick ins Bild hebt die Fixierung wieder auf, die
-Kurve folgt danach wieder der Maus.
+HOVER-ANZEIGE: Über einem Graphen zeigt eine Einblendung unten rechts
+Zeit und Temperatur unter dem Mauszeiger.
 
-Standardmaessig wertet der Live-Graph einen 5x5-Pixel-Bereich um das
-Cursor-Pixel aus. Ueber "Werkzeuge > Live-Cursor-Bereichsgroesse" in der
-Menueleiste laesst sich stattdessen ein anderer quadratischer Bereich
-(1x1, 3x3, 5x5, 7x7, 9x9, 11x11, 13x13 oder 15x15 Pixel) waehlen, dessen
-Mittelwert angezeigt und exportiert wird - nuetzlich bei verrauschten
-Einzelpixeln. Die Wahl wird gemerkt und liegt bewusst NICHT im rechten
-Panel, sondern als eigenes Menue oben.
+ZEITACHSE (unten rechts am Graphen): "Uhrzeit" (Datum/Uhrzeit, Standard)
+oder "Laufzeit" (relative Zeit seit Aufnahmebeginn). Daneben legt ein
+Dropdown das Laufzeit-Format fest: "hh:mm:ss" (Standard) oder eine
+fortlaufende Zahl in Sekunden, Minuten oder Stunden. Das Format gilt
+überall, wo die Laufzeit erscheint (Graph, Video-Zeitanzeige,
+Werte-Export, Statuszeile).
 
-Bei nur sehr wenigen Frames (z.B. nur 1-2) werden zusaetzlich kleine
-Punktmarker auf den Kurven angezeigt, da eine Linie erst ab zwei
-Punkten sichtbar waere.
+ACHSEN:
+  - "Achsen zurücksetzen": setzt Zoom und Verschiebung dieses Graphen
+    auf den vollen Datenbereich zurück.
+  - "Achsen einstellen…": X-Achse (Zeit) und Y-Achse (Temperatur) jeweils
+    automatisch oder mit manuellem Wertebereich; die Y-Schrittweite
+    ist separat einstellbar, in "Laufzeit" auch der X-Tick-Abstand. Jede
+    Einstellung lässt sich einzeln auf "Automatisch" zurücksetzen.
+Ein Rechtsklick auf den Graphen öffnet außerdem das Standardmenü von
+pyqtgraph (u.a. "View All" und "Grid" zum Ein-/Ausblenden des Gitters).
 
-KOORDINATENANZEIGE BEIM HOVERN: solange die Maus ueber einem der beiden
-Graphen (Zeitverlauf oder Live) steht, zeigt eine kleine Einblendung unten
-rechts im Graphen die genaue Position unter dem Mauszeiger an -- Zeit
-(passend zur aktuell gewaehlten Uhrzeit-/Laufzeit-Anzeige, siehe unten)
-und Temperatur in °C. Verschwindet automatisch, sobald die Maus den
-Graphen wieder verlaesst.
-
-Unten rechts am Graphen laesst sich per Dropdown "Zeitachse" zwischen
-"Uhrzeit" (echtes Datum/Uhrzeit, Standard) und "Laufzeit" (relative Zeit
-seit Aufnahmebeginn) umschalten.
-
-Direkt daneben ein zweites Dropdown fuer das FORMAT der Laufzeit-Anzeige
-(nur aktiv, solange links "Laufzeit" gewaehlt ist) -- "dritte Zeitachse"
-mit frei waehlbarer Einheit:
-
-  - "hh:mm:ss" (Standard) -- wie bisher, Stunden:Minuten:Sekunden.
-  - "Laufzeit in Sekunden"/"...Minuten"/"...Stunden" -- eine einzelne,
-    fortlaufende Dezimalzahl (z.B. "90" Sekunden oder "1,5" Minuten statt
-    "00:01:30") -- erleichtert das Weiterverarbeiten/Zeichnen der Laufzeit
-    in anderer Software, ohne sie dort erst manuell aus hh:mm:ss
-    umrechnen zu muessen.
-
-Das Format gilt EINHEITLICH ueberall, wo die Laufzeit im Programm
-auftaucht: an der Graph-Achse, im Video-/Bildstapel-Export (Zeit-
-anzeige im Bild, Abschnitt 10), im CSV-Export (Spalte "Laufzeit (...)",
-Abschnitt 9) und in der Statuszeile.
-
-Daneben (links vom Dropdown) befinden sich zwei weitere Knoepfe:
-
-  - "Achsen zuruecksetzen" -- setzt Zoom/Verschieben GENAU dieses
-    Graphen wieder auf den kompletten Datenbereich zurueck, falls per
-    Maus (Ziehen/Mausrad) verzoomt oder verschoben wurde.
-  - "Achsen einstellen..." -- oeffnet einen Dialog fuer GENAU diesen
-    Graphen mit voller Kontrolle ueber:
-      * X-Achse (Zeit): wahlweise automatisch oder ein manuell
-        eingegebener Wertebereich (in Sekunden seit Aufnahmebeginn). Im
-        Modus "Uhrzeit" waehlt sie automatisch gut lesbare
-        Kalenderabstaende (z.B. alle 5/15/30 Minuten). Im Modus "Laufzeit"
-        laesst sich der Tick-Abstand zusaetzlich manuell festlegen (in
-        Sekunden) -- nuetzlich, wenn die automatische Wahl relativ zum
-        Aufnahmebeginn krumme Werte ergibt (z.B. 00:00:24, 00:01:24 statt
-        00:00:00, 00:01:00); ohne manuellen Abstand richtet sich auch die
-        Automatik im Laufzeit-Modus am Aufnahmebeginn statt an der
-        absoluten Uhrzeit aus, sodass der erste Tick immer bei 00:00:00
-        liegt.
-      * Y-Achse (Temperatur): wahlweise automatisch oder ein manueller
-        Wertebereich (Min/Max in °C) UND unabhaengig davon wahlweise
-        automatisch oder eine manuelle Schrittweite (Hauptintervall in
-        °C) fuer die Beschriftung.
-    Alle vier Einstellungen (X-Bereich, Y-Bereich, Y-Schrittweite) lassen
-    sich unabhaengig voneinander auf Automatisch zurueckstellen.
-
-Per Rechtsklick direkt auf den Graphen bietet pyqtgraph selbst
-zusaetzlich ein Kontextmenue (unabhaengig von der App) mit u.a.:
-
-  - "View All" -- wie "Achsen zuruecksetzen" oben, nur an anderer Stelle.
-  - "X axis"/"Y axis" -- je ein Untermenue mit "Auto"/"Manual"-Wahl fuer
-    den Wertebereich UND einem "Link Axis"-Dropdown: verknuepft die
-    X- bzw. Y-Achse DIESES Graphen mit der eines ANDEREN, gerade
-    sichtbaren Graphen-Fensters, sodass beide beim Zoomen/Verschieben
-    synchron bleiben -- nur relevant, falls mehrere eigene
-    pyqtgraph-Fenster nebeneinander geoeffnet sind; fuer die normale
-    Bedienung dieser App ohne Nutzen (in der App selbst empfiehlt sich
-    stattdessen "Achsen einstellen..." oben).
-  - "Mouse Mode" -- wechselt zwischen "3 button" (Standard: Ziehen mit
-    der linken Maustaste verschiebt den sichtbaren Ausschnitt) und
-    "1 button" (Ziehen zieht stattdessen ein Zoom-Rechteck auf). Reine
-    Geschmackssache/Bedienvorliebe.
-  - Weitere, fuer eine einfache Temperatur-ueber-Zeit-Kurve nicht
-    hilfreiche Punkte ("Transforms", "Downsample", "Average", "Alpha",
-    "Points") sind in dieser App ausgeblendet; "Grid" (Gitternetz
-    ein-/ausblenden) bleibt verfuegbar.
+Bei sehr wenigen Frames (1-2) erscheinen zusätzlich Punktmarker, da eine
+Linie erst ab zwei Punkten sichtbar ist.
 
 
 ================================================================
 9. GRAFIK UND WERTE EXPORTIEREN
 ================================================================
 
-Alle Export-Funktionen sind zentral im Menue "Export" oben in der
-Menueleiste erreichbar - je EIN Eintrag fuer "Grafik exportieren..."
-und "Werte exportieren...": beide Dialoge fragen selbst ab,
-welche Kurve(n) (Zeitverlauf/Messbereiche und/oder Live-Cursor)
-tatsaechlich mit hinein sollen, statt getrennter Menuepunkte pro Kurve.
-Ein Rechtsklick direkt auf den Zeitverlauf- oder Live-Graphen bietet
-zusaetzlich den Eintrag "Grafik speichern..." als Abkuerzung fuer GENAU
-denselben Export wie "Export > Grafik exportieren..." (identisches
-Fenster, identisches Ergebnis inkl. Thermobild) - nur der Umweg ueber
-die Menueleiste entfaellt. Ein Rechtsklick direkt auf das Thermobild
-exportiert (da es dafuer keine eigene Menue-Entsprechung gibt)
-weiterhin nur dieses eine Bild allein, mit demselben Fenster, aber ohne
-die Kombiniert/Getrennt-Auswahl.
+Alle Exporte stehen im Menü "Export". Der Speichern-Dialog öffnet
+jeweils im zuletzt verwendeten Zielordner. Bricht der Speichern-Dialog
+ab, öffnet sich der Export-Manager erneut mit allen bisherigen
+Einstellungen.
 
-Der "Speichern"-Dialog jedes Export-Wegs (Grafik, Werte, Video/Bildstapel)
-startet automatisch im ZULETZT verwendeten Zielordner -- egal, ueber
-welchen der Export-Wege dieser Ordner zuletzt genutzt wurde. Beim ersten
-Export in einer neuen Programm-Sitzung gilt der jeweilige System-Standard.
+Abkürzungen: Ein Rechtsklick auf den Zeitverlauf- oder Live-Graphen
+bietet "Grafik speichern…" (derselbe Export wie "Export > Grafik
+exportieren…"). Ein Rechtsklick auf das Thermobild exportiert nur dieses
+Bild.
 
-GRAFIK SPEICHERN (Thermobild + Kurve):
-Die exportierte Grafik zeigt das Thermobild mit der Position der
-Messbereiche zusammen mit dem zugehoerigen Temperaturverlauf, damit auf
-einen Blick nachvollziehbar ist, WO im Bild gemessen wurde und WIE sich
-die Temperatur dort entwickelt hat.
+GRAFIK EXPORTIEREN (Thermobild + Graph)
+Das Fenster ist in Reiter gegliedert; rechts zeigt eine Vorschau die
+grobe Anordnung von Bild und Graph(en) und wächst mit dem Fenster mit.
+Die Vorschau reagiert auf Graph-Auswahl, Position, Cursor-Anzeige und
+"Ebenen im Bild"; Feineinstellungen (Achsen, Farbskala, Maßstab) wirken
+sich nicht auf die Vorschau aus.
 
-  1. "Graphen" -> per Checkbox waehlen, WELCHE Graphen ueberhaupt
-     exportiert werden: "Zeitverlauf", "Schwindung" (Abschnitt 18) und/oder
-     "Querschnitt" (Abschnitt 21) -- beliebig viele gleichzeitig, auch
-     alle drei (Standard: nur "Zeitverlauf" an, wie bisher). "Schwindung"
-     wird dabei immer mit der AKTUELL im Hauptfenster gezeigten Kenngroesse
-     exportiert -- dafuer gibt es keine eigene Export-Einstellung.
-     Daneben "Graph-Inhalt" -> nur relevant, solange "Zeitverlauf"
-     angehakt ist: per Checkbox waehlen, welche Kurve(n) darin erscheinen
-     -- JEDER platzierte Messbereich einzeln UND (sofern gerade verfuegbar,
-     siehe Abschnitt 8) "Live-Cursor" -- "Alle auswaehlen"/"Keine
-     auswaehlen" schalten ALLE davon (inklusive Live-Cursor) auf einmal um
-     (Standard: nur die Messbereiche an, Live-Cursor aus). Alle angehakten
-     Kurven erscheinen gemeinsam IM SELBEN Zeitverlauf-Graphen. Analog
-     dazu "Querschnitt-Inhalt" (nur relevant, solange "Querschnitt"
-     angehakt ist): per Checkbox waehlen, welche der angelegten
-     Querschnitt-Linien (Abschnitt 21) mit exportiert werden -- Standard:
-     alle an. Mindestens ein Graph muss angehakt sein (und, falls
-     "Zeitverlauf"/"Querschnitt" dabei ist, mindestens eine Kurve/Linie
-     darin). Darunter "Position:" legt fest, WO der
-     gesamte Graphen-Block relativ zum Thermobild sitzt: Unter/Über/Links/
-     Rechts vom Bild (frei waehlbar, Standard: Rechts) -- nur im
-     "Kombiniert"-Modus (siehe Punkt 4) wirksam; mehrere ausgewaehlte
-     Graphen reihen sich dabei stets entlang derselben Achse wie das Bild
-     an (untereinander bei Oben/Unten, nebeneinander bei Links/Rechts).
-  2. "Ebenen im Bild" -> per Checkbox waehlen, welche Bild-Overlays im
-     exportierten THERMOBILD selbst erscheinen: "Temperatur-Messung
-     (ROI-Messbereiche)" und/oder "Schwindungsmessung (Box, Kontur,
-     Probenhöhen)" (Abschnitt 18) -- UNABHAENGIG davon, welcher Ebenen-Tab
-     gerade im Hauptfenster aktiv ist (Abschnitt 19); beide Standard AN
-     (entspricht "Alle"). Nuetzlich, um z.B. ganz gezielt nur die
-     Schwindungsmessung ohne die ROI-Rechtecke zu exportieren, ohne dafuer
-     extra im Hauptfenster den Ebenen-Tab umschalten zu muessen. Der
-     Maßstab (Referenzlinie) UND einzelne Messungen sind bewusst NICHT
-     Teil dieser Gruppe -- dafuer gibt es die eigene, feinere Auswahl
-     weiter unten (Maßstab/Messungen einzeln an-/abwaehlbar).
-  3. Aufloesung in DPI eingeben (z.B. 150 fuer Bildschirm, 300-600 fuer
-     Druck/Berichte).
-  4. Waehlen, ob Bild und Graph(en) KOMBINIERT (eine Grafik, Anordnung
-     gemaess "Position:" aus Punkt 1) oder GETRENNT (eine Datei "..._Bild"
-     plus je eine weitere Datei pro ausgewaehltem Graphen, z.B.
-     "..._Zeitverlauf"/"..._Schwindung"/"..._Querschnitt") gespeichert
-     werden sollen. Die Wahl wird gemerkt.
-  5. "Farbskala / Legende" -> dieselbe Freiheit wie im Hauptfenster: entweder
-     "Aktuelle Anzeige-Einstellungen uebernehmen" (Standard) oder "Eigene
-     Einstellungen fuer diesen Export" mit eigenem Farbverlauf,
-     Invertierung, Skalierungsmodus (Abschnitt 7) und Min/Max NUR fuer
-     diese eine Grafik -- die Anzeige im Hauptfenster bleibt danach
-     unveraendert.
-  6. "Achsen" (nur bei Export mit Kurve) -> entweder "Aktuelle Ansicht
-     uebernehmen" (Standard -- exportiert exakt den Wertebereich, den der
-     Zeitverlauf-Graph gerade im Hauptfenster zeigt) oder "Eigene Achsen-
-     Einstellungen fuer diesen Export". Bei letzterem oeffnet "Einstellen…"
-     denselben Dialog wie "Achsen einstellen…" im Hauptfenster (Abschnitt
-     8): Wertebereich UND Tick-Abstand fuer X- (bei "Laufzeit") und
-     Y-Achse frei waehlbar, NUR fuer diesen einen Export -- die Anzeige im
-     Hauptfenster bleibt danach unveraendert. Direkt in derselben Box
-     zusaetzlich "Zeitachse:" -> "Uhrzeit", "Laufzeit" oder "Beide"
-     (Standard: "Beide", unabhaengig vom gerade im Hauptfenster aktiven
-     Umschalter, Abschnitt 8, frei aenderbar). "Beide" fuegt eine ZWEITE
-     Achse oben am Graphen hinzu, sodass Uhrzeit UND Laufzeit gleichzeitig
-     in EINER Grafik zu sehen sind (statt wie sonst nur eine der beiden).
-  7. "Cursor-Position im Bild anzeigen" (Standard: AUS) -- blendet das
-     Fadenkreuz samt Temperaturanzeige am fixierten/zuletzt angefahrenen
-     Cursor-Pixel (siehe Abschnitt 8) im Thermobild mit ein. Bleibt der
-     Haken leer, enthaelt die Grafik unabhaengig vom aktuellen
-     Bildschirmzustand KEINE Maus-Markierung. Unabhaengig von der
-     "Live-Cursor"-Kurve unter Punkt 1 einzeln schaltbar -- BEIDE
-     zusammen sind moeglich (Cursor im Bild UND seine Kurve im Graphen),
-     ebenso NUR der Cursor im Bild ohne Kurve. Die Kurve allein OHNE
-     Cursor im Bild ist dagegen nicht sinnvoll: ein Anhaken von
-     "Live-Cursor" aktiviert diese Option automatisch mit; ein
-     nachtraegliches Abhaken hier deaktiviert dann auch die Kurve wieder.
-  8. Dateiname und -format waehlen: PNG, JPEG, BMP, TIFF, WebP oder SVG
-     (Vektorgrafik - die Kurve bleibt darin als editierbarer Vektorpfad
-     erhalten, das Thermobild selbst ist naturgemaess ein Rasterbild).
-  9. Zusaetzlich entsteht eine gleichnamige ".json"-Datei mit
-     Metadaten: Koordinaten, Groesse (px und, falls ein Massstab
-     definiert ist, auch mm), Name und Farbe jedes Messbereichs,
-     Quellordner, Anzahl der Frames, alle Zeitstempel und verwendete
-     DPI - damit sich spaeter rekonstruieren laesst, wo die
-     Messbereiche im Bild lagen, als die Grafik erzeugt wurde.
+Reiter "Graphen":
+  - "Anzuzeigende Graphen": "Zeitverlauf", "Schwindung" und/oder
+    "Querschnitt" (beliebig kombinierbar; Standard: nur "Zeitverlauf").
+    Mindestens ein Graph muss gewählt sein. "Schwindung" wird mit der
+    im Hauptfenster gezeigten Kenngröße exportiert.
+  - "Achsen" (bei Export mit Kurve): "Aktuelle Ansicht übernehmen"
+    (Standard) oder "Eigene Achsen-Einstellungen für diesen Export"
+    (Dialog wie "Achsen einstellen…", wirkt nur für diesen Export). Dazu
+    "Zeitachse": "Uhrzeit", "Laufzeit" oder "Beide" (Standard; "Beide"
+    fügt eine zweite Achse oben am Graphen hinzu).
+  - "Graph-Inhalt" (bei "Zeitverlauf"): welche Kurven erscheinen -
+    jeder Messbereich einzeln und, falls verfügbar, "Live-Cursor".
+    "Alle auswählen"/"Keine auswählen" schalten alles auf einmal um
+    (Standard: alle Messbereiche an, Live-Cursor aus).
+  - "Querschnitt-Inhalt" (bei "Querschnitt"): welche Querschnitt-Linien
+    mit exportiert werden (Standard: alle).
+  - "Position": Graph links, rechts, über oder unter dem Bild (Standard:
+    rechts); mehrere Graphen reihen sich entlang derselben Achse auf.
+    Nur im Modus "Kombiniert" wirksam.
 
-Das exportierte Thermobild ist dabei stets so eng wie moeglich
-zugeschnitten: unnoetiger Leerraum zwischen Bild und Y-Achse bzw.
-zwischen Bild und Farbskala (durch das feste Bild-Seitenverhaeltnis bei
-"krummen" Bildschirm-/Exportgroessen) wird automatisch entfernt, Achse
-und Farbskala schliessen direkt am Thermobild an.
+Reiter "Bild & Maßstab":
+  - "Ebenen im Bild": welche Overlays im Thermobild erscheinen -
+    "Temperatur-Messung (ROI-Messbereiche)" und/oder "Schwindungsmessung"
+    (unabhängig vom aktiven Ebenen-Tab; Standard: beide an).
+  - "Cursor & Maßstab im Bild": "Cursor-Position im Bild anzeigen"
+    (Standard: aus) sowie Maßstab und einzelne Messungen (Abschnitt 11;
+    Standard: aus). Eine Live-Cursor-Kurve im Graphen setzt die
+    Cursor-Anzeige im Bild voraus; sie wird automatisch mit aktiviert.
 
-VORSCHAU: in der rechten Spalte des Export-Fensters zeigt eine kleine
-Vorschau, wie das Ergebnis ungefaehr aussehen wird -- sie aktualisiert
-sich automatisch, sobald ein Graph an-/abgehakt, die Position geaendert,
-"Cursor-Position im Bild anzeigen" umgeschaltet oder eine Checkbox unter
-"Ebenen im Bild" (Punkt 2 oben) veraendert wird. Feinere Einstellungen
-(Achsen-Details, Farbskala, Maßstab/Messungen) wirken sich NICHT live auf
-die Vorschau aus -- sie dient nur dazu, die grobe Anordnung von Bild und
-Graph(en) auf einen Blick zu erkennen, nicht als pixelgenaue Voransicht
-jeder Feineinstellung. Die Vorschau WAECHST dabei mit, wenn das gesamte
-Export-Fenster per Maus groesser gezogen wird (Nutzerwunsch), statt
-starr auf ihrer anfaenglichen Groesse zu bleiben.
+Weitere Reiter:
+  - "Farbskala": "Aktuelle Anzeige-Einstellungen übernehmen"
+    (Standard) oder eigener Farbverlauf, Invertierung, Skalierung und
+    Min/Max nur für diesen Export.
+  - "Ausgabe": DPI (z.B. 150 für Bildschirm, 300-600 für Druck),
+    "Kombiniert" (eine Grafik) oder "Getrennt" (eine Datei "..._Bild"
+    plus eine pro Graph, z.B. "..._Zeitverlauf"), Dateiformat PNG, JPEG,
+    BMP, TIFF, WebP oder SVG (Vektorgrafik; das Thermobild bleibt ein
+    Rasterbild).
 
-FENSTERGROESSE: der gesamte Inhalt jedes Export-Fensters (Grafik- UND
-Video-/Bildstapel-Export) steckt in einem Scrollbereich -- reicht der
-Bildschirm fuer alle Einstellungen gleichzeitig nicht aus, erscheint statt
-eines ueber den Bildschirmrand hinausragenden Fensters einfach ein
-Scrollbalken. Die OK-/Abbrechen-Knoepfe bleiben dabei immer am unteren
-Fensterrand sichtbar, unabhaengig vom Scroll-Zustand des Inhalts darueber.
-Das Fenster selbst laesst sich am Rand zusaetzlich beliebig groesser (oder
-kleiner) ziehen, genau wie jedes andere Fenster.
+Zusätzlich entsteht eine gleichnamige ".json"-Datei mit Metadaten
+(Position, Größe, Name und Farbe jedes Messbereichs, Quellordner,
+Anzahl der Frames, Zeitstempel, DPI).
 
-WERTE EXPORTIEREN ("Export > Werte exportieren..."):
-Fuer die reinen Zahlen zur Weiterverarbeitung (z.B. Excel, Python). Nur
-EIN Export-Fenster fuer Messbereichs- UND Live-Cursor-Werte (statt
-frueher getrennter Exporte):
+Das Fenster lässt sich beliebig größer oder kleiner ziehen; reicht der
+Bildschirm nicht aus, erscheint ein Scrollbalken, die Knöpfe "OK" und
+"Abbrechen" bleiben immer sichtbar.
 
-  - Ganz oben im Dialog waehlt "Format:" zwischen drei Dateiformaten:
-      * CSV (Standard) -- ';'-getrennt mit Dezimalkomma, wie die
-        Rohdaten, damit sie sich in einem deutsch lokalisierten Excel
-        ohne Nacharbeit oeffnen laesst.
-      * Text -- inhaltlich identisch zu CSV, nur Tabulator- statt
-        ';'-getrennt (z.B. zum Einfuegen in Word/Notepad).
-      * JSON -- eine Liste von Datensaetzen (ein Objekt pro Frame,
-        Spaltennamen als Schluessel), mit echten Zahlen im JSON-
-        ueblichen Dezimalpunkt-Format statt Text mit Dezimalkomma --
-        zur Weiterverarbeitung in Skripten/Programmiersprachen.
-  - Danach erscheint ein Auswahl-Dialog ("Werte exportieren"): links eine
-    Checkbox je platziertem Messbereich, mit der er vom Export
-    ausgeschlossen werden kann (Standard: ALLE ausgewaehlt). Eine kleine
-    "ALLE"-Sammel-Checkbox in der Kopfzeile (genau wie "ALLE px"/"ALLE mm"
-    daneben) schaltet alle Zeilen auf einen Schlag um -- nuetzlich, wenn
-    z.B. bei "beliebig vielen" angelegten Messbereichen nur ein Teil davon
-    in die Datei soll.
-  - Direkt darunter, VOR der ersten Messbereichs-Zeile: die Option
-    "Zusätzliche fortlaufende Laufzeit-Spalte" (Standard: AN) fuegt NEBEN
-    der normalen "Laufzeit"-Spalte (siehe unten) eine weitere Spalte mit
-    der verstrichenen Aufnahmezeit als reine Dezimalzahl hinzu -- Einheit
-    (Sekunden/Minuten/Stunden) direkt daneben waehlbar, UNABHAENGIG vom an
-    den Graphen eingestellten Laufzeit-Format (Abschnitt 8). Praktisch, um
-    die Laufzeit direkt (z.B. zum Zeichnen) in anderer Software weiterzu-
-    verwenden, ohne sie dort selbst umrechnen zu muessen -- bei Bedarf
-    einfach abhaken, um wie frueher nur die normale "Laufzeit"-Spalte zu
-    exportieren. Ist gerade ein Live-Cursor-
-    Pixel verfuegbar (Maus ueber dem Bild bewegt oder eine Stelle
-    fixiert, siehe Abschnitt 8), erscheint zusaetzlich eine Zeile "Live
-    (Cursor)" in derselben Liste -- so landen Messbereichs- UND Live-
-    Cursor-Werte auf Wunsch in EINER gemeinsamen Datei. Daneben laesst
-    sich die Spaltenueberschrift jedes (ausgewaehlten) Eintrags frei
-    anpassen (voreingestellt ist der jeweilige Name). Je Eintrag gibt es
-    zwei ankreuzbare Einheiten ("px"/"mm", mm nur verfuegbar wenn ein
-    Massstab definiert ist, siehe Abschnitt 11; Standard: BEIDE aus): ein
-    Klick auf "px" oder "mm" traegt die angehakten Einheiten SOFORT
-    gemeinsam in den Spaltennamen ein (z.B. bei px+mm beides angehakt:
-    "ROI 1 (30x30 px, 10,0x10,0 mm)") -- kein separater Knopf noetig. Der
-    Text laesst sich danach auch komplett von Hand ueberschreiben. Oben in
-    der Kopfzeile schalten "ALLE px"/"ALLE mm" die jeweilige Einheit fuer
-    alle Zeilen auf einmal um (und zeigen automatisch an, ob bereits
-    ueberall angehakt ist). Alle Spaltenueberschriften muessen eindeutig
-    sein -- auch gegenueber den festen Spalten "Zeitstempel"/"Laufzeit
-    (...)"/"Live X-Achse"/"Live Y-Achse" -- sonst erscheint beim Klick auf
-    "OK" eine Warnung (bei doppelten Namen wuerde sonst z.B. beim JSON-
-    Export eine Spalte stillschweigend eine andere ueberschreiben).
-  - Unabhaengig vom gewaehlten Format enthaelt die Datei mindestens ZWEI
-    Zeitspalten - "Zeitstempel" (echtes Datum/Uhrzeit aus dem Dateinamen)
-    und "Laufzeit (...)" (relative Aufnahmedauer ab 00:00:00 -- Spaltenkopf
-    und Werte richten sich nach dem an den Graphen gewaehlten Laufzeit-
-    Format, Standard "Laufzeit (HH:MM:SS)", siehe Abschnitt 8), bei
-    aktivierter Option "Zusätzliche fortlaufende Laufzeit-Spalte" (siehe
-    oben, Standard: AN) eine DRITTE Zeitspalte "Laufzeit (fortlaufend,
-    Sekunden/Minuten/Stunden)" - gefolgt von einer Spalte je AUSGEWAEHLTEM
-    Eintrag (bei allen 5 Standard-Messbereichen plus Live-Cursor ohne
-    Abwahl also 9 Spalten insgesamt mit der von Haus aus aktivierten
-    zusaetzlichen Laufzeit-Spalte, 8 wenn sie abgehakt wird). Ist
-    die Zeile "Live (Cursor)" mit dabei, stehen
-    davor zusaetzlich zwei feste Spalten "Live X-Achse"/"Live Y-Achse"
-    mit der (ueber die gesamte Aufnahme konstanten) Pixel-Position des
-    Cursors.
+WERTE EXPORTIEREN (für Excel, Python u.ä.)
+Ein Fenster für Messbereiche und Live-Cursor.
+  - "Format": CSV (Standard; ';'-getrennt mit Dezimalkomma, in deutschem
+    Excel direkt lesbar), Text (Tabulator-getrennt) oder JSON (ein Objekt
+    pro Frame, Zahlen mit Dezimalpunkt).
+  - Danach folgt die Auswahlliste: pro Messbereich eine Checkbox
+    (Standard: alle; "ALLE" schaltet alle um). Ist ein Live-Cursor-Pixel
+    verfügbar, steht "Live (Cursor)" ebenfalls in der Liste. Auch die
+    Schwindungsmessung und jede Probenhöhe (Abschnitt 17) sind als Spalten
+    wählbar.
+  - Der Spaltenname jeder Zeile ist frei änderbar. Mit "px" und/oder
+    "mm" (mm nur mit gesetztem Maßstab) wird die Größe sofort in den
+    Namen eingetragen, z.B. "ROI 1 (30x30 px, 10,0x10,0 mm)";
+    "ALLE px"/"ALLE mm" schalten alle Zeilen um. Spaltennamen müssen
+    eindeutig sein, sonst erscheint beim "OK" eine Warnung.
+  - "Zusätzliche fortlaufende Laufzeit-Spalte" (Standard: an) fügt die
+    verstrichene Zeit als Dezimalzahl hinzu, Einheit Sekunden, Minuten
+    oder Stunden.
+  - Die Datei enthält immer die Spalten "Zeitstempel" und "Laufzeit",
+    danach eine Spalte je gewähltem Eintrag. Mit Live-Cursor stehen
+    davor "Live X-Achse" und "Live Y-Achse" (Pixelposition des Cursors).
 
 
 ================================================================
 10. VIDEO / BILDSTAPEL EXPORTIEREN
 ================================================================
 
-Ueber "Export > Video / Bildstapel exportieren..." laesst sich die
-geladene Serie entweder als MP4-, AVI- oder WebM-Video ODER als
-Bildstapel (eine einzelne Bilddatei pro Frame im gewaehlten Ordner)
-speichern - ganz oben im Dialog per "Ausgabeform" waehlbar:
+"Export > Video / Bildstapel exportieren…" speichert die Serie als
+Video oder als Bildstapel. Das Fenster ist wie der Grafik-Export in
+die Reiter "Graphen", "Bild & Maßstab", "Farbskala" und "Ausgabe"
+gegliedert und hat dieselbe Vorschau. Der Export läuft mit
+Fortschrittsanzeige und lässt sich abbrechen.
 
-  - "Video-Datei (MP4/AVI/WebM)" (Standard) -> Dateiformat wird beim
-    anschliessenden Speichern-Dialog ueber die Endung/den Dateityp-
-    Filter gewaehlt.
-  - "Bildstapel (eine Bilddatei pro Frame)" -> zusaetzlich waehlbar:
-    Bildformat (PNG, JPEG, BMP, TIFF oder WebP) und ein "Dateiname-Muster"
-    (Standard "Frame_IDX_") -- volle Kontrolle: es wird NICHTS automatisch
-    an den getippten Text angehaengt. Das Muster versteht dieselben
-    Zeitstempel-Platzhalter wie das Namensschema beim Laden (YYYY/MM/DD/
-    hh/mm/ss, siehe Abschnitt 3), die mit dem ECHTEN Zeitstempel jedes
-    einzelnen Frames gefuellt werden (sofern die Original-Daten diese
-    Information enthalten), sowie zwei weitere Platzhalter:
-      * "IDX" -> die fortlaufende, nullgefuellte Frame-Nummer. Enthaelt
-        das Muster "IDX", wird die Nummer GENAU DORT eingesetzt (frei
-        platzierbar, z.B. VOR einem Zeitstempel); enthaelt es "IDX"
-        NICHT, bleibt das Muster fuer jeden Frame exakt so stehen, wie
-        eingegeben -- praktisch, wenn bereits ein voller Zeitstempel
-        (YYYY-MM-DD_hh-mm-ss) im Muster die Dateien eindeutig
-        unterscheidbar macht und eine zusaetzliche Nummer ueberfluessig
-        waere.
-      * "LAUFs" / "LAUFm" / "LAUFh" -> die verstrichene Aufnahmezeit
-        dieses Frames (ab Aufnahmebeginn) -- der Buchstabe direkt nach
-        "LAUF" waehlt die Einheit: "s" = Sekunden ("0125s", 4-stellig
-        nullgefuellt), "m" = Minuten ("003min", 3-stellig nullgefuellt),
-        "h" = Stunden ("03h", 2-stellig nullgefuellt). KEIN separates
-        Auswahlfeld daneben -- das Muster selbst legt die Einheit fest,
-        z.B. "Frame_IDX_LAUFm" statt "Frame_IDX_LAUFmin" (das "m" gehoert
-        zum Platzhalternamen, nicht zum spaeter angezeigten "min"-Suffix,
-        der wird beim Rendern automatisch ergaenzt). Praktisch, um Frames
-        anhand der Laufzeit statt der Bildnummer zu benennen. WICHTIG:
-        "LAUFs"/"LAUFm"/"LAUFh" allein macht Dateinamen NICHT zwingend
-        eindeutig, da mehrere Frames dieselbe gerundete Sekunde/Minute/
-        Stunde teilen koennen -- die Warnung unten erkennt das trotzdem
-        zuverlaessig, "IDX" zusaetzlich ins Muster aufzunehmen loest es
-        endgueltig.
-    Direkt darunter zeigt "Beispiel:" den tatsaechlichen Dateinamen des
-    ERSTEN exportierten Bildes live an (mit bereits eingesetztem
-    Zeitstempel/Index/Laufzeit), waehrend getippt wird.
-    Beispiel bei 3 exportierten Frames (je 1 Minute auseinander):
-      Muster "Frame_YYYY-MM-DD_hh-mm-ss_" (ohne IDX, Zeitstempel machts
-      bereits eindeutig):
-        Frame_2026-01-01_12-00-00_.png
-        Frame_2026-01-01_12-00-01_.png
-        Frame_2026-01-01_12-00-02_.png
-      Muster "Frame_IDX_YYYY-MM-DD_" (mit IDX, Nummer explizit platziert):
-        Frame_1_2026-01-01_.png
-        Frame_2_2026-01-01_.png
-        Frame_3_2026-01-01_.png
-      Muster "Frame_IDX_LAUFm" (mit IDX und LAUFm, Einheit Minuten):
-        Frame_1_000min.png
-        Frame_2_001min.png
-        Frame_3_002min.png
-    (die Anzahl der Index-Ziffern richtet sich nach der Gesamtzahl der
-    exportierten Frames). Ergibt das gewaehlte Muster fuer den gewaehlten
-    Frame-Bereich KEINE eindeutigen Dateinamen (z.B. weil weder "IDX" noch
-    ein voller Zeitstempel enthalten ist -- spaetere Frames wuerden dann
-    fruehere stillschweigend ueberschreiben), erscheint dazu bereits im
-    Dialog eine Warnung, und beim tatsaechlichen Start des Exports fragt
-    das Programm verbindlich nach: "IDX" automatisch anhaengen oder das
-    Muster selbst anpassen. Enthaelt das Muster Zeitstempel-Platzhalter,
-    haben die geladenen Dateien aber KEINEN aus ihrem Dateinamen
-    erkennbaren echten Zeitstempel (Namensschema passt nicht, siehe
-    Abschnitt 3), fragt das Programm beim Start des Bildstapel-Exports
-    nach, wie stattdessen verfahren werden soll: "Aktuelles Systemdatum
-    verwenden" (Start-Zeitpunkt = jetzt), "Eigenen Startpunkt festlegen..."
-    (frei waehlbares Datum/Uhrzeit fuer den ersten Frame) oder "Abbrechen".
-    In beiden ersten Faellen bleiben die zeitlichen ABSTAENDE zwischen den
-    Frames wie in der Aufnahme erhalten, nur der Ausgangspunkt aendert
-    sich. Statt einer einzelnen Datei wird anschliessend ein ZIELORDNER
-    gewaehlt, in den alle Bilder geschrieben werden. Die
-    "Wiedergabe-FPS" hat fuer den Bildstapel keine Bedeutung (Feld bleibt
-    ausgegraut) - alle uebrigen Einstellungen (Frame-Bereich,
-    Farbskala/Legende, Temperaturverlauf-Graph, Cursor & Maßstab im Bild,
-    Zeitanzeige im Bild) gelten identisch fuer beide Ausgabeformen.
+REITER "Ausgabe" - AUSGABEFORM:
+  - "Video-Datei (MP4/AVI/WebM)" (Standard): das Format ergibt sich beim
+    Speichern aus Endung bzw. Dateityp.
+  - "Bildstapel (eine Bilddatei pro Frame)": Bildformat PNG, JPEG, BMP,
+    TIFF oder WebP; alle Bilder landen in einem gewählten Zielordner.
+    Die Wiedergabe-FPS sind hier ohne Bedeutung.
 
-Bricht der anschliessende Speichern-/Zielordner-Dialog ab (z.B. "Abbrechen"
-angeklickt, weil im Export-Manager selbst noch etwas angepasst werden soll),
-oeffnet sich der Export-Manager erneut MIT allen zuvor getroffenen
-Einstellungen -- nichts geht verloren, es muss nicht von vorn begonnen
-werden. Gilt gleichermassen fuer den Grafik-Export (Abschnitt 9).
+DATEINAME-MUSTER (Bildstapel; Standard "Frame_IDX_"): Es wird nichts
+automatisch angehängt. Platzhalter:
+  - YYYY, MM, DD, hh, mm, ss: echter Zeitstempel des Frames
+  - IDX: fortlaufende, nullgefüllte Frame-Nummer (an beliebiger Stelle)
+  - LAUFs, LAUFm, LAUFh: verstrichene Zeit seit Aufnahmebeginn in
+    Sekunden, Minuten oder Stunden
+Das Feld "Beispiel" zeigt den Dateinamen des ersten Bildes live.
+Beispiele:
+  "Frame_YYYY-MM-DD_hh-mm-ss_" -> Frame_2026-01-01_12-00-00_.png
+  "Frame_IDX_YYYY-MM-DD_"      -> Frame_1_2026-01-01_.png
+  "Frame_IDX_LAUFm"            -> Frame_1_000min.png
+Sind die Dateinamen nicht eindeutig (z.B. weder IDX noch voller
+Zeitstempel), erscheint schon im Dialog eine Warnung; beim Start fragt
+das Programm, ob "IDX" automatisch angehängt werden soll. Fehlt den
+geladenen Dateien ein erkennbarer Zeitstempel, bietet das Programm an,
+das Systemdatum oder einen eigenen Startzeitpunkt zu verwenden (die
+Abstände zwischen den Frames bleiben erhalten).
 
-Alle uebrigen Einstellungen im Dialog:
+WEITERE EINSTELLUNGEN:
+  - "Frame-Bereich & Tempo" (Reiter "Ausgabe"): "Von-Frame / Bis-Frame"
+    wählt einen Ausschnitt der Serie (vorbelegt mit Auswertungsstart/
+    -ende), "Wiedergabe-FPS" die Geschwindigkeit des Videos.
+  - "Farbskala / Legende" (Reiter "Farbskala"): ein-/ausblendbar;
+    "Aktuelle Anzeige-Einstellungen übernehmen" oder eigene Einstellungen
+    nur für diesen Export.
+  - Reiter "Graphen": "Zeitverlauf", "Schwindung" und/oder "Querschnitt" wie
+    beim Grafik-Export (Standard: keiner). Der Zeitverlauf zeigt eine
+    wandernde Zeitmarkierung. Auch "Graph-Inhalt", "Querschnitt-Inhalt",
+    "Position" und "Achsen" funktionieren wie in Abschnitt 9; die
+    Achsen gelten für alle Frames gleich.
+  - Reiter "Bild & Maßstab": "Ebenen im Bild" und "Cursor & Maßstab im
+    Bild" wie in Abschnitt 9, dazu "Zeitanzeige im Bild": ein Streifen unten im Bild mit "Laufzeit"
+    (Fortschrittsbalken mit grüner/roter Markierung für Start/Ende des
+    Ausschnitts innerhalb der Gesamtaufnahme, blauer Punkt für den
+    aktuellen Frame, dazu verstrichene und gesamte Laufzeit),
+    "Zeitstempel" (Datum/Uhrzeit), "Beides" (Standard) oder "Keine".
+  - Sind Bilder durch die Rohdaten-Bereinigung ausgeblendet, bietet der
+    Video-Export "Ausgeblendete Bilder durch das vorherige Bild ersetzen
+    (statt Lücke zu überspringen)". Dann bleibt die Frame-Zahl gleich,
+    der Zeitstempel im Bild bleibt der echte. Standardmäßig werden
+    ausgeblendete Bilder übersprungen, beim Bildstapel immer.
 
-  - Von-Frame / Bis-Frame  -> nur ein Ausschnitt der Serie exportieren
-                               (z.B. nur Frame 40 bis 100), vorbelegt mit
-                               dem aktuell im Hauptfenster gesetzten
-                               Auswertungsstart/-ende (Abschnitt 4).
-  - Wiedergabe-FPS          -> Abspielgeschwindigkeit im fertigen Video
-                               (ohne Bedeutung/ausgegraut beim Bildstapel).
-  - "Farbskala (Legende) einblenden" -> ein-/ausschaltbar. Falls
-    eingeblendet, zusaetzlich waehlbar:
-      * "Aktuelle Anzeige-Einstellungen uebernehmen" -> verwendet
-        Farbverlauf und Skalierungsmodus (Abschnitt 7) genau so, wie
-        sie gerade im Hauptfenster eingestellt sind.
-      * "Eigene Einstellungen fuer dieses Video" -> Farbverlauf,
-        Invertierung, Skalierungsmodus und Min/Max werden nur fuer
-        diesen einen Export separat festgelegt, die Anzeige im
-        Hauptfenster bleibt danach unveraendert.
-  - "Graphen" -> per Checkbox waehlen, WELCHE Graphen zusaetzlich mit
-    eingeblendet werden: "Zeitverlauf", "Schwindung" (Abschnitt 18) und/
-    oder "Querschnitt" (Abschnitt 21) -- beliebig viele gleichzeitig, auch
-    alle drei (Standard: KEINER angehakt, wie bisher "Graph mit
-    exportieren" aus). Der Zeitverlauf-Graph zeigt dabei dieselbe
-    wandernde Zeit-Markierungslinie wie im Hauptfenster; "Schwindung"
-    wird immer mit der AKTUELL im Hauptfenster gezeigten Kenngroesse
-    exportiert. "Graph-Inhalt" daneben ist nur relevant, solange
-    "Zeitverlauf" angehakt ist, und waehlt PER CHECKBOX, welche
-    Kurve(n) darin erscheinen: jeder platzierte Messbereich einzeln
-    (Standard: alle an) und/oder "Live-Cursor" (nur verfuegbar, wenn
-    gerade ein Live-Cursor-Pixel vorliegt, siehe Abschnitt 8; Standard:
-    aus) -- genau wie beim Grafik-Export (Abschnitt 9). Analog dazu
-    "Querschnitt-Inhalt" (nur relevant, solange "Querschnitt" angehakt
-    ist): waehlt PER CHECKBOX, welche der angelegten Querschnitt-Linien
-    (Abschnitt 21) mit exportiert werden (Standard: alle an). "Position:" legt
-    fest, WO der gesamte Graphen-Block relativ zum Thermobild sitzt:
-    Unter/Über/Links/Rechts vom Bild (frei waehlbar, Standard: Rechts);
-    mehrere ausgewaehlte Graphen reihen sich dabei stets entlang derselben
-    Achse wie das Bild an. Darunter "Achsen" -- dieselbe Wahl wie beim
-    Grafik-Export (Abschnitt 9, Punkt 6), betrifft NUR den Zeitverlauf-
-    Graphen: "Aktuelle Ansicht uebernehmen" (Standard) oder ueber
-    "Einstellen…" eigene Achsen-Einstellungen (Wertebereich/Tick-Abstand)
-    NUR fuer dieses eine Video/diesen Bildstapel, gelten dann fuer ALLE
-    exportierten Frames gleich. Dieser gesamte Kasten betrifft NUR die
-    Kurven-Graphen -- nicht das Thermobild selbst.
-  - "Ebenen im Bild" -> per Checkbox waehlen, welche Bild-Overlays im
-    exportierten THERMOBILD selbst erscheinen -- genau dieselben beiden
-    Kategorien wie beim Grafik-Export (Abschnitt 9, Punkt 2): "Temperatur-
-    Messung (ROI-Messbereiche)" und/oder "Schwindungsmessung (Box, Kontur,
-    Probenhöhen)" (Abschnitt 18), unabhaengig vom aktuell im Hauptfenster
-    gewaehlten Ebenen-Tab (Abschnitt 19). Beide Standard AN. Bewusst als
-    EIGENE, von "Graphen" UNABHAENGIGE Box, auch ohne jede angehakte
-    Graphen-Checkbox bedienbar -- betrifft ausschliesslich das Thermobild,
-    nicht die Kurven-Graphen.
-  - "Cursor & Maßstab im Bild" -> EIGENER, vom Graphen UNABHAENGIGER Kasten
-    (bewusst NICHT Teil von "Graphen", auch ohne jede angehakte Graphen-
-    Checkbox bedienbar) fuer alles, was zusaetzlich DIREKT AUF DEM
-    THERMOBILD eingeblendet wird:
-      * "Cursor-Position im Bild anzeigen" (Standard: AUS) blendet das
-        Fadenkreuz samt Temperaturanzeige am fixierten/zuletzt
-        angefahrenen Cursor-Pixel im THERMOBILD mit ein, unabhaengig von
-        der "Live-Cursor"-Kurve im Graphen einzeln schaltbar (die Kurve
-        setzt diese Option allerdings voraus -- ein Anhaken von
-        "Live-Cursor" aktiviert sie automatisch mit). Bleibt der Haken
-        leer, enthaelt der Export KEINE Maus-Markierung im Bild.
-      * Darunter, falls ein Maßstab und/oder Messungen definiert sind
-        (Abschnitt 11): "Alle auswählen"/"Keine auswählen" plus je eine
-        Checkbox fuer den Maßstab (Referenzlinie) und jede einzelne
-        Messung -- genau wie bei den Messbereichen im Graph-Inhalt
-        einzeln an-/abwaehlbar (Standard: alle AUS, eine rein optionale
-        Zusatzanzeige). Ohne definierten Maßstab/Messungen steht hier nur
-        ein Hinweistext.
-  - "Zeitanzeige im Bild" -> blendet unten im Bild einen Streifen ein,
-    waehlbar als 2x2-Auswahl (Namen bewusst wie im uebrigen Programm, mit
-    Tooltip bei Laufzeit/Zeitstempel; Standard: "Beides"). Nicht zu
-    verwechseln mit "Zeitachse:" beim Grafik-Export (Abschnitt 9, Punkt 6,
-    Teil der "Achsen"-Box) -- dort geht es um die X-ACHSE des Kurven-Graphen, hier um einen Text/
-    Balken, der direkt in das Bild/Video eingebrannt wird:
-      * "Laufzeit" -> Fortschrittsbalken mit gruener/roter Markierung
-        an der TATSAECHLICHEN Position von Start/Ende des exportierten
-        Bereichs INNERHALB DER GESAMTEN Aufnahme (nicht an den Rand der
-        Leiste geklemmt), ein blauer Punkt wandert dazwischen mit dem
-        aktuellen Frame mit, plus verstrichene/gesamte Laufzeit relativ
-        zum Aufnahmebeginn -- im an den Graphen gewaehlten Laufzeit-Format
-        (Standard hh:mm:ss, wahlweise auch eine Zahl in Sekunden/Minuten/
-        Stunden, siehe Abschnitt 8). Der Video-/Bildstapel-INHALT selbst
-        bleibt dabei unveraendert auf den gewaehlten Von-/Bis-Frame
-        beschraenkt -- die Leiste zeigt nur zusaetzlich dessen Einbettung
-        in die Gesamtaufnahme.
-      * "Keine" -> kein Streifen.
-      * "Zeitstempel" -> reales Datum/Uhrzeit des jeweiligen Bilds.
-      * "Beides" (Standard) -> Fortschrittsbalken UND Zeitstempel
-        gemeinsam.
-
-  Hinweis: Der Video-Export (nicht der Bildstapel-Export) benoetigt
-  intern das Paket "imageio" (mit "imageio-ffmpeg"). In den fertigen
-  exe-/Binaerdateien (siehe Abschnitt 2) ist das bereits enthalten; bei
-  einem Start aus dem Quellcode installiert "uv run python run.py" es
-  automatisch mit.
-
-Wie beim Bild-Export ist das Thermobild eng zugeschnitten (kein
-unnoetiger Leerraum links/rechts zwischen Bild und Achse bzw.
-Farbskala, siehe Abschnitt 9). Ebenso zeigt eine Vorschau im Export-
-Fenster die grobe Anordnung von Bild und Graph(en) (waechst mit, wenn das
-Fenster groesser gezogen wird) und der gesamte Dialog-Inhalt steckt in
-einem Scrollbereich, siehe Abschnitt 9.
-
-Der Export laeuft mit Fortschrittsanzeige (abbrechbar). Waehrend des
-Renderns bleibt die Anzeige im Hauptfenster VOLLSTAENDIG unveraendert --
-weder Linien-/Schriftgroessen-Sprünge noch ein sichtbarer Wechsel der
-Registerkarte, falls der exportierte Graph (z.B. "Zeitverlauf") gerade
-nicht der vorne liegende Tab ist -- und wird danach automatisch wieder
-auf den Anzeigezustand von vor dem Export zurueckgesetzt.
+Der Video-Export benötigt "imageio" mit "imageio-ffmpeg"; in den fertigen
+Programmdateien ist beides enthalten.
 
 
 ================================================================
-11. MASSSTAB (LINEAL), MESSUNGEN UND REALE GRÖSSEN IN MM
+11. MASSSTAB UND MESSUNGEN
 ================================================================
 
-Ueber "Werkzeuge > Massstab festlegen..." (oder den Knopf
-"Festlegen..." im Panel "Massstab & Messungen") laesst sich eine
-Referenzlaenge im Bild definieren:
+MASSSTAB: Über "Werkzeuge > Maßstab festlegen…" (oder "Festlegen…" im
+Reiter "Maßstab") wird eine Referenzstrecke definiert:
+  1. Startpunkt der Referenzlinie anklicken.
+  2. Endpunkt anklicken.
+  3. Im Dialog die reale Länge in mm eingeben (z.B. "30").
+Die Linie bleibt mit ihrer mm-Länge im Bild stehen. Das Panel zeigt den
+Umrechnungsfaktor (z.B. "1 px ≈ 0,42 mm"), und bei jedem Messbereich
+erscheint zusätzlich die reale Größe in mm. "Entfernen" löscht Maßstab
+und Referenzlinie, das Farbfeld daneben ändert die Linienfarbe.
 
-  1. Startpunkt der Referenzlinie im Bild anklicken - ab hier ist eine
-     deutlich sichtbare Linie mit Punktmarkierung zu sehen (Standard-
-     farbe kraeftig rot).
-  2. Endpunkt anklicken - die Linie zieht sich bis zu dieser Stelle mit.
-  3. Im erscheinenden Dialog die reale Laenge dieser Linie in mm
-     eingeben (z.B. "30" fuer eine 30 mm lange Referenzstrecke).
+Nachträglich anpassen:
+  - Endpunkte per Maus verschieben: die mm-Länge bleibt fest, der
+    Umrechnungsfaktor wird neu berechnet.
+  - Doppelklick auf die Linie: reale Länge ändern (die Endpunkte bleiben).
+  - Die mm-Beschriftung lässt sich per Ziehen frei neben der Linie
+    positionieren.
 
-Die Referenzlinie bleibt danach direkt im Bild stehen, mit der
-eingegebenen mm-Laenge als kleiner Beschriftung darunter - so ist auf
-einen Blick nachvollziehbar, welche Strecke dem Massstab zugrunde
-liegt. Zusaetzlich zeigt das Panel "Massstab & Messungen" den ermittelten
-Umrechnungsfaktor (z.B. "1 px ≈ 0,42 mm") und bei jedem Messbereich
-erscheint zusaetzlich zur Pixel-Groesse die reale Groesse in mm (in
-Klammern). Die Handhabung der Messbereiche selbst bleibt weiterhin in
-Pixeln - der mm-Wert ist nur eine zusaetzliche Anzeige. Ueber den Knopf
-"Entfernen" im Panel laesst sich die Umrechnung samt der eingezeichneten
-Referenzlinie wieder loeschen.
-
-Die fertige Referenzlinie muss NICHT geloescht und neu gezeichnet
-werden, um sie nachtraeglich anzupassen:
-
-  - Beide Endpunkte lassen sich einzeln per Maus verschieben (kleine
-    Ziehpunkte an Start/Ende) -- die reale Laenge in mm bleibt dabei
-    unveraendert, nur der Umrechnungsfaktor (px zu mm) wird automatisch
-    aus der neuen Pixel-Distanz neu berechnet.
-  - Ein DOPPELKLICK auf die Linie oeffnet erneut den Laengen-Dialog, um
-    die reale Laenge selbst zu aendern -- hier bleiben umgekehrt die
-    aktuellen Endpunkte unangetastet. (Ein Doppelklick GENAU auf die
-    mm-Beschriftung selbst funktioniert dafuer nicht mehr, seit diese
-    frei verschiebbar ist, siehe unten -- ueber die Linie klappt es
-    weiterhin.)
-  - Die mm-Beschriftung laesst sich per Ziehen frei in der Naehe der
-    Linie positionieren (z.B. um Ueberlappungen mit anderen
-    Beschriftungen zu vermeiden) -- sie "merkt" sich danach ihren
-    Versatz zur Linienmitte und bleibt dort, auch wenn die Linie selbst
-    spaeter verschoben wird. Ein neu festgelegter Massstab (per
-    "Festlegen...") startet wieder mit der Beschriftung direkt an der
-    Linienmitte.
-
-Das kleine Farbfeld neben "Entfernen" oeffnet die Farbauswahl fuer die
-Referenzlinie -- nuetzlich, falls die Standardfarbe bei einem bestimmten
-Farbverlauf (z.B. "Hot", der ebenfalls viel Rot enthaelt) kaum zu
-erkennen ist.
-
-Der Massstab wird beim Speichern eines Projekts (Abschnitt 12) mit
-gesichert und laesst sich beim CSV-Export als "mm"-Autofill fuer
-Spaltennamen nutzen (Abschnitt 9).
-
-MESSUNGEN (beliebig viele gleichzeitig, per MESSMODUS):
-Sobald ein Massstab definiert ist, steht zusaetzlich der Knopf "Messmodus"
-im Panel "Massstab & Messungen" zur Verfuegung -- ein echter Ein/Aus-
-Schalter (kein einmaliger Klick pro Messung): einschalten, dann Start-
-und Endpunkt einer beliebigen Strecke im Bild anklicken, genau wie beim
-Festlegen des Massstabs -- NUR wird dabei NICHT nach einer realen Laenge
-gefragt und der Massstab selbst bleibt unveraendert. Direkt danach kann
-sofort die NAECHSTE Strecke (wieder Start-, dann Endpunkt) angeklickt
-werden, ohne den Knopf erneut zu druecken -- so lassen sich beliebig
-viele Messungen nacheinander anlegen, bis der Messmodus-Knopf wieder
-ausgeschaltet wird (oder ein anderes Werkzeug wie ein Messbereich-
-Platzieren/der Massstab selbst ihn automatisch beendet). Jede fertig
-gemessene Strecke erscheint sofort mit ihrer anhand des bestehenden
-Massstabs berechneten Laenge in mm als Beschriftung an der neu
-gezeichneten Messlinie UND als eigene Zeile im Panel darunter.
-
-Im Unterschied zum Massstab (immer genau EINER) lassen sich so beliebig
-viele Messungen gleichzeitig anlegen -- praktisch, um z.B. mehrere
-Durchmesser desselben Objekts auf einmal im Bild zu behalten. Jede
-Messung erscheint als eigene Zeile im Panel mit:
-
-  - einem Farbfeld (Klick oeffnet die Farbauswahl, jede Messung bekommt
-    beim Anlegen automatisch eine eigene, gut unterscheidbare Farbe),
-  - einem frei editierbaren Namen (Standard "Messung 1", "Messung 2", ...
-    - Aenderungen wirken sofort auch auf die Beschriftung im Bild),
-  - dem aktuellen mm-Wert (aktualisiert sich live beim Ziehen der
-    Endpunkte),
-  - einem "✕"-Knopf, der GENAU diese eine Messung wieder entfernt (Bild
-    UND Panel-Zeile), ohne die anderen zu beeinfluessen.
-
-Jede Messlinie laesst sich per Ziehen der Endpunkte nachtraeglich
-anpassen -- die mm-Anzeige (im Bild UND im Panel) aktualisiert sich live.
-Genau wie beim Massstab laesst sich auch die Beschriftung jeder Messung
-per Ziehen frei in deren Naehe positionieren, um Ueberlappungen zu
-vermeiden (z.B. bei mehreren Messungen desselben Objekts) -- der Versatz
-zur Linienmitte bleibt danach erhalten. Ohne definierten Massstab ist
-"Messmodus" ausgegraut. Messungen werden wie der Massstab beim
-Speichern eines Projekts (Abschnitt 12) mit gesichert.
+MESSUNGEN: Mit gesetztem Maßstab steht der Schalter "Messmodus" bereit.
+Einschalten, dann Start- und Endpunkt einer Strecke anklicken. Direkt
+danach kann die nächste Strecke gemessen werden, bis der Messmodus
+ausgeschaltet wird (oder ein anderes Werkzeug ihn beendet). Es gibt
+beliebig viele Messungen; jede erscheint mit ihrer Länge in mm an der
+Linie und als Zeile im Panel mit:
+  - Farbfeld
+  - editierbarem Namen (Standard "Messung 1", "Messung 2", …)
+  - aktuellem mm-Wert (live beim Ziehen der Endpunkte)
+  - "✕"-Knopf zum Entfernen dieser Messung
+Endpunkte und Beschriftung lassen sich per Ziehen anpassen. Ohne
+Maßstab ist der Messmodus ausgegraut.
 
 
 ================================================================
 12. PROJEKT SPEICHERN UND LADEN
 ================================================================
 
-Ueber das Menue "Datei" lassen sich die Einstellungen einer Sitzung
-(NICHT die Messdaten selbst) in einer kleinen Projektdatei sichern -- wie
-z.B. ein Auswertungs-Speicherstand in Origin, den man spaeter zusammen
-mit den Rohdaten wieder oeffnet:
+Über das Menü "Datei" lässt sich der Auswertungsstand (nicht die
+Messdaten selbst) in einer ".tvproj"-Datei sichern:
+  - "Projekt speichern…"
+  - "Projekt laden…"
 
-  - "Projekt speichern..." -> schreibt Position, Groesse, Name, Farbe
-                              und Sichtbarkeit aller Messbereiche sowie
-                              Farbverlauf, Legenden-Limits, Massstab
-                              (inkl. Referenzlinien-Farbe), alle
-                              Messungen (Abschnitt 11), Auswertungs-
-                              start/-ende, die Rohdaten-Bereinigung
-                              (Referenzpunkte, Schwellenwert und
-                              ausgeblendete Bilder, siehe Abschnitt 17),
-                              die Schwindungsmessung (Box, Boxfarbe,
-                              Konturfarbe, Kenngröße, siehe Abschnitt
-                              18), alle Probenhöhen (Zeile, Name, Farbe,
-                              siehe ebenfalls Abschnitt 18) UND den
-                              Quellordner der Messreihe in
-                              eine Datei mit Endung ".tvproj" -- damit gibt
-                              "Projekt speichern/laden" den vollstaen-
-                              digen Auswertungs-Zustand wieder, nicht
-                              nur die Messbereiche.
-  - "Projekt laden..."     -> wendet eine zuvor gespeicherte
-                              ".tvproj"-Datei an.
+Gespeichert werden Messbereiche (Position, Größe, Name, Farbe,
+Sichtbarkeit), Farbverlauf und Legenden-Grenzen, Maßstab und Messungen,
+Auswertungsstart/-ende, Rohdaten-Bereinigung, Schwindungsmessung und
+Probenhöhen, Querschnitte samt Y-Achse sowie der Quellordner der
+Messreihe.
 
-Ist beim Laden bereits eine Messreihe geoeffnet, wird das Projekt direkt
-darauf angewendet. Ist NOCH KEINE Messreihe geladen (z.B. frischer
-Programmstart, direkt "Projekt laden..." angeklickt), laedt die App
-automatisch den beim Speichern hinterlegten Quellordner mit nach --
-KEIN vorheriges manuelles "Ordner öffnen..." mehr noetig. Nur falls
-dieser Ordner nicht mehr existiert (z.B. verschoben/umbenannt/auf einem
-anderen Rechner geoeffnet), fragt die App EINMALIG nach dem passenden
-Ordner.
+Ist beim Laden bereits eine Messreihe geöffnet, wird das Projekt darauf
+angewendet. Andernfalls lädt die App automatisch den gespeicherten
+Quellordner (existiert er nicht mehr, fragt sie einmalig nach dem
+Ordner). Wird ein Projekt auf eine Messreihe aus einem anderen Ordner
+angewendet, erscheint ein Hinweis: Messbereiche dann auf Plausibilität
+prüfen (z.B. bei abweichender Bildauflösung).
 
-Nuetzlich, um bei wiederkehrenden Messungen (z.B. derselbe Pruefstand)
-nicht jedes Mal alle Messbereiche neu platzieren zu muessen. Wird ein
-Projekt auf eine Messreihe aus einem anderen Quellordner als beim
-Speichern angewendet, erscheint ein Hinweis - die Messbereiche sollten
-dann kurz auf Plausibilitaet geprueft werden (z.B. falls sich die
-Bildaufloesung unterscheidet).
+Das Laden eines Projekts leert den Rückgängig-Verlauf.
 
 
 ================================================================
-13. FENSTER/PANELS ANORDNEN
+13. FENSTER UND PANELS ANORDNEN
 ================================================================
 
-Die beiden rechten Panels ("Werkzeuge", "Temperaturverlauf") lassen sich in
-der Breite verstellen (Rand mit der Maus ziehen). "Werkzeuge" zeigt
-zusaetzlich eine Titelzeile und laesst sich damit wie in professionellen
-Programmen ueblich:
-
-  - links oder rechts andocken (am Titel packen und verschieben)
-  - schliessen (X-Knopf oben am Panel) und ueber das Menue
-    "Ansicht" wieder einblenden
-  - als eigenes, frei verschiebbares Fenster abdocken (Titel packen
-    und aus dem Hauptfenster herausziehen)
-
-Das Panel "Temperaturverlauf" (enthaelt die Tabs Zeitverlauf/Schwindung/
-Querschnitt, siehe Abschnitt 8) hat bewusst KEINE eigene Titelzeile ueber
-dem Graphen (redundant -- offensichtlich, worum es sich handelt); Ein-/
-Ausblenden funktioniert dafuer weiterhin ueber "Ansicht > Temperaturverlauf".
-
-Das Menue "Ansicht" bleibt (anders als sonst in Qt-Menues ueblich) nach
-dem Anklicken einer Checkbox (Panel-Sichtbarkeit, Fenster-/Thermobild-/
-Graph-Farbschema) GEOEFFNET, statt sich sofort zu schliessen -- so lassen
-sich mehrere Haekchen nacheinander setzen, ohne das Menue jedes Mal neu
-aufklappen zu muessen. Es schliesst sich erst bei einem Klick ausserhalb
-des Menues oder auf einen nicht-ankreuzbaren Eintrag (z.B. "Alles: Hell"/
-"Alles: Dunkel").
+Die rechten Panels "Werkzeuge" und "Temperaturverlauf" lassen sich in der
+Breite verstellen (Rand mit der Maus ziehen). Mit der Titelzeile von
+"Werkzeuge" lässt sich das Panel
+  - links oder rechts andocken,
+  - schließen (X-Knopf) und über das Menü "Ansicht" wieder einblenden,
+  - als frei verschiebbares Fenster abdocken.
+Das Panel "Temperaturverlauf" hat keine Titelzeile; Ein-/Ausblenden
+geht über "Ansicht > Temperaturverlauf". Die Graphen-Reiter lassen sich
+ebenfalls zu eigenen Fenstern herausziehen.
 
 
 ================================================================
-14. HINWEISE UND PROBLEMBEHEBUNG
+14. PROBLEME UND LÖSUNGEN
 ================================================================
 
-- "Ich sehe im Graph nur einzelne Punkte, keine Linie."
-  -> Es sind (noch) zu wenige Frames geladen (z.B. nur 1). Sobald
-     mehrere Frames mit unterschiedlichen Zeitstempeln vorliegen,
-     erscheint automatisch eine durchgezogene Linie.
+- "Im Graph sehe ich nur einzelne Punkte, keine Linie."
+  -> Es sind zu wenige Frames geladen (z.B. nur 1). Ab mehreren Frames
+     mit verschiedenen Zeitstempeln erscheint eine durchgezogene Linie.
 
 - "Warnung: doppelte Zeitstempel erkannt."
-  -> Mindestens zwei geladene Dateien haben denselben Zeitstempel im
-     Dateinamen (haeufig durch Kopieren/Umbenennen einer Testdatei).
-     Fuer echte Messreihen sollte jede Datei einen eigenen, eindeutigen
-     Zeitstempel im Namen tragen.
+  -> Mindestens zwei Dateien haben denselben Zeitstempel im Namen (oft
+     durch Kopieren einer Datei). Echte Messreihen sollten eindeutige
+     Zeitstempel haben.
 
-- "Das Bild laesst sich nicht verschieben/zoomen."
-  -> Das ist Absicht, siehe Abschnitt 4.
+- "Das Bild lässt sich nicht verschieben oder zoomen."
+  -> Das ist so gewollt (siehe Abschnitt 4).
 
-- "Welche exe (windows10-11 / windows7-legacy) brauche ich?"
-  -> Windows 10 oder 11: die normale "windows10-11"-Variante.
-     Windows 7: die "windows7-legacy"-Variante. Diese basiert bewusst
-     auf einem aelteren, aber Windows-7-faehigen Software-Stand.
+- "Beim Laden werden einzelne Dateien übersprungen."
+  -> Unlesbare Dateien oder Frames mit abweichender Auflösung werden
+     ausgelassen (siehe Abschnitt 3); die Warnung nennt Datei und Grund.
 
-- "Beim Laden werden einzelne Dateien uebersprungen."
-  -> Siehe Abschnitt 3: einzelne kaputte/unlesbare Dateien oder Frames
-     mit abweichender Bildaufloesung werden automatisch uebersprungen,
-     damit der Rest der Messreihe trotzdem nutzbar bleibt. Die Warnung
-     listet Dateiname und Grund je uebersprungener Datei auf.
+- "Projekt laden verändert meine Messbereiche nicht wie erwartet."
+  -> Zuerst die passende Messreihe laden (siehe Abschnitt 12): ein
+     Projekt enthält nur Einstellungen, keine Messdaten.
 
-- "Projekt laden veraendert meine Messbereiche nicht wie erwartet."
-  -> Pruefen, ob wirklich zuerst die passende Messreihe geladen wurde
-     (siehe Abschnitt 12) - eine ".tvproj"-Datei enthaelt nur
-     Einstellungen, keine Messdaten.
+- "Welche exe brauche ich?"
+  -> Windows 10/11: "windows10-11". Windows 7: "windows7-legacy".
 
-- "Beim Start kommt 'Failed to extract VCRUNTIME140.dll: decompression
-   resulted in return code -3!'" (meist nach dem Kopieren der exe auf
-   einen anderen Rechner, z.B. per USB-Stick)
-  -> Ursache: der --onefile-Build wurde mit UPX-Kompression erstellt, die
-     auf manchen Zielrechnern (v.a. mit strengerer Antiviren-Software)
-     beim Entpacken fehlschlaegt -- ein bekanntes PyInstaller+UPX-Problem,
-     kein Fehler in dieser App selbst. Ab dem naechsten Release wird ohne
-     UPX gebaut, dann tritt der Fehler nicht mehr auf. Bis dahin: eine
-     neuere exe (falls verfuegbar) verwenden, oder das Antivirenprogramm
-     des Zielrechners pruefen/eine Ausnahme fuer die exe eintragen.
+- "Die exe lässt sich nicht kopieren oder startet nicht (Meldung
+  'Failed to extract VCRUNTIME140.dll' o.ä.)."
+  -> Meist blockiert Antiviren-Software oder der Windows-SmartScreen eine
+     heruntergeladene, unsignierte exe. Prüfen:
+       * Quarantäne des Virenscanners (z.B. Windows-Sicherheit > Viren-
+         & Bedrohungsschutz > Verlauf) und die exe ggf. wiederherstellen
+         bzw. als Ausnahme eintragen.
+       * Rechtsklick auf die heruntergeladene ZIP-Datei > Eigenschaften:
+         ist unten "Zulassen" angehakt, aktivieren und neu entpacken.
+       * Ziel-USB-Stick auf Schreibschutz und freien Speicher prüfen.
+     Hilft das nicht, bitte die genaue Fehlermeldung notieren.
 
-- "Die exe laesst sich nicht auf einen USB-Stick/einen anderen Rechner
-   kopieren (Kopiervorgang bricht ab, oder die Datei verschwindet danach
-   wieder)."
-  -> Meist Antiviren-Software oder der Windows SmartScreen-Filter, die
-     eine unsignierte, aus dem Internet heruntergeladene exe beim
-     Kopieren/ersten Ausfuehren blockieren oder in Quarantaene
-     verschieben -- kein Defekt der Datei selbst. Pruefen:
-       * Quarantaene-Bereich des Virenscanners (z.B. Windows-
-         Sicherheit > Viren- & Bedrohungsschutz > Verlauf) auf die exe
-         hin durchsuchen und ggf. wiederherstellen/als Ausnahme
-         eintragen.
-       * Rechtsklick auf die heruntergeladene ZIP-Datei -> Eigenschaften:
-         ist unten "Zulassen" angehakt, diese Blockierung aufheben, dann
-         erneut entpacken.
-       * Ziel-USB-Stick/-Ordner auf Schreibschutz bzw. ausreichend freien
-         Speicherplatz pruefen.
-     Sollte das Kopieren tatsaechlich (nicht nur scheinbar durch obige
-     Blockaden) technisch fehlschlagen, bitte die GENAUE Fehlermeldung
-     notieren -- ohne sie laesst sich ein moeglicher echter Programmfehler
-     nicht eingrenzen.
-
-- "Ein Knopf/Menüpunkt reagiert scheinbar gar nicht (kein Fenster öffnet
-   sich, nichts passiert)."
-  -> Seit diesem Umbau zeigt ein unerwarteter interner Fehler in JEDEM
-     Knopf/Menüpunkt zuverlässig einen Dialog "Unerwarteter Fehler" an
-     (statt die Aktion unbemerkt stillschweigend abzubrechen) -- "Details
-     anzeigen" im Dialog zeigt den vollen technischen Hintergrund. Zusätzlich
-     wird JEDER so aufgetretene Fehler dauerhaft protokolliert in
-     "ThermalViewer\fehlerprotokoll.log" im eigenen Benutzerordner (bei den
-     meisten Windows-Installationen also
-     "C:\Users\<Benutzername>\ThermalViewer\fehlerprotokoll.log") -- nützlich,
-     um einen Fehler nachträglich zu melden/zu analysieren, auch wenn der
-     Dialog selbst bereits weggeklickt wurde. Erscheint dieser Dialog NICHT
-     und bleibt eine erwartete Aktion trotzdem aus, handelt es sich vermutlich
-     nicht um einen Programmfehler dieser Art.
+- "Ein Knopf oder Menüpunkt reagiert nicht."
+  -> Bei einem unerwarteten Fehler erscheint der Dialog "Unerwarteter
+     Fehler" ("Details anzeigen" zeigt den Hintergrund). Jeder Fehler
+     wird zusätzlich in "ThermalViewer\fehlerprotokoll.log" im
+     Benutzerordner protokolliert (meist
+     "C:\Users\<Benutzername>\ThermalViewer\fehlerprotokoll.log") - nützlich
+     zum Melden eines Fehlers.
 
 
 ================================================================
-15. TECHNISCHE DETAILS ZUM DATEIFORMAT
+15. DATEIFORMAT
 ================================================================
 
 Erwartetes CSV-Format je Messdatei:
-  - Eine Zeile pro Bildzeile der Thermokamera
+  - eine Zeile pro Bildzeile der Thermokamera
   - Werte durch Semikolon (;) getrennt
-  - Dezimalkomma statt Dezimalpunkt (deutsches Format), z.B. "28,6"
+  - Dezimalkomma, z.B. "28,6"
+Abweichende Formate lassen sich über den Datenimport-Manager lesen
+(Abschnitt 3).
 
-Zeitstempel: wird aus dem Dateinamen gelesen, im Muster
+Der Zeitstempel wird aus dem Dateinamen gelesen, Standardmuster
   Record_JJJJ-MM-TT_HH-MM-SS.csv
-Beispiel: Record_2026-07-23_07-43-17.csv
-  -> 23. Juli 2026, 07:43:17 Uhr
-
-Enthaelt der Dateiname kein passendes Muster, wird ersatzweise die
-Aenderungszeit der Datei im Dateisystem verwendet.
+z.B. Record_2026-07-23_07-43-17.csv = 23. Juli 2026, 07:43:17 Uhr.
+Passt der Dateiname nicht, wird ersatzweise das Änderungsdatum der
+Datei verwendet.
 
 
 ================================================================
-16. TIFF-BILDER IMPORTIEREN
-================================================================
-
-HINWEIS: Dieser Menüpunkt ist derzeit deaktiviert (ausgegraut) und
-vorübergehend nicht nutzbar. Die folgende Beschreibung gilt für eine
-spätere Reaktivierung.
-
-Ueber "Daten > TIFF-Bilder importieren..." lassen sich einzelne
-GRAUSTUFEN-TIFF-Bilder (z.B. ein unkoloriertes "Intensitaet (DL)"-
-Rohbild-Export einer Waermebildkamera, OHNE eingebettete Farbskala/
-Kalibrierung) in Messdateien im normalen Format umwandeln, die sich
-danach ganz normal ueber "Ordner oeffnen..." laden lassen.
-
-WICHTIG -- bewusst KEINE automatische Kalibrierung: die App kann aus
-einem reinen Graustufenbild allein NICHT wissen, welcher Grauwert
-welcher echten Temperatur entspricht. Die Umrechnung ist deshalb eine
-REIN LINEARE, UNKALIBRIERTE SCHAETZUNG zwischen einer selbst
-angegebenen Min- und Max-Temperatur -- Auswertung auf eigene Gefahr!
-Nur verwenden, wenn diese beiden Werte fuer den gewaehlten Bildausschnitt
-tatsaechlich bekannt sind (z.B. von der Farbskala/Legende der
-Original-Software abgelesen).
-
-Ablauf:
-
-  1. Eine oder mehrere TIFF-Dateien auswaehlen. Farbige (bereits
-     falschfarben kolorierte) oder mehrseitige TIFFs werden abgelehnt --
-     eine zuverlaessige Rueckrechnung ist dort ohne Kenntnis der genauen
-     Farbpalette bzw. einer dokumentierten zweiten Bildebene nicht
-     moeglich.
-  2. Im erscheinenden Dialog ein blaues Rechteck ueber der Vorschau auf
-     den reinen Messbereich ziehen -- Farbskala/Legende/Beschriftungen
-     des Original-Exports MUESSEN ausserhalb des Rechtecks bleiben, sonst
-     verfaelschen deren Extremwerte (reines Schwarz/Weiss) die Min-/Max-
-     Zuordnung.
-  3. Min- und Max-Temperatur (°C) eingeben -- gemeint sind die Werte des
-     DUNKELSTEN bzw. HELLSTEN Pixels IM GEWAEHLTEN AUSSCHNITT. Max muss
-     groesser als Min sein (sonst Warnung), und der Ausschnitt darf nicht
-     leer sein -- beides wird beim Klick auf "OK" geprueft.
-  4. Die Bestaetigungs-Checkbox ("... ich kenne die korrekten
-     Grenzwerte...") ankreuzen, erst dann ist "OK" verfuegbar.
-  5. Zielordner fuer die erzeugten Messdateien waehlen.
-
-Bei mehreren ausgewaehlten Dateien gelten Bildausschnitt UND
-Temperaturbereich fuer ALLE gemeinsam (die Vorschau zeigt nur die erste
-Datei) -- bei unterschiedlichen Temperaturbereichen je Datei einzeln
-importieren. Die erzeugten Dateien tragen KEINEN echten Zeitstempel (die
-Original-Dateinamen enthalten dazu keine auswertbare Information),
-sondern kuenstliche, sekundengenau aufsteigende Zeitstempel in der
-Reihenfolge der Dateiauswahl -- die zeitliche Abfolge im Viewer ist damit
-nur eine Hilfskonstruktion, keine echte Aufnahmezeit.
-
-
-================================================================
-17. ROHDATEN SÄUBERN (AUSREISSER-BILDER ERKENNEN/AUSBLENDEN)
+16. ROHDATEN SÄUBERN
 ================================================================
 
 Über "Daten > Rohdaten säubern…" lassen sich einzelne Ausreißer-Bilder
-erkennen (z.B. durch eine kurze Kamera-/Übertragungsstörung) und aus
-Kurven, Wiedergabe UND allen Exporten (Grafik/Werte, Video/Bildstapel)
-ausblenden -- OHNE sie oder ihre Zeitstempel wirklich zu löschen: die
-übrigen (behaltenen) Bilder behalten exakt ihre echten Zeitstempel,
-ausgeblendete Bilder bleiben im Hintergrund erhalten und lassen sich
-jederzeit wieder einzeln einblenden.
+(z.B. durch eine kurze Kamera- oder Übertragungsstörung) erkennen und
+aus Kurven, Wiedergabe und allen Exporten ausblenden. Die Bilder werden
+nicht gelöscht: die übrigen Bilder behalten ihre echten Zeitstempel, und
+ausgeblendete Bilder lassen sich jederzeit wieder einblenden. Im
+Hauptfenster ist ein ausgeblendetes Bild unter keinen Umständen sichtbar.
 
-WICHTIG -- verpflichtender erster Schritt: dieses Fenster öffnet sich
-automatisch und MODAL direkt nach jedem "Ordner öffnen…" -- das Hauptfenster
-bleibt so lange gesperrt (kein Bild sichtbar), bis dieses Fenster wieder
-geschlossen wird. Erst danach erscheint im Hauptfenster überhaupt ein Bild.
-Das erzwingt, die Bereinigung VOR der eigentlichen Auswertung abzuschließen
--- ohne Bereinigung durchzuführen kann das Fenster aber jederzeit einfach
-über "Schließen" beendet werden und lässt sich danach jederzeit erneut über
-"Daten > Rohdaten säubern…" öffnen (dann ebenfalls modal), um die Auswahl
-anzupassen.
+Das Fenster öffnet sich nach jedem "Ordner öffnen…" automatisch und
+blockiert das Hauptfenster, bis es mit "Schließen" beendet wird. Ohne
+Bereinigung kann man es einfach schließen. Danach lässt es sich jederzeit
+erneut öffnen.
 
-Aufbau: LINKS eine große, eigenständige Bildvorschau (unabhängig vom
-Hauptfenster) mit den Knöpfen "Als Auswertungsstart"/"Als Auswertungsende"
-darunter; RECHTS alle Bedienelemente.
+AUFBAU: Links steht eine große, vom Hauptfenster unabhängige
+Bildvorschau; darunter setzen "Als Auswertungsstart" und "Als
+Auswertungsende" die Auswertungsgrenzen auf das gezeigte Bild. Rechts
+liegen alle Bedienelemente.
 
-Ablauf:
+ABLAUF:
+  1. REFERENZPUNKTE SETZEN: In die Bildvorschau an eine Stelle klicken,
+     an der eine plötzliche, große Temperaturänderung zuverlässig auf
+     eine Störung hindeutet (z.B. ein Bereich, der sich normalerweise
+     kaum verändert). Jeder Klick auf freie Bildfläche setzt einen Punkt
+     (nummerierte gelbe Kreuze, beliebig viele). Punkte lassen sich per
+     Ziehen im Bild verschieben. Im Bild und in der Liste rechts zeigt
+     jeder Punkt "ΔT=…°C", die Temperaturänderung zum vorherigen Bild.
+     In der Liste schaltet die Checkbox links einen Punkt vorübergehend
+     aus (er bleibt gespeichert), der "×"-Knopf rechts entfernt ihn
+     endgültig.
+  2. MITTELUNG: Die Auswahl (Standard 3×3) mittelt über eine Fläche um den
+     Punkt und macht die Erkennung robuster gegen Rauschen; "1×1" nutzt
+     das einzelne Pixel. "Bereich zeigen" zeichnet die Fläche ein.
+  3. SCHWELLENWERT (°C): Mindest-Temperaturänderung zum vorherigen Bild,
+     ab der ein Punkt als Störung zählt.
+  4. VERKNÜPFUNG PRO PUNKT: "UND" oder "ODER" (Standard "ODER"). Ein Bild
+     gilt als Ausreißer, wenn alle "UND"-Punkte gleichzeitig den
+     Schwellenwert überschreiten oder mindestens ein "ODER"-Punkt allein
+     anschlägt. "ODER" passt zu Punkten, die allein eine Störung
+     anzeigen; "UND" zu Punkten, die nur gemeinsam eine echte Störung von
+     normaler lokaler Schwankung unterscheiden.
+  5. EINZELNES BILD AUSBLENDEN: Bildnummer eintragen, die Vorschau zeigt
+     genau dieses Bild (auch ein bereits ausgeblendetes, mit Hinweis
+     "AUSGEBLENDET"). Dann "Bild ausblenden" klicken.
+  6. BEREICH AUSBLENDEN: Start- und Endbildnummer eintragen (beide
+     eingeschlossen) und "Bereich ausblenden" klicken - z.B. für die
+     ersten Bilder einer Aufnahme (Sensor-Einschwingzeit). Mehrere
+     Bereiche und Einzelbilder lassen sich kombinieren.
+  7. KANDIDATEN-LISTE: Alle betroffenen Bilder (Nummer, Zeitstempel)
+     erscheinen als angehakte Checkboxen. Jeder Haken wirkt sofort auf
+     Thermobild, Kurven und Status; ein "Anwenden"-Knopf ist nicht nötig.
+     Bereits ausgeblendete Bilder sind als "bereits ausgeblendet"
+     gekennzeichnet. Jede Änderung an Punkten, Schwellenwert,
+     Mittelung oder Verknüpfung aktualisiert die Auswahl sofort. Die
+     Zusammenfassung steht ganz unten über dem Schließen-Knopf.
 
-  1. Referenzpunkt DIREKT in die Bildvorschau links klicken, an einer
-     Stelle, an der eine plötzliche, unrealistisch große Temperaturänderung
-     zuverlässig auf eine Störung hindeutet (z.B. ein Bereich, der sich
-     unter normalen Umständen kaum verändert) -- kein separater Knopf mehr
-     nötig, jeder Klick auf freie Bildfläche setzt sofort einen Punkt.
-     Beliebig viele Punkte möglich (nummerierte gelbe Kreuze). Ein Punkt
-     lässt sich jederzeit direkt im Bild per Maus an eine andere Stelle
-     ZIEHEN (Kreuz anfassen und verschieben, die Beschriftung folgt bereits
-     während des Ziehens mit) -- die Erkennung berücksichtigt nach dem
-     Loslassen automatisch die neue Position. Sowohl im Bild als auch in
-     der Liste rechts zeigt jeder Punkt zusätzlich live "ΔT=…°C" -- die
-     Temperaturänderung zum jeweils VORHERIGEN Bild an genau dieser Stelle,
-     also derselbe Wert, der auch zur Erkennung herangezogen wird (leerer
-     Strich beim allerersten Bild der Aufnahme, das kein Vorbild hat).
-     Jede Zeile der Liste rechts hat GANZ LINKS eine kleine Checkbox --
-     abgehakt (Standard) zählt der Punkt normal mit; abgewählt wird er
-     vorübergehend deaktiviert (zählt dann nicht mehr bei UND/ODER mit und
-     verschwindet aus der Bildvorschau, bleibt aber gespeichert und lässt
-     sich jederzeit wieder aktivieren). GANZ RECHTS in der Zeile entfernt
-     ein kleiner "×"-Knopf den Punkt stattdessen ENDGÜLTIG.
-  2. Mittelung + Anzeige in einer Zeile wählen: die Combobox (Standard:
-     3×3) mittelt statt nur des einen exakt angeklickten Pixels über die
-     gewählte Fläche um den Punkt herum -- macht die Erkennung robuster
-     gegen Rauschen an genau einem einzelnen Sensor-Pixel. "1×1" schaltet
-     zurück auf das exakte Einzelpixel. "Bereich zeigen" zeichnet die
-     gewählte Fläche als gestricheltes Rechteck um jeden Punkt ein (nur ab
-     3×3 sichtbar).
-  3. Schwellenwert (°C) eingeben: wie groß die Temperaturänderung zum
-     JEWEILS VORHERIGEN Bild an einem Punkt (bzw. dessen Mittelungsbereich)
-     mindestens sein muss, um als Störung zu zählen.
-  4. Verknüpfung PRO Punkt wählen: jede Zeile der Punkte-Liste hat eine
-     eigene Combobox "UND"/"ODER" (Standard: "ODER" -- ein neu gesetzter
-     Punkt schlägt damit sofort allein zuverlässig an, ohne dass er erst
-     mit anderen Punkten kombiniert werden muss; weiterhin frei auf "UND"
-     umstellbar). Ein Bild gilt als
-     Ausreißer, wenn ENTWEDER ALLE als "UND" markierten Punkte gleichzeitig
-     den Schwellenwert überschreiten, ODER MINDESTENS EIN als "ODER"
-     markierter Punkt allein anschlägt -- die beiden Gruppen wirken
-     unabhängig voneinander, eine der beiden kann auch leer bleiben. "ODER"
-     eignet sich für Punkte, an denen eine Störung bereits allein
-     zuverlässig auf ein Ausreißer-Bild hindeutet; "UND" für Punkte, die
-     nur GEMEINSAM mit anderen eine echte Störung von einer normalen
-     lokalen Schwankung unterscheiden.
-  5. Ein beliebiges Bild OHNE automatische Erkennung von Hand ausblenden:
-     die gewünschte Bildnummer in das Zahlenfeld eintragen -- die
-     Bildvorschau links zeigt sofort genau dieses Bild (unabhängig vom
-     Hauptfenster, siehe HINWEIS unten), inkl. Hinweis "AUSGEBLENDET",
-     falls es bereits ausgeblendet ist. Danach "Bild ausblenden" klicken --
-     wirkt sofort und erscheint danach in der Kandidaten-Liste (wieder
-     einblendbar durch Abhaken dort).
-  6. Einen ganzen Bereich auf einmal ausblenden: bei "Bereich ausblenden"
-     Start- und End-Bildnummer eintragen (beide Bilder eingeschlossen,
-     vertauschte Reihenfolge wird automatisch richtig herum verstanden)
-     und auf "Bereich ausblenden" klicken -- praktisch z.B. um die ersten
-     Bilder einer Aufnahme (Sensor-Einschwingzeit) auf einen Schlag
-     loszuwerden. Lässt sich beliebig oft nacheinander mit weiteren
-     Bereichen UND einzelnen Bildern (Punkt 5) kombinieren -- jeder Klick
-     ergänzt die bereits ausgeblendeten Bilder, statt sie zu ersetzen.
-  7. Die Kandidaten-Liste zeigt automatisch alle betroffenen Bilder
-     (Nummer, Zeitstempel) als angehakte Checkboxen. JEDER Haken wirkt
-     SOFORT -- Thermobild, Kurven und Status aktualisieren sich
-     augenblicklich, ein separater "Anwenden"-Knopf ist nicht nötig.
-     Bereits zuvor ausgeblendete Bilder erscheinen ebenfalls hier
-     (Kennzeichnung "bereits ausgeblendet"). Jede Änderung an Punkten/
-     Schwellenwert/Mittelungsbereich/Verknüpfung wendet die neu berechnete
-     Auswahl ebenfalls SOFORT an. Die zusammenfassende Zeile ("X von Y
-     Bild(ern) neu als Ausreißer erkannt…") steht ganz unten, direkt über
-     dem Schließen-Knopf.
+HINWEIS: Ein kurzes Störbild verursacht beim Hinein- und beim Zurück-
+Springen eine große Temperaturänderung, daher werden meist beide
+angrenzenden Bilder vorgeschlagen. Vor dem Abhaken prüfen und bei Bedarf
+einzeln wieder einblenden.
 
-Die Knöpfe "Als Auswertungsstart"/"Als Auswertungsende" unter der
-Bildvorschau setzen die Auswertungsgrenzen (dieselbe Einstellung wie
-"Auswertungsstart"/"Auswertungsende" im Hauptfenster, siehe Abschnitt 6)
-auf das gerade links angezeigte Bild -- eine ergänzende Abkürzung, kein
-Ersatz für die Hauptfenster-Felder.
-
-HINWEIS -- eigene Bildvorschau: das Hauptfenster zeigt seit diesem Umbau
-AUSSCHLIESSLICH bereinigte (nicht ausgeblendete) Bilder, ausnahmslos --
-weder per Schieberegler/Zahlenfeld noch nach einem Projekt-Laden lässt sich
-dort ein ausgeblendetes Bild mehr erreichen. Die Bildvorschau in diesem
-Fenster ist davon bewusst unabhängig: über das Zahlenfeld bei Punkt 5
-lässt sich dort JEDES Bild ansehen, auch ein bereits ausgeblendetes -- z.B.
-um vor dem Ausblenden zu prüfen, ob es sich wirklich um eine Störung
-handelt, oder um ein bereits ausgeblendetes Bild zur Kontrolle nochmal
-anzusehen.
-
-HINWEIS: Ein einzelnes, kurz aufblitzendes Störbild erzeugt naturgemäß
-sowohl beim Übergang HINEIN als auch beim Übergang ZURÜCK (zum jeweils
-nächsten Bild) eine große Temperaturänderung -- es werden also típischer-
-weise BEIDE angrenzenden Bilder vorgeschlagen. Vor dem Abhaken prüfen und
-bei Bedarf einzeln wieder einblenden.
-
-Ein ausgeblendetes Bild ist GARANTIERT aus der gesamten Auswertung
-verschwunden -- Thermobild-Anzeige (Schieberegler, Zahlenfeld, Sprung zu
-Start/Ende, automatische Wiedergabe, Einzelschritt, Projekt laden), Kurven
-UND alle Exporte (Grafik/Werte, Video/Bildstapel) lassen es konsequent aus,
-bis es gezielt über die Checkbox-Liste oben wieder abgehakt wird. Diese
-Zusicherung gilt zentral und ausnahmslos für das Hauptfenster (nicht nur
-für die genannten Bedienelemente) -- ein ausgeblendetes Bild lässt sich dort
-unter KEINEN Umständen mehr anzeigen; die einzige Möglichkeit, ein
-ausgeblendetes Bild trotzdem anzusehen, ist die eigene Bildvorschau im
-Bereinigungs-Fenster selbst (siehe Punkt 5 oben). Frame-Indizes und
-Zeitstempel der ÜBRIGEN Bilder verschieben sich dabei nie -- kein Bild wird
-umnummeriert, nur ausgeblendete Bilder werden übersprungen.
-
-Wird eine WEITERE Messreihe geladen, werden alle markierten Punkte UND
-alle Ausblendungen verworfen (siehe Abschnitt 3) -- sie bezogen sich auf
-Pixelkoordinaten/Bildanzahl der ALTEN Messreihe. Vorher erscheint dazu
-eine Rückfrage mit der Möglichkeit, die aktuelle Auswertung als Projekt
-zu speichern.
-
-Referenzpunkte (jeweils mit ihrer eigenen UND/ODER-Verknüpfung und dem
-Aktiviert/Deaktiviert-Zustand der Checkbox), Mittelungsbereich,
-Schwellenwert UND die aktuelle Ausblende-Auswahl werden beim "Projekt
-speichern…" mit gespeichert und bei "Projekt laden…" wiederhergestellt
-(siehe Abschnitt 12) -- ein gespeichertes Projekt gibt damit den
-vollständigen Auswertungs-Zustand wieder, nicht nur die Messbereiche. Die
-Checkbox "Bereich zeigen" ist eine reine Anzeige-Einstellung und wird NICHT
-mitgespeichert.
-
-Video-Export -- Lücke statt Auslassen füllen: standardmäßig lässt der
-Video-Export (Abschnitt 10) ausgeblendete Bilder komplett aus (kürzeres
-Video). Sind Bilder ausgeblendet, bietet der Video-Export-Dialog
-zusätzlich die Option "Ausgeblendete Bilder durch das vorherige Bild
-ersetzen (statt Lücke zu überspringen)" -- damit bleibt die Gesamtzahl der
-Frames im Video unverändert (jedes ausgeblendete Bild zeigt stattdessen
-den Bildinhalt des vorherigen, sichtbaren Bildes, behält aber seinen
-EIGENEN echten Zeitstempel im Overlay). Gilt nur für den Video-Export,
-nicht für den Bildstapel (dort werden ausgeblendete Bilder weiterhin immer
-ausgelassen).
+Beim Laden einer weiteren Messreihe werden Punkte und Ausblendungen
+verworfen (siehe Abschnitt 3). Referenzpunkte, Mittelung,
+Schwellenwert und die Ausblende-Auswahl werden im Projekt gespeichert
+(Abschnitt 12).
 
 
 ================================================================
-18. SCHWINDUNGSMESSUNG (EXPERIMENTELL)
+17. SCHWINDUNGSMESSUNG (EXPERIMENTELL)
 ================================================================
 
-ACHTUNG -- EXPERIMENTELLE FUNKTION: typische Schwindungswerte liegen laut
-Erfahrung aus anderen Messungen bei unter 10%, häufig sogar unter 1%. Ob
-sich das bei der jeweiligen Kamera-Auflösung überhaupt zuverlässig messen
-lässt, ist offen -- dieses Werkzeug ist ein erster, bewusst einfach
-gehaltener Versuch dazu, kein ausgereiftes Präzisionsinstrument.
+ACHTUNG: Typische Schwindungswerte liegen oft unter 10%, häufig sogar
+unter 1%. Ob sich das bei der jeweiligen Kameraauflösung zuverlässig
+messen lässt, ist offen - das Werkzeug ist ein einfacher erster Versuch,
+kein Präzisionsinstrument.
 
-Automatische Schwindungsmessung einer Probe über die Zeit -- im rechten
-Panel unter der Registerkarte "Schwindungsmessung" (Abschnitt 6). Es gibt
-NUR NOCH EINEN Eingabe-Weg, unabhängig von der Probenform (eckig, rund,
-deformiert): eine einzige Box wird grob über die Probe gezogen, das
-Programm erkennt darin selbst die tatsächliche Kontur. WAS am Ende
-berechnet/angezeigt wird (Fläche oder Breite), wird NACHTRÄGLICH über ein
-Dropdown gewählt -- siehe "KENNGRÖSSE WÄHLEN" unten.
+Die Schwindung einer Probe wird automatisch über die Zeit gemessen, im
+rechten Panel unter dem Reiter "Schwindungsmessung". Eine Box (bzw. bei
+"Breite" Fenster) wird grob über die Probe gezogen, das Programm erkennt
+darin selbst die Probenkontur.
 
-MESSART WÄHLEN: das Dropdown "Messart" (unter "Aktivieren") schaltet
-zwischen zwei Verfahren um -- beide Ergebnisse bleiben beim Umschalten
-erhalten, ein erneutes "Berechnen" ist nur nach Änderungen nötig:
+MESSART (Dropdown unter "Aktivieren"): Beide Ergebnisse bleiben beim
+Umschalten erhalten; ein neues "Berechnen" ist nur nach Änderungen nötig.
 
-  - "Fläche (Box über die Probe)": das hier beschriebene Standardverfahren
-    mit EINER Box.
-  - "Breite (Probenfenster + Referenzen)": Breitenschwindung für Proben,
-    die im Bild als Rechteck erscheinen (z.B. ein Zylinder von der Seite):
-      a) Probenfenster: ein Rechteck MITTIG über die Probe ziehen, das
-         BREITER ist als die Probe, aber NIEDRIGER (liegt innerhalb der
-         Probenhöhe). Es erscheint in der Boxfarbe.
-      b) Referenzfenster: je ein kleineres Rechteck LINKS und RECHTS neben
-         der Probe (blau), jeweils zur Hälfte auf dem Hintergrund und zur
-         Hälfte auf dem Probentisch/Untergrund. Sie sagen dem Programm,
-         was "nicht Probe" ist; die Probe muss sich von beiden deutlich
-         abheben (wärmer oder kälter als beides).
-      c) "Berechnen": im Probenfenster wird über den gesamten Bilderstapel
-         die Probenkontur angepasst (Schwellenwert pro Bild aus den
-         Referenzfenstern, Polarität automatisch) und daraus die
-         Breitenschwindung berechnet. Kenngröße: "Median" (Standard, gerade
-         Kanten) oder "Maximum" (gewölbte Probe).
-    Die Fenster dürfen nicht klein gezogen werden (Probenfenster mind.
-    3 x 8 Pixel, Referenzfenster mind. 2 x 2) und ein Referenzfenster darf
-    nicht auf der Fenstermitte liegen -- sonst erscheint eine Meldung.
-    Reicht die erkannte Kontur an den linken/rechten Rand des Probenfensters,
-    weist die Statuszeile darauf hin: dann das Fenster breiter ziehen.
+FLÄCHE (Box über die Probe):
+  1. "Aktivieren" ankreuzen: die Box erscheint im Thermobild.
+  2. Die Box (Standard grün, Farbe über "Boxfarbe" änderbar) mit etwas
+     Rand über die gesamte Probe ziehen; mit den Eckgriffen skalieren.
+     Die Box wird nicht nachgeführt und muss die Probe über die gesamte
+     Aufnahme umschließen.
+  3. "Berechnen" klicken. Bei vielen Bildern dauert das einige Sekunden;
+     die Statuszeile zeigt den Fortschritt.
+Schwellenwert und die Frage "Probe wärmer oder kälter als der
+Hintergrund?" ermittelt das Programm automatisch und zeigt die erkannte
+Richtung nach "Berechnen" als Text an. Die erkannte Kontur erscheint als
+Linie im Thermobild (Farbe über "Konturfarbe" änderbar), bleibt in der
+Box und läuft beim Durchblättern mit, sodass sich die Erkennung direkt
+prüfen lässt.
 
-  1. "Aktivieren" ankreuzen -- blendet die Box im Thermobild ein.
-  2. Die (Standardfarbe grüne, über das Farbfeld "Boxfarbe" änderbar) Box
-     GROSSZÜGIG über die GESAMTE Probe -- mit etwas Rand -- ziehen (an den
-     Eckgriffen ziehen/skalieren, wie ein Messbereich). Die Box wird NICHT
-     nachgeführt: sie muss die Probe über die gesamte Aufnahme hinweg
-     umschließen (unkritisch, da die Probe laut Aufgabe nur schrumpft,
-     nicht wächst).
-  3. "Berechnen" klicken. Bei vielen Bildern kann das einige Sekunden
-     dauern -- die Statuszeile unten links zeigt dabei "Schwindungs-
-     berechnung läuft…" und danach "…abgeschlossen", die Maus zeigt in
-     der Zwischenzeit eine Sanduhr. Die App ist in dieser Zeit nicht
-     eingefroren, reagiert aber bewusst erst nach Abschluss wieder.
+BREITE (Probenfenster + Referenzen) für Proben, die im Bild wie ein
+Rechteck aussehen (z.B. ein Zylinder von der Seite):
+  a) Probenfenster: ein Rechteck mittig über die Probe ziehen, das
+     breiter, aber niedriger als die Probe ist (in Boxfarbe).
+  b) Referenzfenster: je ein kleineres blaues Rechteck links und rechts
+     neben der Probe, jeweils zur Hälfte auf dem Hintergrund und auf dem
+     Probentisch. Die Probe muss sich von beiden deutlich abheben
+     (wärmer oder kälter).
+  c) "Berechnen": Das Programm passt die Kontur im Probenfenster über
+     alle Bilder an und berechnet die Breitenschwindung.
+Die Fenster dürfen nicht zu klein sein, und ein Referenzfenster darf
+nicht auf der Fenstermitte liegen, sonst erscheint eine Meldung. Reicht
+die Kontur bis an den Rand des Probenfensters, weist die Statuszeile
+darauf hin: das Fenster breiter ziehen.
 
-KEIN Schwellenwert und keine "wärmer/kälter als Hintergrund"-Auswahl von
-Hand: bei "Berechnen" ermittelt das Programm beides automatisch aus den
-Pixelwerten innerhalb der Box (Otsu-Verfahren) -- wichtig, da sich eine
-Probe über die Dauer der Messung typischerweise thermisch dem Hintergrund
-annähert und ein einmal fest eingegebener Schwellenwert gegen Ende der
-Messung bedeutungslos würde. Die erkannte Richtung ("Probe ist wärmer/
-kälter als der Hintergrund") wird nach "Berechnen" zur Kontrolle als Text
-angezeigt.
+KENNGRÖSSE (Dropdown, wirkt sofort ohne neues "Berechnen"):
+  - "Fläche" (Standard): Pixelzahl innerhalb der Kontur, für eckige und
+    runde Proben geeignet.
+  - "Breite (quaderförmig, Median)": für Proben mit geraden, parallelen
+    Kanten.
+  - "Breite (rund, Äquator)": die breiteste Zeile, für runde Proben.
+Bei gleichmäßiger Schrumpfung gilt näherungsweise: Flächen-Schwindung ≈
+2 × Breiten-Schwindung.
 
-Die gezogene Box ist dabei nur ein grober AUSGANGSPUNKT, kein starres
-Messfenster: das Programm sucht darin die tatsächliche, zusammenhängende
-Kontur der Probe -- geometrieunabhängig, die Kanten müssen also nicht
-exakt gerade sein (auch runde/leicht deformierte Proben funktionieren).
-Nach "Berechnen" wird diese erkannte Kontur als Linie direkt im Thermobild
-angezeigt (folgt beim Durchblättern der Bilder automatisch mit, bleibt
-dabei stets INNERHALB der gezogenen Box) -- so lässt sich die Erkennung
-direkt überprüfen, statt nur verstreute Einzelpixel zu sehen. Ihre Farbe
-(Standard Rot) ist über das Farbfeld "Konturfarbe" -- direkt neben
-"Boxfarbe" -- unabhängig davon änderbar. "Berechnen" wertet dabei JEDES
-Bild unabhängig aus (kein Startbild, keine Verfolgung nötig).
+ERGEBNIS: Unter "Berechnen" steht der Schwindungs-Prozentwert (erstes
+vs. letztes Bild); die absoluten Werte erscheinen als Tooltip. Als Kurve
+erscheint das Ergebnis im Tab "Schwindung" (mit eigenen Achsen-
+Knöpfen und Zeitachsen-Umschalter). Die Y-Achse zeigt immer Prozent
+bezogen auf das erste Bild. Ausgeblendete Bilder (Abschnitt 16) fehlen
+in der Kurve. Im Werte-Export (Abschnitt 9) steht die Schwindung als
+wählbare Spalte zur Verfügung.
 
-KENNGRÖSSE WÄHLEN: das Dropdown "Kenngröße" (in derselben Zeile wie
-"Boxfarbe"/"Konturfarbe") legt fest, WAS aus der erkannten Kontur
-berechnet/angezeigt wird -- alle drei Werte werden bei "Berechnen" ohnehin
-gemeinsam ermittelt, ein Wechsel wirkt also SOFORT, ohne erneut
-"Berechnen" zu müssen:
+PROBENHÖHEN (zusätzliche Breitenmessung an beliebigen Zeilen):
+Die Gruppe "Probenhöhen" im selben Reiter verfolgt die Breite der Probe
+an bis zu 10 benannten waagerechten Bildzeilen, jede einzeln über die
+Zeit - unabhängig davon, ob die Box aktiviert oder berechnet ist.
+  1. "+ Probenhöhe" einschalten (bleibt an, wie der Messmodus) und beliebig
+     oft ins Thermobild klicken: jeder Linksklick setzt eine neue
+     Probenhöhe auf der angeklickten Zeile. Rechtsklick oder das
+     Erreichen von 10 beendet den Modus.
+  2. Jede Probenhöhe steht als Zeile in der Liste mit Häkchen (Linie und
+     Kurve ein/aus), Name (Standard "Probenhöhe 1", …), Zahlenfeld "Zeile:",
+     Farbfeld und "×"-Knopf zum Entfernen.
+  3. Die gestrichelte Linie im Bild lässt sich auch direkt per Ziehen
+     verschieben.
+Die Breite wird für jede Zeile automatisch und sofort live berechnet
+(ohne "Berechnen"-Knopf). Als Suchbereich dient die Breite der Box (bei
+"Breite": des Probenfensters), ersatzweise die volle Bildbreite. Kleine
+senkrechte Striche markieren im Bild die erkannte linke und rechte Kante.
+Jede Probenhöhe erscheint als eigene Kurve im Tab "Schwindung" (Prozent
+bezogen auf das erste Bild) und als eigene Spalte im Werte-Export.
 
-  - "Fläche" (Standard): Pixelzahl INNERHALB der erkannten Kontur --
-    geometrieunabhängig (funktioniert für eckige wie runde Proben
-    gleichermaßen), da über die ganze Fläche statt an einzelnen Kanten
-    gemessen wird.
-  - "Breite (quaderförmig, Median)": Median der Zeilenbreiten der
-    erkannten Kontur -- passend für Proben mit geraden, zueinander
-    parallelen Kanten.
-  - "Breite (rund, Äquator)": die breiteste Zeile der erkannten Kontur --
-    passend für runde/zylindrische Proben, deren Kontur sich zur Bildmitte
-    hin wölbt (bei denen der Median die Breite systematisch
-    unterschätzen würde).
-  Fachlich sind Fläche und Breite verwandte, aber unterschiedliche
-  Kenngrößen: bei gleichmäßiger (isotroper) Schrumpfung gilt näherungsweise
-  Flächen-Schwindung ≈ 2 × Breiten-Schwindung (Fläche skaliert mit
-  Länge²) -- bei ungleichmäßiger Schrumpfung können beide unterschiedliche
-  Bilder zeigen.
-
-ERGEBNIS: unter "Berechnen" steht immer NUR der Schwindungs-Prozentwert
-(bezogen auf die aktuell gewählte Kenngröße, erstes vs. letztes Bild:
-A/A0 bzw. l/l0) -- bewusst OHNE absolute mm/px-Zahlen in der Zeile, damit
-die Anzeige unabhängig von der gewählten Kenngröße immer gleich aussieht.
-Die absoluten Werte (erstes/letztes Bild) bleiben als Tooltip abrufbar
-(Maus kurz über der Zeile stehen lassen). Ergebnis erscheint zusätzlich
-als Kurve im eigenen Tab "Schwindung" (neben "Zeitverlauf", siehe
-Abschnitt 8 -- eigene Achse statt in der °C-Kurve mitzulaufen). Die
-Y-Achse zeigt -- wie die Ergebniszeile -- IMMER Prozent (bezogen auf das
-erste Bild), unabhängig von der gewählten Kenngröße und unabhängig davon,
-ob ein Maßstab definiert ist.
-
-Der Tab "Schwindung" ist von Anfang an vorhanden (nicht erst nach
-"Aktivieren"/"Berechnen") -- mit eigenen Achsen-Zurücksetzen-/-Einstellen-
-Knöpfen und Zeitachsen-Umschalter, genau wie beim Tab "Zeitverlauf". Von
-der Rohdaten-Bereinigung (Abschnitt 17) ausgeblendete Bilder fehlen in der
-Kurve. Wird eine WEITERE Messreihe geladen, werden Box und Ergebnis
-verworfen (wie bei Messbereichen/Bereinigung, siehe Abschnitt 3) und die
-Box neu (Standardposition) platziert -- die gewählte Kenngröße sowie
-Box-/Konturfarbe selbst bleiben erhalten.
-
-Boxposition/-größe, Box-/Konturfarbe, Kenngröße UND der Aktivieren-Haken
-werden beim "Projekt speichern…" mit gespeichert und bei "Projekt laden…"
-wiederhergestellt (siehe Abschnitt 12) -- das eigentliche Ergebnis (die
-Kurve) selbst wird dabei nicht als Rohwerte abgelegt, sondern aus diesen
-wiederhergestellten Einstellungen automatisch neu berechnet (inkl. neuer
-automatischer Schwellenwert-/Polaritäts-Erkennung).
-
-Nach einer berechneten Messung steht der Wert auch im Werte-Export
-(Abschnitt 9, "Werte exportieren...") als zusätzliche, wählbare Spalte
-"Schwindung" zur Verfügung (Einheit mm/mm² bzw. px/px² im Spaltennamen,
-wie in der Kurve) -- auch dann, wenn kein Messbereich platziert oder
-Live-Cursor-Pixel gewählt ist.
-
-PROBENHÖHEN (zusätzliche, unabhängige Breitenmessung an beliebigen Zeilen):
-Direkt unterhalb der Box-Einstellungen, im selben Panel-Reiter
-"Schwindungsmessung", bietet die Gruppe "Probenhöhen (zusätzliche,
-unabhängige Breitenmessung)" eine ZWEITE, ERGÄNZENDE Messart -- unabhängig
-davon, ob die Box oben überhaupt aktiviert oder schon berechnet ist. Statt
-EINER Fläche werden hier beliebig viele (max. 10) benannte, waagerechte
-Bildzeilen definiert, deren Breite (linke/rechte Kante der Probe) JEDE FÜR
-SICH über die Zeit verfolgt wird -- nützlich z.B., um mehrere
-unterschiedliche Höhen derselben Probe gleichzeitig im Blick zu behalten,
-statt nur eine einzelne Gesamtfläche/-breite.
-
-  1. "+ Probenhöhe" klicken -- GENAU WIE "Messmodus" beim Maßstab
-     (Abschnitt 11) ein echter Ein/Aus-Dauerschalter, kein Einmal-Klick-
-     Knopf: einschalten, danach beliebig oft (bis zu 10 insgesamt) ins
-     Thermobild klicken -- jeder Linksklick platziert sofort eine neue,
-     benannte Probenhöhe auf der angeklickten Bildzeile. Rechtsklick ins
-     Bild oder das Erreichen des Maximums schaltet den Modus automatisch
-     wieder aus (der Knopf selbst ist dann zusätzlich ausgegraut).
-  2. Jede platzierte Probenhöhe erscheint als eigene Zeile in der Liste
-     darüber mit: einem Häkchen zum Ein-/Ausblenden (Linie + Kurve,
-     Standard: an), einem frei editierbaren Namen (Standard "Probenhöhe 1",
-     "Probenhöhe 2", ...), einem Zahlenfeld "Zeile:" für die exakte
-     Bildzeile, einem Farbfeld (eigene, von ROI-/Boxfarben klar
-     unterscheidbare Standardpalette) und einem "×"-Knopf zum endgültigen
-     Entfernen GENAU dieser einen Probenhöhe.
-  3. Die zugehörige Linie im Thermobild (gestrichelt, waagerecht) lässt
-     sich ALTERNATIV auch direkt per Ziehen verschieben, ähnlich einer
-     Querschnitt-Linie (Abschnitt 21) -- mit dem Namen direkt an der
-     Linie beschriftet.
-
-Die Breite wird an jeder Probenhöhen-Zeile automatisch per Otsu-
-Schwellenwert bestimmt (dieselbe Methode wie bei der Box, inklusive
-automatischer Erkennung, ob die Probe wärmer/kälter als der Hintergrund
-ist) -- UNABHÄNGIG davon, ob die Box-Messung selbst aktiviert/berechnet
-ist. Als Spaltenbereich (Suchbereich links/rechts) wird dabei die Breite
-der oben gezogenen Box mitverwendet (in der Messart "Breite": die Breite des
-Probenfensters), GEMEINSAM für ALLE Probenhöhen (kein zusätzliches
-Eingabefeld dafür nötig) -- ist die Box nie platziert oder auf Breite 0
-gezogen, wird ersatzweise die volle Bildbreite verwendet.
-Anders als die Box (die bei vielen Bildern mehrere Sekunden dauern kann,
-siehe oben) ist eine einzelne Zeile schnell genug, um bei JEDER
-Positionsänderung sofort live neu zu rechnen -- es gibt bewusst KEINEN
-separaten "Berechnen"-Knopf.
-
-An der jeweils aktuell erkannten linken bzw. rechten Kante zeigt das Bild
-zusätzlich zwei kleine, kurze senkrechte Striche (bewusst klein gehalten,
-nicht wesentlich größer als die Start-/Ende-Markierungen am Frame-Regler)
--- so lässt sich die Erkennung auf einen Blick kontrollieren, ohne wie bei
-der Box eine ganze Kontur einblenden zu müssen.
-
-Das Ergebnis jeder Probenhöhe erscheint als eigene Kurve im selben Tab
-"Schwindung" wie die Box-Kurve (Abschnitt 8) -- als Prozentwert gegenüber
-dem ERSTEN Bild, exakt dieselbe Formel/Achse wie bei der Box, damit beide
-Messarten direkt vergleichbar bleiben. Sichtbarkeit (Linie, Name, Kurve,
-Kanten-Striche im Bild) folgt demselben Ebenen-Tab "Schwindungsmessung"
-wie die Box (Abschnitt 19).
-
-Werte-Export: jede berechnete Probenhöhe steht im Werte-Export (Abschnitt
-9, "Werte exportieren...") als eigene, wählbare Spalte unter ihrem Namen
-zur Verfügung -- GENAU dieselbe %/mm/px-Werteinheit-Wahl wie bei der
-Schwindungsmessung-Zeile (siehe oben), unabhängig je Probenhöhe wählbar.
-
-Boxposition/-größe (siehe oben) sowie Zeile, Name und Farbe JEDER
-Probenhöhe werden beim "Projekt speichern…" mit gesichert und bei
-"Projekt laden…" wiederhergestellt (Abschnitt 12).
-
-HINWEIS: wird eine WEITERE Messreihe geladen (Abschnitt 3), werden
-Probenhöhen GENAUSO vollständig verworfen wie Messbereiche/Messungen/
-Maßstab -- sie beziehen sich auf Zeilen-Positionen der ALTEN Aufnahme und
-wären für eine andere Messreihe bedeutungslos.
+Box, Farben, Kenngröße, Aktivieren-Haken und alle Probenhöhen werden im
+Projekt gespeichert (Abschnitt 12); die Kurve wird beim Laden neu
+berechnet. Beim Laden einer weiteren Messreihe werden Box, Ergebnis und
+Probenhöhen verworfen (Abschnitt 3).
 
 
 ================================================================
-19. EBENEN-TABS (BEREICHE ÜBER DEM THERMOBILD EIN-/AUSBLENDEN)
+18. EBENEN-TABS
 ================================================================
 
-Je mehr Werkzeuge gleichzeitig genutzt werden (Messbereiche, Schwindungs-
-messung, Maßstab/Messungen, Querschnitte), desto voller wird das Thermobild.
-Fünf Registerkarten direkt OBERHALB des Thermobilds lösen das: "Alle" /
-"Temperatur-Messung" / "Schwindungsmessung" / "Maßstab" / "Querschnitte" --
-sie blenden NUR die zur gewählten Ebene gehörigen Bereiche im BILD ein
-(ROI-Boxen, Schwindungs-Boxen, Maßstab/Messungen, Querschnitt-Linien).
-"Alle" zeigt -- wie das bisherige Verhalten -- wieder alles gleichzeitig im
-Bild. Die Rohdaten-Bereinigung (Abschnitt 17) hat KEINEN eigenen Tab hier --
-sie setzt ihre Referenzpunkte seit dem Umbau ausschließlich in ihrer
-eigenen, modalen Bildvorschau, nicht mehr im Thermobild selbst.
+Je mehr Werkzeuge gleichzeitig genutzt werden, desto voller wird das
+Thermobild. Die Registerkarten über dem Thermobild blenden nur die
+Bereiche der gewählten Ebene ein:
+  - "Alle"                 -> alles gleichzeitig
+  - "Temperatur-Messung"   -> Messbereiche (ROIs)
+  - "Schwindungsmessung"   -> Box und Probenhöhen
+  - "Maßstab"              -> Maßstab-Linie und Messungen
+  - "Querschnitte"         -> Querschnitt-Linien
+Die Ebene wirkt zusätzlich zu den einzelnen Häkchen der Einträge. Die
+Graphen im Panel "Temperaturverlauf" zeigen unabhängig vom Tab immer
+alles.
 
-Das RECHTE PANEL ("Werkzeuge") ist zusätzlich SELBST als Registerkarten
-organisiert -- mit fünf Reitern: "Legende" / "Temperatur-Messung" /
-"Schwindungsmessung" / "Maßstab" / "Querschnitte" (kein eigener Reiter für
-"Alle", siehe unten). Ein Wechsel des oberen Bild-Ebenen-Tabs auf
-"Temperatur-Messung", "Schwindungsmessung", "Maßstab" oder "Querschnitte"
-schaltet automatisch auch den passenden Panel-Reiter mit um (und
-umgekehrt: ein Klick auf einen dieser Panel-Reiter schaltet auch den
-oberen Bild-Tab mit) -- beide Leisten bleiben für diese vier gemeinsamen
-Kategorien synchron. "Alle" oben hat keinen eigenen Panel-Reiter und lässt
-das Panel beim Wechsel dorthin unverändert auf seinem zuletzt gewählten
-Reiter stehen.
+Das rechte Panel "Werkzeuge" hat dieselben Reiter (außer "Alle") plus
+"Legende". Der Wechsel des oberen Tabs schaltet den passenden Panel-
+Reiter und den passenden Graphen-Reiter mit um und umgekehrt.
 
-Derselbe Wechsel zieht AUSSERDEM den passenden Reiter im unteren
-Graphen-Dock (Abschnitt 8: "Temperaturverlauf" / "Schwindung" /
-"Querschnitt", die drei sind dort tabifiziert) automatisch mit um --
-"Temperatur-Messung"/"Schwindungsmessung"/"Maßstab" bringen
-"Temperaturverlauf" nach vorn (Maßstab hat keinen eigenen Graphen),
-"Querschnitte" bringt "Querschnitt" nach vorn. So ist z.B. beim Platzieren
-einer neuen Querschnitt-Linie (siehe Abschnitt 21) sofort auch deren
-Vorschau-Linie im Bild sichtbar, ohne den Graphen-Reiter unten zusätzlich
-von Hand anzuklicken.
-
-Zuordnung:
-
-  - "Temperatur-Messung": alle Messbereiche (ROIs) im Bild sowie die
-    ROI-Liste samt Details im gleichnamigen Panel-Reiter (Abschnitt 6).
-  - "Schwindungsmessung": die Box der Schwindungsmessung UND alle
-    Probenhöhen (Linien, Namen, Kanten-Striche) im Bild sowie deren
-    gemeinsamer Panel-Reiter (Abschnitt 18) -- wirkt bei der Box
-    zusätzlich zur "Aktivieren"-Checkbox dort (beides muss gleichzeitig
-    zutreffen, damit die Box sichtbar ist) bzw. bei jeder Probenhöhe
-    zusätzlich zu deren eigenem Häkchen in der Liste.
-  - "Maßstab": die Maßstab-Linie und alle Freihand-Messungen im Bild sowie
-    deren Panel-Reiter (Abschnitt 11) -- wirkt zusätzlich zur "Anzeigen"-
-    Checkbox dort.
-  - "Querschnitte": alle benannten Querschnitt-Linien im Bild sowie deren
-    Panel-Reiter (Abschnitt 21) -- wirkt zusätzlich zum Aktiv-Haken jedes
-    einzelnen Eintrags in der Liste.
-
-Die "Legende" (Farbverlauf/Level-Modus, Abschnitt 7) hat einen EIGENEN
-Panel-Reiter (statt auf jedem Tab gleichzeitig sichtbar zu bleiben) -- da
-sie keinem der oberen Bild-Ebenen-Tabs eindeutig zugeordnet ist, wird sie
-im Panel gezielt über ihren eigenen Reiter angesteuert. Der Zeitverlauf-
-Graph (Abschnitt 8) bleibt unverändert und zeigt immer alle Kurven,
-unabhängig vom gewählten Tab.
-
-AUTOMATISCHES UMSCHALTEN: wird ein Werkzeug über seinen eigenen Knopf
-gestartet, springt die Tab-Auswahl (oben, im Panel UND im unteren
-Graphen-Dock) von selbst dorthin -- "+ Messbereich" wechselt auf
-"Temperatur-Messung", die "Aktivieren"-Checkbox der Schwindungsmessung UND
-"+ Probenhöhe" auf "Schwindungsmessung" (nur beim Anschalten, nicht beim
-Abschalten), "Festlegen…"/"Messmodus" auf "Maßstab", "+ Horizontal"/
-"+ Vertikal" (Abschnitt 21) auf "Querschnitte". So landet man beim Start
-einer Aktion automatisch auf der dazu passenden Ansicht, ohne einen der
-drei Tabs von Hand mitziehen zu müssen.
-
-UMGEKEHRT -- ein noch scharf gestelltes Werkzeug wird beim Tab-Wechsel
-ABGEBROCHEN: ein gerade armiertes Platzier-/Mess-Werkzeug (Messbereich
-setzen, Maßstab festlegen/Messmodus, Probenhöhe platzieren) gehört fest zu
-GENAU EINER Ebene. Wird der Tab gewechselt, OHNE das Werkzeug vorher selbst
-zu beenden (z.B. per erneutem Klick auf den jeweiligen Knopf), bricht das
-Programm es automatisch ab -- sonst bliebe es im Hintergrund weiter scharf
-und ein Klick ins Bild würde auf der NEUEN (fachlich unpassenden) Ebene
-unbemerkt noch das alte Werkzeug auslösen. Der Tab "Alle" ist davon
-ausgenommen: dort bleibt jedes Werkzeug unabhängig von einem Tab-Wechsel
-unverändert scharf.
+Wird ein Werkzeug über seinen Knopf gestartet ("+ Messbereich",
+"Aktivieren" der Schwindungsmessung, "+ Probenhöhe", "Festlegen…",
+"Messmodus", "+ Horizontal"/"+ Vertikal"), springen die Tabs automatisch
+zur passenden Ansicht. Ein gerade aktives Platzier- oder Messwerkzeug
+wird beim Tab-Wechsel abgebrochen, damit ein Klick ins Bild nicht
+unbemerkt das alte Werkzeug auslöst. Im Tab "Alle" bleibt jedes
+Werkzeug aktiv.
 
 
 ================================================================
-20. RÜCKGÄNGIG/WIEDERHOLEN
+19. RÜCKGÄNGIG / WIEDERHOLEN
 ================================================================
 
 Über das Menü "Bearbeiten" (oder Strg+Z / Strg+Y) lässt sich praktisch
-JEDE inhaltliche Änderung der aktuellen Sitzung rückgängig machen und
-wieder herstellen -- Messbereiche/Messungen/Maßstab hinzufügen, verschieben,
-umbenennen, farblich ändern oder entfernen; Referenzpunkte, Schwellenwert,
-Mittelungsbereich und ausgeblendete Bilder/Bereiche der Rohdaten-Bereinigung;
-Box, Farbe und Kenngröße der Schwindungsmessung; jede Probenhöhe hinzufügen,
-verschieben, umbenennen, farblich ändern, ein-/ausblenden oder entfernen;
-Auswertungsstart/-ende.
+jede inhaltliche Änderung der Sitzung beliebig oft zurücknehmen und
+wiederherstellen: Messbereiche, Messungen, Maßstab, Referenzpunkte und
+Ausblendungen der Rohdaten-Bereinigung, Schwindungsbox, Probenhöhen,
+Querschnitte und Auswertungsstart/-ende.
+  - "Rückgängig" (Strg+Z)
+  - "Wiederholen" (Strg+Y bzw. Strg+Umschalt+Z)
+Eine neue Änderung nach einem "Rückgängig" verwirft die wiederholbare
+Historie. Mehrere schnelle Eingaben an einem Feld oder Ziehen einer Box
+zählen als ein Schritt.
 
-  - "Rückgängig" (Strg+Z) -> macht die letzte Änderung rückgängig, beliebig
-                              oft nacheinander (voller mehrstufiger Verlauf,
-                              nicht nur ein Schritt).
-  - "Wiederholen" (Strg+Y bzw. Strg+Umschalt+Z) -> stellt eine per
-                              "Rückgängig" verworfene Änderung wieder her.
-                              Eine NEUE Änderung nach einem "Rückgängig"
-                              verwirft die bis dahin noch "wiederholbare"
-                              Historie (wie in jedem anderen Programm mit
-                              Rückgängig/Wiederholen üblich).
-
-Beide Menüpunkte sind ausgegraut, solange es nichts zurückzunehmen bzw. zu
-wiederholen gibt. Mehrere schnell aufeinanderfolgende Tastendrücke/
-Ziehbewegungen an EINEM Eingabefeld oder EINER Box (z.B. mehrmaliges Tippen
-in ein Zahlenfeld, oder das Ziehen eines Eckgriffs) zählen dabei als EIN
-Rückgängig-Schritt, nicht einer pro einzelnem Tastendruck/Zwischenschritt.
-
-NICHT von Rückgängig/Wiederholen betroffen (bewusst, da keine inhaltliche
-Änderung der Auswertung): der aktuell angezeigte Frame, Zoom/Ausschnitt des
-Thermobilds oder der Graphen, der gewählte Ebenen-Tab, sowie das Laden einer
-neuen Messreihe oder eines Projekts selbst (jeweils bereits über eine eigene
-Rückfrage abgesichert, siehe Abschnitt 3/12) -- das Laden einer neuen
-Messreihe/eines Projekts LEERT den bisherigen Rückgängig-Verlauf, da er sich
-auf die vorherige Aufnahme bezieht. Wird durch "Rückgängig"/"Wiederholen"
-tatsächlich die Box-Position/-Größe der Schwindungsmessung (Abschnitt 18)
-verändert, wird deren bereits berechnetes Ergebnis NICHT automatisch neu
-berechnet (kann bei vielen Bildern mehrere Sekunden dauern) -- stattdessen
-erscheint ein Hinweis, danach einmal erneut auf "Berechnen" zu klicken. Bei
-jeder ANDEREN, damit unzusammenhängenden Änderung (z.B. einen Messbereich
-verschieben) bleibt ein bereits berechnetes Schwindungs-Ergebnis dagegen
-unverändert erhalten und muss NICHT neu berechnet werden. Probenhöhen
-(Abschnitt 18) sind davon nicht betroffen -- sie werden ohnehin bei jeder
-sie betreffenden Änderung automatisch sofort live neu berechnet.
+Nicht betroffen sind der angezeigte Frame, Zoom, der Ebenen-Tab sowie das
+Laden einer Messreihe oder eines Projekts; dabei wird der Verlauf
+geleert. Ändert ein Rückgängig/Wiederholen die Schwindungsbox, erscheint
+ein Hinweis, danach erneut "Berechnen" zu klicken.
 
 
 ================================================================
-21. QUERSCHNITT-GRAPH
+20. QUERSCHNITT-GRAPH
 ================================================================
 
-Zeigt die Temperaturverteilung entlang einer GANZEN Bildzeile oder
--spalte des AKTUELL angezeigten Bilds als Kurve -- ergänzt die
-punktuelle Live-Cursor-Anzeige (Abschnitt 8) um einen vollständigen
-Schnitt durch das Bild. Als eigener Reiter "Querschnitt" neben
-"Zeitverlauf"/"Schwindung" verfügbar (wie jedes Dock in dieser App lässt
-sich auch dieser Reiter per Ziehen an der Titelzeile jederzeit zu einem
-frei schwebenden Fenster heraustrennen). Der Graph-Hintergrund folgt wie
-bei "Zeitverlauf"/"Schwindung" dem unter "Ansicht > Graph-Farbschema"
-gewählten Design (Abschnitt 4).
+Der Reiter "Querschnitt" zeigt die Temperaturverteilung entlang einer
+ganzen Bildzeile oder -spalte des aktuellen Bilds und ergänzt damit die
+punktuelle Live-Cursor-Anzeige. Er folgt dem gewählten Graph-
+Farbschema.
 
-Beliebig viele (max. 10) dauerhafte, benannte Querschnitt-Linien
-gleichzeitig -- jede mit eigener Farbe, fest horizontal ODER vertikal
-(bei der Erzeugung gewählt). Erreichbar über den eigenen Reiter
-"Querschnitte" im rechten Werkzeuge-Panel (wie "Maßstab" ein
-eigenständiger Reiter, nicht in eine andere Seite eingebettet).
+Es gibt bis zu 10 benannte, farbige Querschnitt-Linien, jede fest
+horizontal oder vertikal. Verwaltet werden sie im Reiter "Querschnitte"
+des Panels "Werkzeuge".
 
-ANLEGEN: "+ Horizontal" bzw. "+ Vertikal" einschalten (Dauer-Modus, wie
-bei den Probenhöhen, Abschnitt 18) und dann beliebig oft ins Thermobild
-klicken -- jeder Klick platziert eine weitere Linie der gewählten
-Richtung, bis der Knopf erneut geklickt wird oder das Maximum (10, über
-beide Richtungen zusammen) erreicht ist. Pro Eintrag in der Liste
-verfügbar: Aktiv-Haken (blendet Linie + Kurve ein/aus), Name (frei
-editierbar), Position (Zeile bzw. Spalte, per Spinbox ODER direkt per
-Ziehen der zugehörigen Linie im Bild), Farbe (Klick auf das Farbfeld) und
-ein "×"-Knopf zum endgültigen Entfernen.
+ANLEGEN: "+ Horizontal" bzw. "+ Vertikal" einschalten und beliebig oft ins
+Thermobild klicken; jeder Klick setzt eine weitere Linie, bis der Knopf
+erneut geklickt wird oder 10 erreicht sind. Schon beim Überfahren des
+Bildes zeigt eine Vorschau die Linie samt Kurve. Neue Linien heißen
+"Horizontalschnitt 1", "Vertikalschnitt 1", …
 
-Jeder Eintrag bekommt eine eigene Kurve im gemeinsamen Querschnitt-
-Graphen (mit Legende). Die Kurve zeigt das Profil des AKTUELL angezeigten
-Bilds (kein Zeitverlauf) und aktualisiert sich automatisch bei jedem
-Frame-Wechsel. Die LINIEN im Thermobild folgen einem eigenen Ebenen-Tab
-("Querschnitte", Abschnitt 19) -- nur sichtbar, während dieser (oder
-"Alle") aktiv ist; die Kurven selbst sind davon unabhängig.
+Jeder Eintrag in der Liste hat:
+  - Aktiv-Haken (Linie und Kurve ein/aus)
+  - Name (frei editierbar)
+  - Position (Zeile bzw. Spalte, per Zahlenfeld oder durch Ziehen der
+    Linie im Bild; die Kurve läuft dabei live mit)
+  - Farbfeld
+  - "×"-Knopf zum Entfernen
 
-Alle Einträge werden vollständig im Projekt gespeichert/geladen (Name,
-Farbe, Richtung, Position, Aktiv-Haken) und bleiben über Rückgängig/
-Wiederholen hinweg erhalten.
+Jede Linie hat eine eigene Kurve im gemeinsamen Graphen (mit Legende). Die
+Kurve zeigt das Profil des aktuellen Bilds und aktualisiert sich bei jedem
+Frame-Wechsel. Die Linien im Thermobild sind nur im Tab "Querschnitte"
+(oder "Alle") sichtbar. Alle Einträge werden im Projekt gespeichert.
 
-Y-ACHSE: folgt standardmäßig der aktuellen Farbskala/Legende (Abschnitt
-7) -- dieselbe Temperaturskala wie im Thermobild, unabhängig von den
-Werten der gerade sichtbaren Kurven. Über "Y-Achse einstellen…" lässt
-sich Wertebereich und/oder Schrittweite manuell festlegen, analog zu
-"Achsen einstellen…" bei den anderen Graphen (Abschnitt 8) -- die
-X-Achse (Pixel-Index entlang der gewählten Zeile/Spalte) hat dagegen
-keine eigene Einstellmöglichkeit, da sie keine Zeitachse ist. "Achsen
-zurücksetzen" verwirft eine eigene Y-Achse wieder (folgt danach wieder
-der Legende) und setzt Zoom/Verschiebung der X-Achse zurück.
+Y-ACHSE: Sie folgt standardmäßig der Farbskala (Abschnitt 7). Über
+"Y-Achse einstellen…" lassen sich Wertebereich und/oder Schrittweite
+manuell festlegen. "Achsen zurücksetzen" verwirft eine eigene Y-Achse
+und setzt den Zoom zurück. Die X-Achse (Pixelindex) ist nicht einstellbar.
 
-EXPORT: Die Checkbox "Querschnitt" im Grafik-/Video-/Bildstapel-Export-
-Dialog ist gesperrt, solange kein Eintrag angelegt wurde -- ohne das
-wäre unklar, auf welcher Zeile/Spalte überhaupt exportiert würde.
+EXPORT: Die Checkbox "Querschnitt" in den Export-Dialogen ist gesperrt,
+solange keine Linie angelegt ist.

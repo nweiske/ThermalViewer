@@ -97,7 +97,10 @@ class ExportPreviewPanel:
         self.label.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.label.setWordWrap(True)
         layout.addWidget(self.label)
-        self._timer = QtCore.QTimer()
+        # Kind der Box: Wird die Box (samt Dialog) geloescht, ohne dass vorher
+        # finished/stop() lief, verschwindet auch der Timer mit -- sonst feuert
+        # er spaeter gegen bereits zerstoerte Widgets (RuntimeError im Slot).
+        self._timer = QtCore.QTimer(self.group_box)
         self._timer.setSingleShot(True)
         self._timer.setInterval(150)
         self._connected = False
@@ -108,7 +111,10 @@ class ExportPreviewPanel:
         (siehe export_image.py/export_video.py), damit der 150ms-Timer nicht
         WAEHREND des eigentlichen (laenger laufenden) Exports feuert und
         dessen eigene Sichtbarkeits-/Farb-Manipulationen durchkreuzt."""
-        self._timer.stop()
+        try:
+            self._timer.stop()
+        except RuntimeError:
+            pass  # Qt-Objekt bereits zerstoert (Dialog nach dem Schliessen geloescht)
 
     def schedule_refresh(self, provider) -> None:
         # Eigene Verbunden-Markierung statt disconnect()-im-try/except:
@@ -122,7 +128,19 @@ class ExportPreviewPanel:
         self._timer.start()
 
     def _refresh_now(self, provider) -> None:
-        image = provider()
+        # Ein Renderfehler (z.B. waehrend einer halb eingegebenen Einstellung)
+        # darf nicht als unbehandelte Exception aus dem Timer-Slot laufen --
+        # die Vorschau ist nur ein Hilfsmittel, der Export selbst bleibt nutzbar.
+        try:
+            image = provider()
+        except Exception:
+            image = None
+        try:
+            self._show_preview_image(image)
+        except RuntimeError:
+            pass  # Label bereits zerstoert (Timer feuerte nach dem Schliessen)
+
+    def _show_preview_image(self, image) -> None:
         if image is None or image.isNull():
             self.label.set_source_pixmap(None)
             self.label.setText("Vorschau nicht verfügbar (z.B. keine Aufnahme geladen).")
@@ -295,9 +313,12 @@ class AxisOverridePanel:
             current_y_max=ov["y_range"][1] if ov else state["y_max"],
             x_manual=ov["x_manual"] if ov else not state["x_auto"],
             y_manual_range=ov["y_manual_range"] if ov else not state["y_auto"],
-            y_spacing=(ov["y_spacing"] if ov and ov["y_spacing_manual"] else state["y_spacing"]),
+            # Mit bestehenden Overrides zaehlt deren Auto/Manuell-Wahl, nicht der
+            # Hauptfenster-Zustand -- sonst erscheint ein bewusst gewaehltes
+            # "automatisch" beim Wiederoeffnen faelschlich als "manuell".
+            y_spacing=((ov["y_spacing"] if ov["y_spacing_manual"] else None) if ov else state["y_spacing"]),
             x_runtime_mode=state["x_runtime_mode"],
-            x_spacing=(ov["x_spacing"] if ov and ov["x_spacing_manual"] else state["x_spacing"]),
+            x_spacing=((ov["x_spacing"] if ov["x_spacing_manual"] else None) if ov else state["x_spacing"]),
             runtime_unit=state.get("runtime_unit", "s"),
         )
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:

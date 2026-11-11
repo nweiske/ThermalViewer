@@ -403,6 +403,7 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # bereitstellt (siehe dort) -- ohne Aufruf bleibt die Box unsichtbar.
         self._preview_panel = ExportPreviewPanel(min_width=260, min_height=160)
         self._preview_panel.group_box.setVisible(False)
+        self._preview_provider = None
 
         if graphs_row is not None:
             # Jede Spalte oben ausgerichtet (die beiden Spalten koennen
@@ -483,7 +484,14 @@ class GraphicExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         (z.B. ein lambda mit export_dialog im Closure) -- der Dialog selbst
         haelt keine Referenz auf MainWindow."""
         self._preview_panel.group_box.setVisible(True)
-        refresh = lambda *_args: self._preview_panel.schedule_refresh(provider)
+        # Wiederholter Aufruf: nur den Renderer tauschen, die Steuerelemente
+        # nicht ein zweites Mal verbinden (sonst mehrfache Refresh-Ausloesung).
+        already_connected = self._preview_provider is not None
+        self._preview_provider = provider
+        if already_connected:
+            self._preview_panel.schedule_refresh(provider)
+            return
+        refresh = lambda *_args: self._preview_panel.schedule_refresh(self._preview_provider)
         # None, wenn show_graph_source_choice=False (siehe __init__) -- bisher
         # ungeschuetzt, anders als jede andere optionale Steuerelement-Gruppe
         # hier drunter (AttributeError-Falle fuer einen kuenftigen Aufrufer,
@@ -765,6 +773,14 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # Datei-Zeitstempel), die massgebliche Pruefung erfolgt daher ohnehin
         # dort nochmal.
         self._timestamps = timestamps
+        # Die Kollisions-Pruefung rendert den Namen fuer JEDEN Frame im Bereich
+        # (bei zehntausenden Frames Sekunden pro Tastendruck) -- ab
+        # _FILENAME_CHECK_SYNC_LIMIT Frames daher entprellt statt sofort.
+        self._filename_warning_timer = QtCore.QTimer(self)
+        self._filename_warning_timer.setSingleShot(True)
+        self._filename_warning_timer.setInterval(300)
+        self._filename_warning_timer.timeout.connect(self._update_filename_warning)
+        self.finished.connect(self._filename_warning_timer.stop)
 
         outer_layout, layout = _wrap_in_scroll_area(self)
         self._tabs = QtWidgets.QTabWidget()
@@ -1173,6 +1189,7 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # Renderer bereitstellt.
         self._preview_panel = ExportPreviewPanel(min_width=220, min_height=140)
         self._preview_panel.group_box.setVisible(False)
+        self._preview_provider = None
 
         for col in (graphs_col, overlays_col, color_col, output_col):
             col.addStretch(1)
@@ -1206,6 +1223,10 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         outer_layout.addWidget(buttons)
         _cap_initial_dialog_height(self)
 
+    _FILENAME_CHECK_SYNC_LIMIT = 500
+    # Maximale Dateinamen-Laenge (ohne Pfad) der gaengigen Dateisysteme.
+    _MAX_FILENAME_LENGTH = 255
+
     def _update_output_mode_enabled(self) -> None:
         is_video = self.radio_output_video.isChecked()
         self.spin_fps.setEnabled(is_video)
@@ -1228,7 +1249,6 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         ext = self.combo_image_format.currentData() or ".png"
         count = max(1, self.spin_end.value() - self.spin_start.value() + 1)
         digits = len(str(count))
-        has_index_token = INDEX_TOKEN in raw_prefix
 
         preview_prefix = raw_prefix
         if self._sample_timestamp is not None:
@@ -1240,10 +1260,23 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         # Kontrolle ueber den Dateinamen) -- ohne "IDX" bleibt das Muster
         # fuer jeden Frame exakt so, wie eingegeben; ob das eindeutig ist,
         # prueft die Warnung unten bzw. verbindlich MainWindow._export_video.
+        self._preview_filename_length = len(f"{preview_prefix}{ext}")
         self.lbl_filename_preview.setText(f"{preview_prefix}{ext}")
 
+        if count > self._FILENAME_CHECK_SYNC_LIMIT:
+            self._filename_warning_timer.start()
+        else:
+            self._filename_warning_timer.stop()
+            self._update_filename_warning()
+
+    def _update_filename_warning(self) -> None:
+        """Zeigt die Warnung, wenn das Muster (ohne IDX) fuer mehrere Frames im
+        gewaehlten Bereich denselben Dateinamen ergibt."""
+        raw_prefix = sanitize_filename_prefix(self.edit_image_prefix.text(), fallback="Frame_")
+        count = max(1, self.spin_end.value() - self.spin_start.value() + 1)
+        digits = len(str(count))
         warn = False
-        if not has_index_token and self._timestamps:
+        if INDEX_TOKEN not in raw_prefix and self._timestamps:
             start = self.spin_start.value() - 1
             end = self.spin_end.value() - 1
             window = self._timestamps[start : end + 1]
@@ -1253,12 +1286,15 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                 # (render_export_filename) pruefen -- LAUF allein macht
                 # ein Muster NICHT eindeutig (mehrere Frames koennen
                 # dieselbe gerundete Minute/Stunde teilen), das faengt
-                # dieser Vergleich automatisch mit ab.
-                rendered = {
-                    render_export_filename(raw_prefix, ts, (ts - t0).total_seconds(), i, digits)
-                    for i, ts in enumerate(window, start=1)
-                }
-                warn = len(rendered) < len(window)
+                # dieser Vergleich automatisch mit ab. Abbruch beim ersten
+                # Treffer: die Warnung braucht nur "mindestens eine Kollision".
+                seen: set[str] = set()
+                for i, ts in enumerate(window, start=1):
+                    name = render_export_filename(raw_prefix, ts, (ts - t0).total_seconds(), i, digits)
+                    if name in seen:
+                        warn = True
+                        break
+                    seen.add(name)
         self.lbl_filename_warning.setVisible(warn)
 
     def _update_legend_options_enabled(self) -> None:
@@ -1295,7 +1331,12 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
     def enable_preview(self, provider) -> None:
         """Siehe GraphicExportDialog.enable_preview -- identisches Muster."""
         self._preview_panel.group_box.setVisible(True)
-        refresh = lambda *_args: self._preview_panel.schedule_refresh(provider)
+        already_connected = self._preview_provider is not None
+        self._preview_provider = provider
+        if already_connected:
+            self._preview_panel.schedule_refresh(provider)
+            return
+        refresh = lambda *_args: self._preview_panel.schedule_refresh(self._preview_provider)
         for chk in (self.chk_graph_zeitverlauf, self.chk_graph_schwindung, self.chk_graph_querschnitt):
             chk.toggled.connect(refresh)
         self.combo_graph_position.currentIndexChanged.connect(refresh)
@@ -1326,6 +1367,15 @@ class VideoExportDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         if self.spin_end.value() < self.spin_start.value():
             QtWidgets.QMessageBox.warning(
                 self, "Ungültiger Bereich", "Der End-Frame muss größer oder gleich dem Start-Frame sein."
+            )
+            return
+        # Zu langer Dateiname scheitert sonst erst beim Schreiben des ersten
+        # Bildes (mitten im Export) mit einer wenig aussagekraeftigen Meldung.
+        if self.radio_output_images.isChecked() and self._preview_filename_length > self._MAX_FILENAME_LENGTH:
+            QtWidgets.QMessageBox.warning(
+                self, "Dateiname zu lang",
+                f"Das Dateiname-Muster ergibt Namen mit über {self._MAX_FILENAME_LENGTH} Zeichen -- "
+                "das Dateisystem kann sie nicht speichern. Bitte das Muster kürzen.",
             )
             return
         if self.chk_legend.isChecked() and _color_scale_range_invalid(

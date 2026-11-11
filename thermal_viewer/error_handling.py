@@ -28,6 +28,10 @@ from pathlib import Path
 from qtpy import QtWidgets
 
 _LOG_PATH = Path.home() / "ThermalViewer" / "fehlerprotokoll.log"
+# Waehrend der Dialog offen ist, laeuft seine Event-Loop weiter (Timer etc.) --
+# ein dort erneut auftretender Fehler soll nur protokolliert werden, statt
+# immer weitere modale Dialoge zu stapeln.
+_dialog_open = False
 
 
 def install_global_excepthook() -> None:
@@ -40,8 +44,18 @@ def install_global_excepthook() -> None:
             original_hook(exc_type, exc_value, exc_tb)
             return
         text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        global _dialog_open
         _write_log(text)
-        _show_dialog(text)
+        if _dialog_open:
+            return
+        _dialog_open = True
+        try:
+            _show_dialog(text)
+        except Exception:
+            # Der Handler selbst darf nie eine weitere Ausnahme werfen.
+            pass
+        finally:
+            _dialog_open = False
 
     sys.excepthook = _handle
 

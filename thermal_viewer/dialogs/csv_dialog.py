@@ -7,7 +7,7 @@ from pathlib import Path
 
 from qtpy import QtCore, QtWidgets
 
-from ..data import compile_filename_template, validate_filename_template, zip_strict
+from ..data import compile_filename_template, has_valid_timestamp, validate_filename_template, zip_strict
 from ._base import _cap_initial_dialog_height, _disable_enter_auto_accept, _NoEnterAutoAccept, _wrap_in_scroll_area
 
 
@@ -185,7 +185,10 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             self._checks.append(chk)
             chk.toggled.connect(partial(self._sync_all_checkbox, self.chk_all, self._checks))
 
-            grid.addWidget(QtWidgets.QLabel(entry["name"]), row, 1)
+            lbl_name = QtWidgets.QLabel(entry["name"])
+            # Frei benennbare Messbereiche: "<A>" o.ae. sonst als HTML-Tag verschluckt.
+            lbl_name.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+            grid.addWidget(lbl_name, row, 1)
             edit = QtWidgets.QLineEdit(f'{entry["name"]} ({entry.get("unit_suffix", "°C")})')
             chk.toggled.connect(edit.setEnabled)
             # Folgeanfrage ("Labels von Haus aus ganz über die Breite
@@ -338,6 +341,13 @@ class CsvColumnDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
                     chk.setChecked(checked)
         finally:
             self._bulk_update = False
+        # Waehrend des Durchlaufs waren ALLE Sammel-Syncs gesperrt -- z.B. aendert
+        # "ALLE" die Aktivierung der px/mm-Checkboxen, "ALLE px" muss danach
+        # neu abgeglichen werden, sonst bleibt es veraltet angehakt.
+        for master, group in (
+            (self.chk_all, self._checks), (self.chk_px_all, self._px_checks), (self.chk_mm_all, self._mm_checks),
+        ):
+            self._sync_all_checkbox(master, group)
 
     def _sync_all_checkbox(
         self, master: QtWidgets.QCheckBox, checks: list[QtWidgets.QCheckBox], *_args
@@ -581,8 +591,8 @@ class FilenameTemplateDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             ok_button.setEnabled(False)
             return
 
-        pattern, _fmt = compile_filename_template(template)
-        matched = [p for p in self._all_csv_files if pattern.search(p.stem)]
+        pattern, fmt = compile_filename_template(template)
+        matched = [p for p in self._all_csv_files if has_valid_timestamp(p.stem, pattern, fmt)]
         for p in matched[: self._MAX_PREVIEW_ITEMS]:
             self.preview_list.addItem(p.name)
         if len(matched) > self._MAX_PREVIEW_ITEMS:

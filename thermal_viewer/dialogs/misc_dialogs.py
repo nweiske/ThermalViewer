@@ -170,15 +170,19 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             x_layout = QtWidgets.QVBoxLayout(x_box)
             self.chk_x_manual = QtWidgets.QCheckBox("Wertebereich manuell festlegen")
             x_layout.addWidget(self.chk_x_manual)
+            # Bei Minuten/Stunden reicht eine Nachkommastelle nicht: ein beim
+            # Wiederoeffnen unveraendert uebernommener Bereich wuerde sonst
+            # still auf 6 s bzw. 6 min gerundet.
+            x_decimals = 1 if self._runtime_unit == "s" else 3
             x_form = QtWidgets.QFormLayout()
             self.spin_x_min = LocaleTolerantDoubleSpinBox()
             self.spin_x_min.setRange(-1e12, 1e12)
-            self.spin_x_min.setDecimals(1)
+            self.spin_x_min.setDecimals(x_decimals)
             self.spin_x_min.setSuffix(unit_suffix)
             self.spin_x_min.setValue(current_x_min / divisor)
             self.spin_x_max = LocaleTolerantDoubleSpinBox()
             self.spin_x_max.setRange(-1e12, 1e12)
-            self.spin_x_max.setDecimals(1)
+            self.spin_x_max.setDecimals(x_decimals)
             self.spin_x_max.setSuffix(unit_suffix)
             self.spin_x_max.setValue(current_x_max / divisor)
             x_form.addRow(f"Von ({unit_label} seit Aufnahmebeginn):", self.spin_x_min)
@@ -189,8 +193,11 @@ class AxisSettingsDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             x_layout.addWidget(self.chk_x_manual_spacing)
             x_spacing_form = QtWidgets.QFormLayout()
             self.spin_x_spacing = LocaleTolerantDoubleSpinBox()
-            self.spin_x_spacing.setRange(0.1, 1e7)
-            self.spin_x_spacing.setDecimals(1)
+            # Gleiche Genauigkeit wie beim Wertebereich oben: 0.1 h (= 6 min)
+            # als Untergrenze/Rundung wuerde z.B. einen 5-min-Abstand beim
+            # Wiederoeffnen still auf 6 min veraendern.
+            self.spin_x_spacing.setRange(0.1 if self._runtime_unit == "s" else 0.001, 1e7)
+            self.spin_x_spacing.setDecimals(x_decimals)
             self.spin_x_spacing.setSuffix(unit_suffix)
             self.spin_x_spacing.setValue(
                 x_spacing / divisor if x_spacing is not None

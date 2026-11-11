@@ -25,6 +25,11 @@ from .data_cleaning_viewer import CleaningPreviewViewer
 
 
 class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
+    # Eine Checkbox je Kandidat: ab einigen hundert wird der Neuaufbau (bei
+    # JEDER Schwellenwert-Aenderung) minutenlang traege -- der Rest bleibt
+    # ausgeblendet, wird nur nicht mehr einzeln aufgelistet.
+    _MAX_LISTED_CANDIDATES = 300
+
     def __init__(self, main_window) -> None:
         super().__init__(main_window)
         self._mw = main_window
@@ -259,6 +264,10 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         self.candidates_area.setWidget(self._candidates_container)
         right_column.addWidget(self.candidates_area, 1)
         self._candidate_checks: dict[int, QtWidgets.QCheckBox] = {}
+        # Ueber das Anzeige-Limit hinaus ausgeblendete Bilder (siehe
+        # _MAX_LISTED_CANDIDATES) -- bleiben bei Checkbox-Klicks unveraendert.
+        self._candidate_hidden: set[int] = set()
+        self._candidate_overflow_label: QtWidgets.QLabel | None = None
 
         buttons = QtWidgets.QDialogButtonBox()
         self.btn_close = buttons.addButton("Schließen", QtWidgets.QDialogButtonBox.ButtonRole.RejectRole)
@@ -325,10 +334,12 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         beim Aufbau UND fuer das Nachziehen nach "Projekt laden…" (siehe
         project_io.py)."""
         self.combo_kernel.blockSignals(True)
-        size = self._mw._cleaning_kernel_size
-        if size in self._kernel_sizes:
-            self.combo_kernel.setCurrentIndex(self._kernel_sizes.index(size))
-        self.combo_kernel.blockSignals(False)
+        try:
+            size = self._mw._cleaning_kernel_size
+            if size in self._kernel_sizes:
+                self.combo_kernel.setCurrentIndex(self._kernel_sizes.index(size))
+        finally:
+            self.combo_kernel.blockSignals(False)
 
     def _on_kernel_size_changed(self, index: int) -> None:
         self._mw._push_undo_snapshot()
@@ -465,6 +476,10 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             _, chk = self._candidate_checks.popitem()
             chk.setParent(None)
             chk.deleteLater()
+        if self._candidate_overflow_label is not None:
+            self._candidate_overflow_label.setParent(None)
+            self._candidate_overflow_label.deleteLater()
+            self._candidate_overflow_label = None
 
         newly_flagged = self._mw._compute_cleaning_candidates() if self._mw._cleaning_points else set()
         union = sorted(newly_flagged | self._mw._excluded_frame_indices)
@@ -483,7 +498,11 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         )
 
         timestamps = self._mw.recording.timestamps if self._mw.recording else []
-        for idx in union:
+        listed = union[: self._MAX_LISTED_CANDIDATES]
+        # Nicht aufgelistete Bilder behalten ihren tatsaechlichen Zustand
+        # (normalerweise ausgeblendet; nach einer Ablehnung oben der alte).
+        self._candidate_hidden = set(union[self._MAX_LISTED_CANDIDATES:]) & self._mw._excluded_frame_indices
+        for idx in listed:
             ts = timestamps[idx].strftime("%Y-%m-%d %H:%M:%S") if idx < len(timestamps) else "?"
             reason = "neu erkannt" if idx in newly_flagged else "bereits ausgeblendet"
             chk = QtWidgets.QCheckBox(f"Bild {idx + 1} ({ts}) -- {reason}")
@@ -491,10 +510,18 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
             # (Standard: ausgeblendet) soll die Auswertung nicht nochmal
             # unnoetig neu anwenden -- self._mw._excluded_frame_indices ist
             # zu diesem Zeitpunkt (Neuaufbau der Liste) bereits konsistent.
-            chk.setChecked(True)
+            # Den TATSAECHLICHEN Zustand zeigen: wurde die Anwendung oben
+            # abgelehnt (alle Bilder waeren ausgeblendet), sind die neu
+            # erkannten Kandidaten NICHT ausgeblendet.
+            chk.setChecked(idx in self._mw._excluded_frame_indices)
             chk.toggled.connect(self._on_candidate_checkbox_toggled)
             self._candidate_checks[idx] = chk
             self._candidates_layout.insertWidget(self._candidates_layout.count() - 1, chk)
+        if len(union) > len(listed):
+            self._candidate_overflow_label = QtWidgets.QLabel(
+                f"… und {len(union) - len(listed)} weitere (nicht einzeln aufgelistet)."
+            )
+            self._candidates_layout.insertWidget(self._candidates_layout.count() - 1, self._candidate_overflow_label)
 
         # Bugfix: dieser ganze Methodenaufruf laeuft synchron INNERHALB des
         # pyqtgraph-Mausklick-Handlers (siehe CleaningPreviewViewer._on_
@@ -526,6 +553,7 @@ class DataCleaningDialog(_NoEnterAutoAccept, QtWidgets.QDialog):
         geklickten), da mehrere Checkboxen gleichzeitig in der Liste stehen
         koennen."""
         exclude = {idx for idx, chk in self._candidate_checks.items() if chk.isChecked()}
+        exclude |= self._candidate_hidden
         self._mw._push_undo_snapshot()
         self._mw._apply_cleaning_exclusions(exclude)
         self._refresh_preview()

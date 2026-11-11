@@ -164,7 +164,8 @@ def compile_filename_template(template: str) -> tuple[re.Pattern, str]:
     for kind, value in _tokenize_filename_template(template):
         if kind == "literal":
             regex_body.append(re.escape(value))
-            fmt.append(value)
+            # "%" im literalen Text sonst als strptime-Direktive gelesen.
+            fmt.append(value.replace("%", "%%"))
         else:
             digit_pattern, directive = FILENAME_TEMPLATE_TOKENS[value]
             regex_body.append(digit_pattern)
@@ -252,38 +253,67 @@ def parse_timestamp(
     strptime_fmt: str = DEFAULT_FILENAME_STRPTIME_FMT,
 ) -> datetime:
     match = pattern.search(path.stem)
-    if not match:
-        # Kein Zeitstempel im Namen -> Dateisystem-Änderungszeit als Fallback,
-        # damit auch beliebig benannte Dateien geladen werden können.
+    if match:
         try:
-            return datetime.fromtimestamp(path.stat().st_mtime)
-        except OSError:
-            # Datei zwischen dem Auflisten (glob) und dieser Zeitstempel-
-            # Ermittlung verschwunden/nicht mehr zugreifbar (Antivirus-Scan,
-            # "Schreiben-dann-Umbenennen" der Messsoftware, Netzlaufwerk-
-            # Aussetzer). Diese Funktion dient u.a. als SORTIER-Schluessel in
-            # load_paths()/append_paths() -- dort NOCH VOR der eigentlichen
-            # Datei-fuer-Datei-Fehlerbehandlung aufgerufen. Ein hier erneut
-            # geworfener OSError wuerde den kompletten (auch bei der alle
-            # 10s unbeaufsichtigt laufenden Live-Ordner-Ueberwachung
-            # genutzten) Ladevorgang abbrechen, statt nur diese eine Datei zu
-            # ueberspringen. Ein fester Ersatzwert laesst die Sortierung
-            # kontrolliert durchlaufen -- das eigentliche Scheitern passiert
-            # danach beim Lesen des Dateiinhalts, wo es bereits regulaer als
-            # uebersprungene Datei behandelt wird.
-            return datetime.min
-    return datetime.strptime(match.group(1), strptime_fmt)
+            return datetime.strptime(match.group(1), strptime_fmt)
+        except ValueError:
+            # Ziffern passen zum Schema, ergeben aber kein gueltiges Datum
+            # (z.B. Monat 13, Stunde 24) -- wie "kein Zeitstempel im Namen"
+            # behandeln, statt den ganzen Ladevorgang abzubrechen.
+            pass
+    # Kein (gueltiger) Zeitstempel im Namen -> Dateisystem-Änderungszeit
+    # als Fallback, damit auch beliebig benannte Dateien geladen werden
+    # können.
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime)
+    except (OSError, OverflowError, ValueError):
+        # Datei zwischen dem Auflisten (glob) und dieser Zeitstempel-
+        # Ermittlung verschwunden/nicht mehr zugreifbar (Antivirus-Scan,
+        # "Schreiben-dann-Umbenennen" der Messsoftware, Netzlaufwerk-
+        # Aussetzer). Diese Funktion dient u.a. als SORTIER-Schluessel in
+        # load_paths()/append_paths() -- dort NOCH VOR der eigentlichen
+        # Datei-fuer-Datei-Fehlerbehandlung aufgerufen. Ein hier erneut
+        # geworfener OSError wuerde den kompletten (auch bei der alle
+        # 10s unbeaufsichtigt laufenden Live-Ordner-Ueberwachung
+        # genutzten) Ladevorgang abbrechen, statt nur diese eine Datei zu
+        # ueberspringen. Ein fester Ersatzwert laesst die Sortierung
+        # kontrolliert durchlaufen -- das eigentliche Scheitern passiert
+        # danach beim Lesen des Dateiinhalts, wo es bereits regulaer als
+        # uebersprungene Datei behandelt wird.
+        return datetime.min
 
 
-def files_matching_template(folder: Path, pattern: re.Pattern) -> list[Path]:
+def has_valid_timestamp(
+    stem: str, pattern: re.Pattern, strptime_fmt: str | None = None
+) -> bool:
+    """Ob der Dateiname (ohne Endung) auf pattern passt UND -- mit strptime_fmt --
+    die Ziffern ein gueltiges Datum ergeben (nicht z.B. Monat 13): genau dann
+    bezieht parse_timestamp() den Zeitstempel aus dem Namen statt aus der
+    Aenderungszeit."""
+    match = pattern.search(stem)
+    if not match:
+        return False
+    if strptime_fmt is None:
+        return True
+    try:
+        datetime.strptime(match.group(1), strptime_fmt)
+    except (ValueError, IndexError):
+        return False
+    return True
+
+
+def files_matching_template(
+    folder: Path, pattern: re.Pattern, strptime_fmt: str | None = None
+) -> list[Path]:
     """Liefert alle ".csv"-DATEIEN (keine Ordner) in folder, deren Dateiname
     (ohne Endung) auf pattern passt -- fuer die Live-Vorschau im
     FilenameTemplateDialog UND fuer die Vorab-Pruefung beim Ordner-Oeffnen
     (MainWindow._open_folder), ob das aktuelle Namensschema ueberhaupt zu den
-    vorhandenen Dateien passt."""
+    vorhandenen Dateien passt. Mit strptime_fmt zaehlen nur Namen mit
+    gueltigem Datum."""
     return sorted(
         p for p in Path(folder).glob("*.csv")
-        if p.is_file() and pattern.search(p.stem)
+        if p.is_file() and has_valid_timestamp(p.stem, pattern, strptime_fmt)
     )
 
 
@@ -306,10 +336,14 @@ def _clean_data_line(line: str, settings: ImportSettings) -> str:
     _parse_data_line UND den pandas-Fastpath in parse_frame_text, damit
     beide exakt dieselben Zeilen als Daten vs. "leer, ueberspringen"
     behandeln."""
-    line = line.strip()
     if settings.delimiter:
-        line = line.rstrip(settings.delimiter)
-    return line
+        # Das Trennzeichen (z.B. Tab) darf am Zeilenanfang nicht mit dem
+        # Leerraum abgeschnitten werden: eine leere erste Spalte verschoebe
+        # sonst alle folgenden Spalten.
+        whitespace = "".join(c for c in " \t\r\n\x0b\x0c" if c not in settings.delimiter)
+        line = line.strip(whitespace).rstrip(settings.delimiter)
+        return line.strip(whitespace)
+    return line.strip()
 
 
 def _parse_data_line(line: str, settings: ImportSettings) -> list[float]:
@@ -356,7 +390,9 @@ def _try_fast_parse_lines(lines: list[str], settings: ImportSettings) -> np.ndar
         delimiter = settings.delimiter or None  # None = beliebig viele Leerzeichen, wie settings.delimiter == ""
         # ndmin=2: ohne das wuerde eine Datei mit NUR EINER Datenzeile von
         # np.loadtxt zu einem 1D- statt 2D-Array verkuerzt (Sonderfall-Falle).
-        arr = np.loadtxt(io.StringIO(text), delimiter=delimiter, dtype=np.float32, ndmin=2)
+        # comments=None: np.loadtxt schneidet sonst alles ab "#" still ab, der
+        # Fallback (_parse_data_line) lehnt solche Zeilen dagegen als ungueltig ab.
+        arr = np.loadtxt(io.StringIO(text), delimiter=delimiter, dtype=np.float32, ndmin=2, comments=None)
         if arr.shape[0] != len(lines) or arr.shape[1] == 0:
             return None
         start = settings.skip_leading_columns
@@ -555,6 +591,16 @@ def tiff_crop_to_temperature(
     return (t_min + normalized * (t_max - t_min)).astype(np.float32)
 
 
+def _timestamp_seconds(t: datetime) -> float:
+    """datetime.timestamp() wirft unter Windows fuer Zeitpunkte vor 1970 (u.a.
+    den datetime.min-Ersatzwert von parse_timestamp) einen OSError -- dann ueber
+    die Differenz zur Epoche rechnen, statt jede Zeitachse zum Absturz zu bringen."""
+    try:
+        return t.timestamp()
+    except (OSError, OverflowError, ValueError):
+        return (t - datetime(1970, 1, 1)).total_seconds()
+
+
 @dataclass
 class Recording:
     paths: list[Path] = field(default_factory=list)
@@ -596,7 +642,7 @@ class Recording:
         cache = self._unix_seconds_cache
         if cache is not None and cache[0] == n and (n == 0 or cache[1] == self.timestamps[-1]):
             return cache[2]
-        result = np.asarray([t.timestamp() for t in self.timestamps])
+        result = np.asarray([_timestamp_seconds(t) for t in self.timestamps])
         self._unix_seconds_cache = (n, self.timestamps[-1] if n else None, result)
         return result
 
@@ -706,13 +752,22 @@ def load_paths(
 
     kept_paths = [p for p, _, _ in kept]
     kept_timestamps = [ts for _, ts, _ in kept]
-    kept_frames = [frame for _, _, frame in kept]
     kept_timestamps, had_duplicates = _deduplicate_timestamps(kept_timestamps)
+
+    # Direkt in ein vorab angelegtes Array kopieren und die Einzelbilder dabei
+    # freigeben, statt sie per np.stack() zu duplizieren: bei grossen
+    # Messreihen halbiert das den Speicher-Spitzenbedarf beim Laden.
+    dtype = np.result_type(*{frame.dtype for _, _, frame in kept})
+    stacked = np.empty((len(kept),) + reference_shape, dtype=dtype)
+    loaded.clear()
+    for i in range(len(kept)):
+        stacked[i] = kept[i][2]
+        kept[i] = None
 
     return Recording(
         paths=kept_paths,
         timestamps=kept_timestamps,
-        frames=np.stack(kept_frames),
+        frames=stacked,
         had_duplicate_timestamps=had_duplicates,
         skipped_files=skipped,
     )

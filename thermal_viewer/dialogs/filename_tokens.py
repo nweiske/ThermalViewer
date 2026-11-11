@@ -8,7 +8,11 @@ from datetime import datetime
 
 from ..data import render_filename_template
 
-_INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
+_INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+# Unter Windows nicht als Dateiname nutzbar (auch mit Endung, z.B. "CON.png").
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
+)
 
 
 def sanitize_filename_prefix(prefix: str, fallback: str = "Frame") -> str:
@@ -18,7 +22,10 @@ def sanitize_filename_prefix(prefix: str, fallback: str = "Frame") -> str:
     UND dem tatsaechlichen Bildstapel-Export (MainWindow._export_video),
     damit die Vorschau niemals einen Dateinamen zeigt, der beim
     tatsaechlichen Speichern anders aussehen wuerde."""
-    return _INVALID_FILENAME_CHARS.sub("_", prefix).strip() or fallback
+    cleaned = _INVALID_FILENAME_CHARS.sub("_", prefix).strip() or fallback
+    if cleaned.split(".", 1)[0].rstrip().upper() in _WINDOWS_RESERVED_NAMES:
+        cleaned = "_" + cleaned
+    return cleaned
 
 
 # Bewusst NICHT Teil von data.FILENAME_TEMPLATE_TOKENS/_tokenize_filename_
@@ -104,4 +111,7 @@ def render_export_filename(prefix: str, timestamp: datetime, elapsed_seconds: fl
     rendered = render_filename_template(prefix, timestamp)
     rendered, _ = render_index_token(rendered, index, digits)
     rendered, _ = render_runtime_token(rendered, elapsed_seconds)
+    # Erst nach der Ersetzung pruefbar: "COM" + IDX ergibt z.B. "COM1".
+    if rendered.split(".", 1)[0].rstrip().upper() in _WINDOWS_RESERVED_NAMES:
+        rendered = "_" + rendered
     return rendered

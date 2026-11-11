@@ -143,17 +143,20 @@ class _DataCleaningMixin:
         series_per_point = {i: self._cleaning_point_series(i) for i in enabled_indices}
         and_indices = [i for i in enabled_indices if self._cleaning_points[i][2] != "or"]
         or_indices = [i for i in enabled_indices if self._cleaning_points[i][2] == "or"]
-        flagged = set()
-        for i in range(1, n):
-            and_hit = bool(and_indices) and all(
-                abs(series_per_point[j][i] - series_per_point[j][i - 1]) > threshold for j in and_indices
-            )
-            or_hit = bool(or_indices) and any(
-                abs(series_per_point[j][i] - series_per_point[j][i - 1]) > threshold for j in or_indices
-            )
-            if and_hit or or_hit:
-                flagged.add(i)
-        return flagged
+        if n < 2:
+            return set()
+        # Vektorisiert (statt einer Python-Schleife je Bild): laeuft bei jedem
+        # Schwellenwert-Schritt im Dialog. Ein Sprung[j][k] gehoert zu Bild k+1.
+        jumps = {
+            j: np.abs(np.diff(np.asarray(series_per_point[j], dtype=float)[:n])) > threshold
+            for j in enabled_indices
+        }
+        hit = np.zeros(n - 1, dtype=bool)
+        if and_indices:
+            hit |= np.logical_and.reduce([jumps[j] for j in and_indices])
+        if or_indices:
+            hit |= np.logical_or.reduce([jumps[j] for j in or_indices])
+        return {int(k) + 1 for k in np.nonzero(hit)[0]}
 
     def _apply_cleaning_exclusions(self, exclude: set[int], *, rebuild_dialog_on_reject: bool = True) -> None:
         """rebuild_dialog_on_reject=False: von refresh_candidates() selbst

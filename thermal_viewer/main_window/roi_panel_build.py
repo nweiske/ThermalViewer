@@ -28,6 +28,10 @@ from .constants import (
 
 
 class _RoiPanelBuildMixin:
+    _roi_list_arming_suppressed = False
+    # Klick-Event, der einen Messbereich gerade per Bildklick armiert hat.
+    _roi_select_click_event = None
+
     def _build_roi_entries(self) -> None:
         # Startbestand: die urspruengliche feste Anzahl (Farbpalettengroesse).
         # Weitere Messbereiche lassen sich danach jederzeit per "+"-Knopf im
@@ -509,8 +513,14 @@ class _RoiPanelBuildMixin:
         if entry.list_item is not None:
             self.roi_list.setCurrentItem(entry.list_item)
 
-    def _on_roi_clicked_in_image(self, entry: "RoiEntry", *_args) -> None:
+    def _on_roi_clicked_in_image(self, entry: "RoiEntry", *args) -> None:
+        armed_before = self._armed_entry
         self._select_roi(entry)
+        if args and armed_before is not entry and self._armed_entry is entry:
+            # Dasselbe Event erreicht danach auch _on_scene_mouse_clicked und
+            # wuerde den frisch armierten Messbereich sofort unter den Cursor
+            # versetzen (siehe dort).
+            self._roi_select_click_event = args[-1]
 
     def _selected_roi_entry(self) -> "RoiEntry | None":
         roi_list = getattr(self, "roi_list", None)
@@ -524,8 +534,11 @@ class _RoiPanelBuildMixin:
         entry = item.data(QtCore.Qt.UserRole) if item is not None else None
         if entry is None:
             return
-        self._roi_selected_by_user = True
         self.roi_stack.setCurrentWidget(entry.tab_widget)
+        if self._roi_list_arming_suppressed:
+            # Auswahl rutscht nur nach (Messbereich entfernt), kein Nutzerklick.
+            return
+        self._roi_selected_by_user = True
         # Auswahl aktiviert direkt "Messbereich setzen" fuer den neu
         # gewaehlten Messbereich, damit ein Klick ins Bild sofort platziert
         # werden kann, ohne extra den Knopf suchen zu muessen.
@@ -565,7 +578,18 @@ class _RoiPanelBuildMixin:
         entry = item.data(QtCore.Qt.UserRole)
         if entry is None:
             return
-        self._push_undo_snapshot()
+        pressed_item, pressed_state = getattr(self, "_roi_list_press", (None, None))
+        if pressed_item is item and pressed_state != item.checkState() and not self._restoring_undo_snapshot:
+            # Haekchen per Mausklick umgeschaltet: der Snapshot muss den Stand
+            # VOR dem Umschalten enthalten (Sichtbarkeit steckt im Snapshot).
+            current_state = item.checkState()
+            self.roi_list.blockSignals(True)
+            item.setCheckState(pressed_state)
+            self._push_undo_snapshot()
+            item.setCheckState(current_state)
+            self.roi_list.blockSignals(False)
+        else:
+            self._push_undo_snapshot()
 
         name = item.text().strip() or default_roi_name(entry.number)
         if item.text() != name:
@@ -574,7 +598,7 @@ class _RoiPanelBuildMixin:
             self.roi_list.blockSignals(False)
         if entry.name != name:
             entry.set_name(name)
-            entry.tab_widget.setTitle(name)
+            entry.tab_widget.setTitle(name.replace("&", "&&"))
             legend = self.timeseries_plot.getPlotItem().legend
             label = legend.getLabel(entry.curve) if legend is not None else None
             if label is not None:
@@ -589,7 +613,7 @@ class _RoiPanelBuildMixin:
         # Box-Titel = ROI-Name (Umbenennen jetzt per Doppelklick in der
         # Liste links, siehe _on_roi_list_item_changed -- kein separates
         # Namensfeld mehr hier noetig).
-        box = QtWidgets.QGroupBox(entry.name)
+        box = QtWidgets.QGroupBox(entry.name.replace("&", "&&"))
         outer = QtWidgets.QHBoxLayout(box)
         outer.setSpacing(6)
         grid = QtWidgets.QGridLayout()

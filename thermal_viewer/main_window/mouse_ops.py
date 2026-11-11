@@ -31,6 +31,10 @@ class _MouseMixin:
             return
 
         if self._armed_entry is not None:
+            if event is self._roi_select_click_event:
+                # Dieser Klick hat den Messbereich nur ausgewaehlt/armiert.
+                self._roi_select_click_event = None
+                return
             # Ein ROI wartet auf Platzierung per Linksklick -- andere Klicks
             # (z.B. ein versehentlicher Rechtsklick) sollen in der
             # Zwischenzeit nicht zusaetzlich die Live-Ansicht veraendern.

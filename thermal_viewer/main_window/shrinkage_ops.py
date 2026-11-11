@@ -184,7 +184,13 @@ def _detect_polarity_area(
     inner = region[my:h - my, mx:w - mx]
     ring_mask = np.ones((h, w), dtype=bool)
     ring_mask[my:h - my, mx:w - mx] = False
-    return float(np.mean(inner)) >= float(np.mean(region[ring_mask]))
+    ring = region[ring_mask]
+    # NaN-Pixel ausklammern: ein einziges NaN machte beide Mittelwerte NaN und
+    # damit den Vergleich immer False ("kaelter").
+    inner, ring = inner[np.isfinite(inner)], ring[np.isfinite(ring)]
+    if inner.size == 0 or ring.size == 0:
+        return True
+    return float(np.mean(inner)) >= float(np.mean(ring))
 
 
 def _adaptive_blur_kernel(width: int, frac: float = 0.09, lo: int = 3, hi: int = 21) -> int:
@@ -209,7 +215,15 @@ def _horizontal_blur_region(region: np.ndarray, kernel: int) -> np.ndarray:
     über mehrere Zeilen reichende Kontur-Wölbung) bleibt dadurch komplett
     unangetastet. Randspalten der Box werden gespiegelt fortgesetzt
     (np.pad mode="reflect"), damit der Rand nicht künstlich zum
-    Box-Mittelwert hin verwischt wird. kernel <= 1 -> unveraendert."""
+    Box-Mittelwert hin verwischt wird. kernel <= 1 -> unveraendert.
+
+    Nicht-endliche Pixel (NaN/inf aus der CSV) werden VOR dem Mitteln durch
+    den Mittelwert der endlichen Pixel ersetzt: cumsum vergiftet sonst die
+    gesamte Zeile rechts davon mit NaN und der Gradient-Schwerpunkt
+    (_snap_to_gradient_peak) bricht mit einem ValueError ab."""
+    finite = np.isfinite(region)
+    if not finite.all():
+        region = np.where(finite, region, float(region[finite].mean()) if finite.any() else 0.0)
     if kernel <= 1:
         return region
     pad = kernel // 2
@@ -369,7 +383,7 @@ def _snap_to_gradient_peak(grad_row: np.ndarray, col: int, search_radius: int, w
         return col
     window = grad_row[lo:hi].astype(np.float64)
     total = float(window.sum())
-    if total <= 0.0:
+    if not np.isfinite(total) or total <= 0.0:
         return col
     indices = np.arange(lo, hi, dtype=np.float64)
     centroid = float((indices * window).sum() / total)
@@ -597,6 +611,7 @@ def _detect_polarity_reference(
     Position der Probe im Fenster noch einzelne Ausreisser eine Rolle spielen."""
     band_vals = _window_values(frame, band)
     ref_vals = _reference_values(frame, refs)
+    band_vals, ref_vals = band_vals[np.isfinite(band_vals)], ref_vals[np.isfinite(ref_vals)]
     if band_vals.size == 0 or ref_vals.size == 0:
         return True
     ref_median = float(np.median(ref_vals))
@@ -1182,9 +1197,13 @@ class _ShrinkageMixin:
         n = self.recording.n_frames
         frames = self.recording.frames
         self.statusBar().showMessage(f"Breitenberechnung läuft… ({n} Bilder)")
+        # processEvents() unten koennte sonst einen Live-Ordner-Poll ausloesen,
+        # der die Aufnahme waehrend der Berechnung verlaengert.
+        live_watch_was_active = self._live_watch_timer.isActive()
+        self._live_watch_timer.stop()
         QtWidgets.QApplication.setOverrideCursor(QtGui.QCursor(QtCore.Qt.WaitCursor))
-        QtWidgets.QApplication.processEvents()
         try:
+            QtWidgets.QApplication.processEvents()
             warmer = _detect_polarity_reference(frames[min(self.current_index, n - 1)], band, refs)
             spans_by_frame, thresholds, touching = _track_sample_width_in_window(frames, band, refs, warmer)
             areas_px = np.empty(n, dtype=float)
@@ -1199,6 +1218,8 @@ class _ShrinkageMixin:
             }
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
+            if live_watch_was_active:
+                self._live_watch_timer.start()
         self._update_shrinkage_curve()
         self._set_shrinkage_polarity_label(warmer)
         self._refresh_idle_guidance()
@@ -1231,9 +1252,13 @@ class _ShrinkageMixin:
         # Durchlauf tatsaechlich neu zeichnen wuerde -- der direkt
         # anschliessende, lange Rechenschritt kaeme dafuer nie dazu.
         self.statusBar().showMessage(f"Schwindungsberechnung läuft… ({n} Bilder)")
+        # processEvents() unten koennte sonst einen Live-Ordner-Poll ausloesen,
+        # der die Aufnahme waehrend der Berechnung verlaengert.
+        live_watch_was_active = self._live_watch_timer.isActive()
+        self._live_watch_timer.stop()
         QtWidgets.QApplication.setOverrideCursor(QtGui.QCursor(QtCore.Qt.WaitCursor))
-        QtWidgets.QApplication.processEvents()
         try:
+            QtWidgets.QApplication.processEvents()
             # Polaritaet einmalig am aktuell angezeigten Bild automatisch
             # ermittelt und fuer die gesamte Messung festgehalten (kein
             # "Startbild"-Konzept mehr, siehe Modul-Docstring).
@@ -1260,6 +1285,8 @@ class _ShrinkageMixin:
             }
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
+            if live_watch_was_active:
+                self._live_watch_timer.start()
         self._update_shrinkage_curve()
         self._set_shrinkage_polarity_label(warmer)
         self._refresh_idle_guidance()
@@ -1273,6 +1300,24 @@ class _ShrinkageMixin:
             f"Polarität (automatisch erkannt): Probe ist {richtung} als der Hintergrund."
         )
 
+    def _visible_edge_indices(self, n: int, values=None) -> tuple[int, int]:
+        """(erstes, letztes) NICHT von der Rohdaten-Bereinigung ausgeblendetes
+        Bild -- Bezugspunkt aller Schwindungs-Prozentwerte (Kurve, Ergebnis-
+        zeile, Probenhoehen, Werte-Export). Sonst waere ein ausgeblendetes
+        (Ausreisser-)Bild 1 die Basis. Fallback: erstes/letztes Bild.
+        Mit ``values`` (Messreihe je Bild) zaehlen nur Bilder mit gueltigem
+        Wert > 0: schlug die Erkennung im ersten Bild fehl (Wert 0), wuerden
+        sonst alle Prozentwerte 0."""
+        excluded = self._excluded_frame_indices
+        first = next((i for i in range(n) if i not in excluded), 0)
+        last = next((i for i in range(n - 1, -1, -1) if i not in excluded), max(0, n - 1))
+        if values is not None and len(values) == n:
+            def usable(i: int) -> bool:
+                return i not in excluded and bool(np.isfinite(values[i])) and values[i] > 0
+            first = next((i for i in range(n) if usable(i)), first)
+            last = next((i for i in range(n - 1, -1, -1) if usable(i)), last)
+        return first, last
+
     def _shrinkage_metric_key(self) -> str:
         return _SHRINKAGE_METRIC_KEYS[self._shrinkage_metric]
 
@@ -1285,6 +1330,13 @@ class _ShrinkageMixin:
         return self._shrinkage_metric == "flaeche"
 
     def _update_shrinkage_curve(self) -> None:
+        if (
+            self._shrinkage_result is not None and self.recording is not None
+            and len(self._shrinkage_result["areas_px"]) != self.recording.n_frames
+        ):
+            # Ergebnis stammt von einer anderen Bildzahl -- sonst wuerden unten
+            # x/y der Kurve unterschiedlich lang.
+            self._discard_shrinkage_results()
         if self._shrinkage_result is None or self.recording is None:
             self.shrinkage_curve.clear()
             self.shrinkage_curve.setVisible(False)
@@ -1300,12 +1352,12 @@ class _ShrinkageMixin:
         # entkoppelt von der gewaehlten Kenngroesse/dem Maßstab, siehe
         # _update_shrinkage_result_label. Erstes Bild = 0.0 (first==0
         # abgefangen, um eine Division durch 0 zu vermeiden).
-        first = float(raw[0])
+        first = float(raw[self._visible_edge_indices(len(raw), raw)[0]])
         values = (first - raw) / first * 100.0 if first else np.zeros_like(raw)
         unix = self.recording.unix_seconds()
         if self._excluded_frame_indices:
             keep_mask = np.ones(len(unix), dtype=bool)
-            keep_mask[list(self._excluded_frame_indices)] = False
+            keep_mask[[i for i in self._excluded_frame_indices if 0 <= i < len(unix)]] = False
             self.shrinkage_curve.setData(unix[keep_mask], values[keep_mask])
         else:
             self.shrinkage_curve.setData(unix, values)
@@ -1321,7 +1373,8 @@ class _ShrinkageMixin:
         Kenngroesse -- keine absoluten mm/px-Werte mehr in der Hauptzeile.
         Diese bleiben als Tooltip erhalten, damit die Information nicht
         komplett verloren geht."""
-        first, last = float(raw[0]), float(raw[-1])
+        first_idx, last_idx = self._visible_edge_indices(len(raw), raw)
+        first, last = float(raw[first_idx]), float(raw[last_idx])
         shrink_pct = (first - last) / first * 100.0 if first else 0.0
         self.lbl_shrinkage_result.setText(
             f"Schwindung: {shrink_pct:.2f} % (experimentell, siehe Hinweis oben)"
@@ -1329,5 +1382,6 @@ class _ShrinkageMixin:
         label = self._shrinkage_metric_label()
         first_disp, last_disp = first * scale, last * scale
         self.lbl_shrinkage_result.setToolTip(
-            f"{label} Bild 1: {first_disp:.2f} {units}\n{label} letztes Bild: {last_disp:.2f} {units}"
+            f"{label} Bild {first_idx + 1}: {first_disp:.2f} {units}\n"
+            f"{label} Bild {last_idx + 1}: {last_disp:.2f} {units}"
         )

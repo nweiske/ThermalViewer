@@ -7,6 +7,7 @@ from qtpy import QtCore, QtGui, QtWidgets
 
 from ..roi import bounds_px_for
 from ..roi_entry import (
+    MAX_ROI_COUNT,
     RoiEntry,
 )
 from .constants import (
@@ -19,6 +20,14 @@ from .constants import (
 
 class _RoiMixin:
     def _on_add_roi_clicked(self) -> None:
+        if self._roi_next_number > MAX_ROI_COUNT:
+            # Dieselbe Grenze wie beim Projekt-Laden (index >= MAX_ROI_COUNT
+            # wird dort verworfen) -- sonst gingen weitere ROIs beim
+            # Speichern/Laden still verloren.
+            QtWidgets.QMessageBox.information(
+                self, "Maximum erreicht", f"Maximal {MAX_ROI_COUNT} Messbereiche möglich."
+            )
+            return
         self._push_undo_snapshot()
         self._add_roi_entry()
         # Ebenen-Tabs (Nutzerwunsch): "+ Messbereich" springt automatisch auf
@@ -62,7 +71,13 @@ class _RoiMixin:
         if entry.list_item is not None:
             list_row = self.roi_list.row(entry.list_item)
             if list_row >= 0:
-                self.roi_list.takeItem(list_row)
+                # Qt waehlt danach automatisch eine Nachbarzeile aus -- das darf
+                # (anders als ein Nutzerklick) keinen Messbereich armieren.
+                self._roi_list_arming_suppressed = True
+                try:
+                    self.roi_list.takeItem(list_row)
+                finally:
+                    self._roi_list_arming_suppressed = False
             entry.list_item = None
 
         self.roi_entries.remove(entry)
@@ -95,6 +110,11 @@ class _RoiMixin:
             )
             return
         if entry.btn_place is not None:
+            # Auf der Messbereich-Ebene platzieren, nicht auf dem gerade
+            # aktiven (z.B. Maßstab-/Schwindungs-)Tab, wo die ROI-Boxen
+            # ausgeblendet sind.
+            if not self._is_layer_tab_active("roi"):
+                self._set_active_layer_tab("roi")
             self._select_roi(entry)
             entry.btn_place.setChecked(True)
 
@@ -125,6 +145,8 @@ class _RoiMixin:
                 self._cancel_measurement_tool()
             if self._sample_height_armed:
                 self._cancel_sample_height_tool()
+            if self._crosssection_entry_armed_direction is not None:
+                self._cancel_crosssection_entry_tool()
             self._armed_entry = entry
             self.statusBar().showMessage(f"{entry.name}: Klick ins Bild zum Platzieren.")
         elif self._armed_entry is entry:
@@ -204,6 +226,35 @@ class _RoiMixin:
             self._reset_interp_arm_state(target)
             self._apply_interp_focus_visuals()
         self._refresh_idle_guidance()
+
+    def _cancel_all_armed_tools(self) -> None:
+        """Beendet jedes gerade scharf gestellte Klick-Werkzeug (ROI, Lineal,
+        Messung, Probenhoehe, Querschnitt) -- vor dem Laden eines Projekts
+        und bei Undo/Redo, damit ein Bildklick danach nicht in einen Zustand
+        greift, der gerade ersetzt wurde."""
+        if self._armed_entry is not None:
+            self._disarm_roi_placement()
+        if self._ruler_armed:
+            self._cancel_ruler_tool()
+        if self._measurement_armed:
+            self._cancel_measurement_tool()
+        if self._sample_height_armed:
+            self._cancel_sample_height_tool()
+        if self._crosssection_entry_armed_direction is not None:
+            self._cancel_crosssection_entry_tool()
+
+    def _any_tool_armed(self) -> bool:
+        return (
+            self._armed_entry is not None or self._ruler_armed or self._measurement_armed
+            or self._sample_height_armed or self._crosssection_entry_armed_direction is not None
+        )
+
+    def _on_escape_pressed(self) -> None:
+        """Esc: bricht das gerade scharf gestellte Klick-Werkzeug ab."""
+        if not self._any_tool_armed():
+            return
+        self._cancel_all_armed_tools()
+        self.statusBar().showMessage("Werkzeug abgebrochen.", 3000)
 
     def _apply_interp_focus_visuals(self) -> None:
         """Waehrend eine Verlaufs-Interpolation gerade per Start-/Ende-Knopf
@@ -317,6 +368,9 @@ class _RoiMixin:
             # platziert ist, statt dass ein Klick auf diesen Knopf bis dahin
             # wirkungslos bleibt.
             capture_label = INTERP_START_CAPTURE_LABEL if is_start else INTERP_END_CAPTURE_LABEL
+            # Eine noch offene Erfassung der ANDEREN Seite verwerfen -- sonst
+            # uebernaehme deren Knopf spaeter das Bild dieser Seite als Keyframe.
+            self._reset_interp_arm_state(entry)
             # Ziel-Frame kommt aus der jeweiligen Spinbox (1-basiert, Standard
             # erstes/letztes Bild -- siehe _set_recording), NICHT mehr fest
             # aus dem globalen Auswertungsstart/-ende (Nutzerwunsch: Start-/
@@ -410,6 +464,19 @@ class _RoiMixin:
             self._recompute_curves(entries=others)
         if not entry.placed:
             return
+        # Eine weit aus dem Bild gezogene ROI zeigte in den Spinboxen nur die
+        # geklemmten Werte und sprang bei der naechsten Eingabe zurueck: der
+        # Mittelpunkt wird deshalb ins Bild zurueckgeholt.
+        if self.recording is not None:
+            rows, cols = self.recording.shape
+            cx, cy = entry.center()
+            clamped_x, clamped_y = min(max(cx, 0.0), float(cols)), min(max(cy, 0.0), float(rows))
+            if (clamped_x, clamped_y) != (cx, cy):
+                entry.place(clamped_x, clamped_y, entry.width(), entry.height())
+                self._sync_roi_spinboxes(entry)
+                self._recompute_curves(entries=[entry])
+                self._refresh_idle_guidance()
+                return
         self._recompute_curves(entries=[entry])
         self._refresh_idle_guidance()
 

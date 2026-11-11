@@ -78,6 +78,9 @@ class CrosssectionEntry:
         self.direction = direction  # "horizontal" oder "vertical", fest ab Erzeugung
         self.position = 0  # Zeile (horizontal) bzw. Spalte (vertikal)
         self.enabled = True
+        # Undo-Snapshot der laufenden Zieh-Geste schon gepusht (siehe
+        # _on_crosssection_entry_line_moved).
+        self.drag_undo_pushed = False
         self.curve = curve
         self.curve.opts["name"] = self.name
 
@@ -460,6 +463,16 @@ class _CrosssectionEntryMixin:
             self._cancel_crosssection_entry_tool()
         self._set_active_layer_tab("querschnitt")
         self._crosssection_entry_armed_direction = direction
+        # _cancel_crosssection_entry_tool() oben hat beim Richtungswechsel auch
+        # den gerade angeklickten Knopf zurueckgesetzt.
+        btn = (
+            self.btn_add_crosssection_horizontal if direction == "horizontal"
+            else self.btn_add_crosssection_vertical
+        )
+        if not btn.isChecked():
+            btn.blockSignals(True)
+            btn.setChecked(True)
+            btn.blockSignals(False)
         label = "horizontale" if direction == "horizontal" else "vertikale"
         self.statusBar().showMessage(
             f"Querschnitte-Modus aktiv: Klick ins Bild platziert eine neue {label} Linie "
@@ -588,6 +601,11 @@ class _CrosssectionEntryMixin:
         zustaendig, die NICHT bei jedem Zwischenschritt passieren sollen."""
         if entry not in self._crosssection_entries or self.recording is None:
             return
+        if not entry.drag_undo_pushed:
+            # Erster Zwischenschritt: Zustand VOR dem Ziehen sichern (entry.position
+            # wird gleich live ueberschrieben), InfiniteLine hat kein "Started"-Signal.
+            self._push_undo_snapshot()
+            entry.drag_undo_pushed = True
         rows, cols = self.recording.shape
         limit = rows if entry.direction == "horizontal" else cols
         entry.position = max(0, min(limit - 1, int(round(line.value() - 0.5))))
@@ -599,7 +617,10 @@ class _CrosssectionEntryMixin:
         # fuer den Grund, analog zu sample_height_ops.py).
         if entry not in self._crosssection_entries or self.recording is None:
             return
-        self._push_undo_snapshot()
+        if entry.drag_undo_pushed:
+            entry.drag_undo_pushed = False
+        else:
+            self._push_undo_snapshot()
         rows, cols = self.recording.shape
         limit = rows if entry.direction == "horizontal" else cols
         entry.position = max(0, min(limit - 1, int(round(line.value() - 0.5))))
@@ -607,6 +628,9 @@ class _CrosssectionEntryMixin:
             entry.spin_position.blockSignals(True)
             entry.spin_position.setValue(entry.position)
             entry.spin_position.blockSignals(False)
+        # Linie auf die Pixelmitte der (ggf. geklemmten) Zeile/Spalte setzen,
+        # sonst bleibt sie zwischen zwei Pixeln bzw. ausserhalb des Bilds stehen.
+        self._update_crosssection_entry_line_pos(entry)
         self._update_crosssection_entry_curve(entry)
         self.statusBar().showMessage(f"„{entry.name}“ verschoben.", 3000)
 

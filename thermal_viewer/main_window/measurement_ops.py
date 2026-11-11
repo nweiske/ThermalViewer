@@ -29,6 +29,10 @@ class _MeasurementMixin:
         if self.recording is None:
             QtWidgets.QMessageBox.information(self, "Keine Daten", "Bitte zuerst eine Messreihe laden.")
             return
+        if self._ruler_start is not None:
+            # Erneutes "Festlegen" mitten in der Linie: sonst bliebe der alte
+            # Startpunkt-Marker im Bild stehen.
+            self._cancel_ruler_tool()
         if self._armed_entry is not None:
             # Siehe _on_roi_place_toggled: beide Modi schliessen sich aus.
             self._disarm_roi_placement()
@@ -36,6 +40,8 @@ class _MeasurementMixin:
             self._cancel_measurement_tool()
         if self._sample_height_armed:
             self._cancel_sample_height_tool()
+        if self._crosssection_entry_armed_direction is not None:
+            self._cancel_crosssection_entry_tool()
         self._set_active_layer_tab("scale")
         self._ruler_armed = True
         self._ruler_start = None
@@ -86,6 +92,10 @@ class _MeasurementMixin:
 
     def _clear_ruler_scale(self) -> None:
         self._push_undo_snapshot()
+        if self._ruler_start is not None:
+            # Angefangene Linie (auch beim Neuladen einer Aufnahme): Startpunkt
+            # gehoert zur alten Aufnahme/zum alten Maßstab.
+            self._cancel_ruler_tool()
         self._px_to_mm = None
         self._ruler_mm_value = None
         self._ruler_label_offset = None
@@ -181,6 +191,7 @@ class _MeasurementMixin:
             # ist dieselbe Stelle, die diese Sichtbarkeit sonst ueberall
             # bestimmt, und prueft selbst, ob ueberhaupt ein gueltiger
             # Maßstab vorliegt.
+            self._ruler_preview_marker.setVisible(False)
             self._apply_scale_visuals_visibility()
             return
         mm_value = length_dialog.mm_value()
@@ -197,6 +208,9 @@ class _MeasurementMixin:
         for entry in self.roi_entries:
             self._update_roi_mm_label(entry)
         self._refresh_measurement_mm_values()
+        # Nach "Entfernen" des Maßstabs blendet _refresh_scale_label die
+        # Messungen aus -- mit neuem Maßstab gelten sie wieder.
+        self._apply_scale_visuals_visibility()
         self.statusBar().showMessage(
             f"Maßstab gesetzt: 1 px ≈ {self._format_de(self._px_to_mm, 4)} mm", 5000
         )
@@ -397,6 +411,8 @@ class _MeasurementMixin:
             self._cancel_ruler_tool()
         if self._sample_height_armed:
             self._cancel_sample_height_tool()
+        if self._crosssection_entry_armed_direction is not None:
+            self._cancel_crosssection_entry_tool()
         self._set_active_layer_tab("scale")
         self._measurement_armed = True
         self._measurement_start = None
@@ -681,7 +697,10 @@ class _MeasurementMixin:
         if self._ruler_line is not None and self._ruler_mm_value is not None:
             self._ruler_line.setVisible(effective)
             self._update_ruler_text_position()
+        # Ohne Maßstab bleiben Messungen ausgeblendet (siehe _refresh_scale_label),
+        # auch bei Tab-Wechsel oder "Anzeigen"-Haken.
+        measurements_effective = effective and self._px_to_mm is not None
         for entry in self.measurements:
-            entry.line.setVisible(effective)
+            entry.line.setVisible(measurements_effective)
             entry.update_text_position()
 

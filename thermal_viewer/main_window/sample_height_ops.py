@@ -234,16 +234,19 @@ class _SampleHeightMixin:
         Bereinigung, siehe data_cleaning_ops.py) nicht jedes Mal neu
         rechnen muss (dieselbe Aufteilung wie shrinkage_ops.py:
         _update_shrinkage_curve vs. _compute_shrinkage)."""
+        if entry.widths_px is not None and self.recording is not None and len(entry.widths_px) != self.recording.n_frames:
+            # Veraltet (andere Bildzahl) -- sonst x/y der Kurve unterschiedlich lang.
+            entry.widths_px = entry.left_edges_px = entry.right_edges_px = None
         if entry.widths_px is None or self.recording is None:
             entry.curve.clear()
             entry.curve.setVisible(False)
             return
-        first = float(entry.widths_px[0])
+        first = float(entry.widths_px[self._visible_edge_indices(len(entry.widths_px), entry.widths_px)[0]])
         values = (first - entry.widths_px) / first * 100.0 if first else np.zeros_like(entry.widths_px)
         unix = self.recording.unix_seconds()
         if self._excluded_frame_indices:
             keep_mask = np.ones(len(unix), dtype=bool)
-            keep_mask[list(self._excluded_frame_indices)] = False
+            keep_mask[[i for i in self._excluded_frame_indices if 0 <= i < len(unix)]] = False
             entry.curve.setData(unix[keep_mask], values[keep_mask])
         else:
             entry.curve.setData(unix, values)
@@ -447,6 +450,8 @@ class _SampleHeightMixin:
             self._cancel_ruler_tool()
         if self._measurement_armed:
             self._cancel_measurement_tool()
+        if self._crosssection_entry_armed_direction is not None:
+            self._cancel_crosssection_entry_tool()
         self._set_active_layer_tab("shrinkage")
         self._sample_height_armed = True
         self.statusBar().showMessage(

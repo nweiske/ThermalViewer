@@ -841,6 +841,9 @@ class _UIBuildMixin:
             (QtCore.Qt.Key_Home, self._jump_to_first_frame),
             (QtCore.Qt.Key_End, self._jump_to_last_frame),
             (QtCore.Qt.Key_Space, self._on_space_pressed),
+            # Esc bricht ein gerade scharf gestelltes Klick-Werkzeug ab
+            # (ROI platzieren, Lineal, Messung, Probenhoehe, Querschnitt).
+            (QtCore.Qt.Key_Escape, self._on_escape_pressed),
             # Nutzerwunsch: Tasten 1-9 und 0 armieren direkt den jeweiligen
             # Messbereich (Erzeugungsnummer 1-9, "0" = Nummer 10) zum
             # Platzieren (siehe roi_ops.py:_on_arm_roi_shortcut) -- Ziffern

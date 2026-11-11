@@ -87,10 +87,14 @@ class _GraphCursorMixin:
         Export wiederverwenden (_format_runtime, datetime.fromtimestamp --
         Recording.unix_seconds() erzeugt seine Werte ebenfalls ueber
         naive datetime.timestamp(), also in derselben, lokalen Interpretation)."""
-        if self._time_display_mode == "runtime":
-            t0 = self.recording.unix_seconds()[0]
-            return self._format_runtime(max(0.0, unix_x - t0))
-        return datetime.fromtimestamp(unix_x).strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            if self._time_display_mode == "runtime":
+                t0 = self.recording.unix_seconds()[0]
+                return self._format_runtime(max(0.0, unix_x - t0))
+            return datetime.fromtimestamp(unix_x).strftime("%Y-%m-%d %H:%M:%S")
+        except (OverflowError, OSError, ValueError):
+            # Weit herausgezoomt (Jahr ausserhalb 1..9999, inf) -- keine Ausnahme pro Mausbewegung.
+            return "--"
 
     def eventFilter(self, obj, event) -> bool:
         if event.type() == QtCore.QEvent.Type.Leave:

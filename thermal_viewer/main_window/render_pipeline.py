@@ -1,6 +1,8 @@
 """Low-Level-Render-Pipeline für Bild-/Video-/SVG-Export (Widget-Rendering, Layout-Kombination, Zeitleisten-Overlay)."""
 from __future__ import annotations
 
+import contextlib
+import os
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -642,6 +644,57 @@ class _RenderPipelineMixin:
         painter.end()
         return combined
 
+    @contextlib.contextmanager
+    def _svg_painter(self, generator: QtSvg.QSvgGenerator, write_path: Path):
+        """QPainter auf einem QSvgGenerator, der in einen Speicherpuffer
+        schreibt; erst nach erfolgreichem Rendern landet der Puffer in
+        write_path (Schreibfehler werden so zu echten OSErrors, und bei einem
+        Renderfehler bleibt keine angefangene Datei liegen). Bei einem Fehler
+        MUSS der Painter beendet werden, bevor der Generator freigegeben wird
+        (sonst Zugriffsverletzung beim Aufraeumen)."""
+        buffer = QtCore.QBuffer()
+        buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
+        generator.setOutputDevice(buffer)
+        painter = QtGui.QPainter(generator)
+        try:
+            yield painter
+        except BaseException:
+            if painter.isActive():
+                painter.end()
+            raise
+        painter.end()
+        try:
+            write_path.write_bytes(bytes(buffer.data()))
+        except BaseException:
+            try:
+                write_path.unlink()
+            except OSError:
+                pass
+            raise
+
+    @staticmethod
+    def _svg_temp_path(path: Path) -> Path:
+        """QSvgGenerator schreibt zuerst in eine Nachbardatei -- siehe
+        _finish_svg_write."""
+        return path.with_name(path.name + ".part")
+
+    @classmethod
+    def _finish_svg_write(cls, write_path: Path, path: Path) -> None:
+        """Prueft die fertig geschriebene Temp-Datei und ersetzt erst DANN das
+        Ziel. QSvgGenerator meldet Schreibfehler nicht; ein gesperrtes oder
+        schreibgeschuetztes vorhandenes SVG bliebe sonst unveraendert (und
+        wohlgeformt), der Export wuerde faelschlich als erfolgreich gelten.
+        os.replace() schlaegt dort mit einem OSError fehl."""
+        try:
+            cls._verify_file_written(write_path)
+            os.replace(write_path, path)
+        except BaseException:
+            try:
+                write_path.unlink()
+            except OSError:
+                pass
+            raise
+
     @staticmethod
     def _verify_file_written(path: Path) -> None:
         """QSvgGenerator meldet Schreibfehler nicht per Rueckgabewert/Exception
@@ -670,7 +723,7 @@ class _RenderPipelineMixin:
     ) -> tuple[int, int]:
         width, height = self._widget_export_size(widget, scale)
         generator = QtSvg.QSvgGenerator()
-        generator.setFileName(str(path))
+        write_path = self._svg_temp_path(path)
         # Bugfix: Achsen-Tick-Beschriftung wird von pyqtgraph ueber ein
         # intern gecachtes QPicture gezeichnet (AxisItem.paint()); beim
         # Abspielen (QPicture.play()) auf einen QSvgGenerator mit einer
@@ -694,23 +747,22 @@ class _RenderPipelineMixin:
         generator.setViewBox(QtCore.QRect(0, 0, width, height))
         generator.setResolution(96)
         generator.setTitle("Thermo-Sequenz-Viewer Export")
-        painter = QtGui.QPainter(generator)
-        painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        # Bugfix: anders als bei _render_widget_image (image.fill(background)
-        # vor dem Rendern) fehlte hier bislang jegliche Hintergrundfuellung --
-        # QSvgGenerator liefert dafuer KEINEN automatischen Hintergrund, das
-        # SVG blieb weiss/transparent statt in der Graphen-Hintergrundfarbe.
-        # Dagegen zeichnen sich helle Achsen-/Text-/Gitterfarben (z.B. im
-        # dunklen Theme) kaum bis gar nicht ab -- sichtbar als "leeres"/
-        # "weisses" SVG ohne erkennbare Beschriftung.
-        painter.fillRect(QtCore.QRectF(0, 0, width, height), background)
-        # scene().render() statt widget.render() -- siehe _render_widget_image
-        # fuer den Grund (kein Resize des sichtbaren Widgets noetig/gewollt).
-        # Fuer self.glw ohne die durch setAspectLocked() entstehenden leeren
-        # Raender (siehe _render_widget_into_painter/_tight_glw_segments).
-        self._render_widget_into_painter(painter, widget, width, height, scale)
-        painter.end()
-        self._verify_file_written(path)
+        with self._svg_painter(generator, write_path) as painter:
+            painter.setRenderHint(QtGui.QPainter.Antialiasing)
+            # Bugfix: anders als bei _render_widget_image (image.fill(background)
+            # vor dem Rendern) fehlte hier bislang jegliche Hintergrundfuellung --
+            # QSvgGenerator liefert dafuer KEINEN automatischen Hintergrund, das
+            # SVG blieb weiss/transparent statt in der Graphen-Hintergrundfarbe.
+            # Dagegen zeichnen sich helle Achsen-/Text-/Gitterfarben (z.B. im
+            # dunklen Theme) kaum bis gar nicht ab -- sichtbar als "leeres"/
+            # "weisses" SVG ohne erkennbare Beschriftung.
+            painter.fillRect(QtCore.QRectF(0, 0, width, height), background)
+            # scene().render() statt widget.render() -- siehe _render_widget_image
+            # fuer den Grund (kein Resize des sichtbaren Widgets noetig/gewollt).
+            # Fuer self.glw ohne die durch setAspectLocked() entstehenden leeren
+            # Raender (siehe _render_widget_into_painter/_tight_glw_segments).
+            self._render_widget_into_painter(painter, widget, width, height, scale)
+        self._finish_svg_write(write_path, path)
         return width, height
 
     def _save_combined_svg(
@@ -767,50 +819,49 @@ class _RenderPipelineMixin:
         )
 
         generator = QtSvg.QSvgGenerator()
-        generator.setFileName(str(path))
+        write_path = self._svg_temp_path(path)
         generator.setSize(QtCore.QSize(logical_layout["width"], logical_layout["height"]))
         generator.setViewBox(QtCore.QRect(0, 0, width, height))
         generator.setResolution(96)
         generator.setTitle("Thermo-Sequenz-Viewer Export")
 
-        painter = QtGui.QPainter(generator)
-        painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        # Bugfix: siehe _save_widget_svg -- ohne explizite Fuellung bleibt
-        # der SVG-Hintergrund weiss/transparent statt in der Graphen-
-        # Hintergrundfarbe, wodurch helle Achsen-/Text-/Gitterfarben (z.B. im
-        # dunklen Theme) kaum sichtbar sind.
-        painter.fillRect(QtCore.QRectF(0, 0, width, height), background)
-        painter.setFont(layout["font"])
-        painter.setPen(foreground)
+        with self._svg_painter(generator, write_path) as painter:
+            painter.setRenderHint(QtGui.QPainter.Antialiasing)
+            # Bugfix: siehe _save_widget_svg -- ohne explizite Fuellung bleibt
+            # der SVG-Hintergrund weiss/transparent statt in der Graphen-
+            # Hintergrundfarbe, wodurch helle Achsen-/Text-/Gitterfarben (z.B. im
+            # dunklen Theme) kaum sichtbar sind.
+            painter.fillRect(QtCore.QRectF(0, 0, width, height), background)
+            painter.setFont(layout["font"])
+            painter.setPen(foreground)
 
-        # scene().render() statt widget.render() -- siehe _render_widget_image
-        # fuer den Grund (kein Resize der sichtbaren Widgets noetig/gewollt).
-        if vertical:
-            y = margin
-            for widget, title, w, h, is_image in panels:
-                painter.drawText(
-                    QtCore.QRect(margin, y, width - 2 * margin, title_height),
-                    QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, title,
-                )
-                y += title_height
-                self._render_svg_panel(painter, scale, widget, w, h, is_image, self._centered_x(layout, w), y)
-                y += h + gap
-        else:
-            # Siehe _combine_image_and_graph (Punkt 10) fuer den vollen
-            # Grund -- dasselbe Zentrierungs-Gegenstueck fuer den SVG-Pfad.
-            row_height = max(h for _widget, _title, _w, h, _is_image in panels)
-            x = margin
-            for widget, title, w, h, is_image in panels:
-                painter.drawText(
-                    QtCore.QRect(x, margin, w, title_height),
-                    QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, title,
-                )
-                panel_y = margin + title_height + (row_height - h) // 2
-                self._render_svg_panel(painter, scale, widget, w, h, is_image, x, panel_y)
-                x += w + gap
+            # scene().render() statt widget.render() -- siehe _render_widget_image
+            # fuer den Grund (kein Resize der sichtbaren Widgets noetig/gewollt).
+            if vertical:
+                y = margin
+                for widget, title, w, h, is_image in panels:
+                    painter.drawText(
+                        QtCore.QRect(margin, y, width - 2 * margin, title_height),
+                        QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, title,
+                    )
+                    y += title_height
+                    self._render_svg_panel(painter, scale, widget, w, h, is_image, self._centered_x(layout, w), y)
+                    y += h + gap
+            else:
+                # Siehe _combine_image_and_graph (Punkt 10) fuer den vollen
+                # Grund -- dasselbe Zentrierungs-Gegenstueck fuer den SVG-Pfad.
+                row_height = max(h for _widget, _title, _w, h, _is_image in panels)
+                x = margin
+                for widget, title, w, h, is_image in panels:
+                    painter.drawText(
+                        QtCore.QRect(x, margin, w, title_height),
+                        QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, title,
+                    )
+                    panel_y = margin + title_height + (row_height - h) // 2
+                    self._render_svg_panel(painter, scale, widget, w, h, is_image, x, panel_y)
+                    x += w + gap
 
-        painter.end()
-        self._verify_file_written(path)
+        self._finish_svg_write(write_path, path)
         return width, height
 
     def _save_combined_svg_stacked(
@@ -855,41 +906,40 @@ class _RenderPipelineMixin:
         logical_layout = self._combined_layout(96, logical_sizes, vertical=False)
 
         generator = QtSvg.QSvgGenerator()
-        generator.setFileName(str(path))
+        write_path = self._svg_temp_path(path)
         generator.setSize(QtCore.QSize(logical_layout["width"], logical_layout["height"]))
         generator.setViewBox(QtCore.QRect(0, 0, width, height))
         generator.setResolution(96)
         generator.setTitle("Thermo-Sequenz-Viewer Export")
 
-        painter = QtGui.QPainter(generator)
-        painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        painter.fillRect(QtCore.QRectF(0, 0, width, height), background)
-        painter.setFont(layout["font"])
-        painter.setPen(foreground)
+        with self._svg_painter(generator, write_path) as painter:
+            painter.setRenderHint(QtGui.QPainter.Antialiasing)
+            painter.fillRect(QtCore.QRectF(0, 0, width, height), background)
+            painter.setFont(layout["font"])
+            painter.setPen(foreground)
 
-        image_x = margin if image_first else margin + stack_w + gap
-        stack_x = margin + img_w + gap if image_first else margin
+            image_x = margin if image_first else margin + stack_w + gap
+            stack_x = margin + img_w + gap if image_first else margin
 
-        painter.drawText(
-            QtCore.QRect(image_x, margin, img_w, title_height),
-            QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, image_title,
-        )
-        image_y = margin + title_height + (row_height - img_h) // 2
-        self._render_svg_panel(painter, scale, image_widget, img_w, img_h, True, image_x, image_y)
-
-        stack_y = margin + (row_height - stack_h) // 2 + stack_layout["margin"]
-        for (widget, title), (w, h) in zip(graph_widgets, graph_sizes):
             painter.drawText(
-                QtCore.QRect(stack_x + stack_layout["margin"], stack_y, w, stack_layout["title_height"]),
-                QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, title,
+                QtCore.QRect(image_x, margin, img_w, title_height),
+                QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, image_title,
             )
-            stack_y += stack_layout["title_height"]
-            panel_x = stack_x + stack_layout["margin"] + (stack_w - 2 * stack_layout["margin"] - w) // 2
-            self._render_svg_panel(painter, scale, widget, w, h, False, panel_x, stack_y)
-            stack_y += h + stack_layout["gap"]
+            image_y = margin + title_height + (row_height - img_h) // 2
+            self._render_svg_panel(painter, scale, image_widget, img_w, img_h, True, image_x, image_y)
 
-        painter.end()
-        self._verify_file_written(path)
+            stack_y = margin + (row_height - stack_h) // 2 + stack_layout["margin"]
+            for (widget, title), (w, h) in zip(graph_widgets, graph_sizes):
+                painter.drawText(
+                    QtCore.QRect(stack_x + stack_layout["margin"], stack_y, w, stack_layout["title_height"]),
+                    QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, title,
+                )
+                stack_y += stack_layout["title_height"]
+                panel_x = stack_x + stack_layout["margin"] + (stack_w - 2 * stack_layout["margin"] - w) // 2
+                self._render_svg_panel(painter, scale, widget, w, h, False, panel_x, stack_y)
+                stack_y += h + stack_layout["gap"]
+
+        self._finish_svg_write(write_path, path)
         return width, height
 
     def _render_svg_panel(

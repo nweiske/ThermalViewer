@@ -14,6 +14,7 @@ from ..dialogs import (
 from .constants import (
     COLORMAPS,
 )
+from .export_visuals import _unlink_quietly
 
 
 class _VideoExportMixin:
@@ -147,6 +148,9 @@ class _VideoExportMixin:
                 self._remember_export_dir(path)
                 if not Path(path).suffix:
                     path += video_filters.get(selected_filter, ".mp4")
+                    # Der Speichern-Dialog hat nur den Namen OHNE Endung geprueft.
+                    if not self._confirm_overwrite([path]):
+                        continue
 
                 # WebM erlaubt (anders als MP4/AVI) keinen H.264-Videostream --
                 # imageio/ffmpeg wuerden sonst mit dem Default-Codec "libx264"
@@ -271,6 +275,20 @@ class _VideoExportMixin:
                 "einen anderen Bereich wählen."
             )
             return
+        if output_mode != "video":
+            stack_digits = len(str(len(frame_indices)))
+            stack_paths = [
+                Path(folder) / (
+                    render_export_filename(
+                        image_prefix, export_timestamps[idx],
+                        (export_timestamps[idx] - export_timestamps[0]).total_seconds(),
+                        n + 1, stack_digits,
+                    ) + image_ext
+                )
+                for n, idx in enumerate(frame_indices)
+            ]
+            if not self._confirm_overwrite(stack_paths):
+                return
         progress_label = "Video wird erstellt…" if output_mode == "video" else "Bildstapel wird erstellt…"
         progress = QtWidgets.QProgressDialog(progress_label, "Abbrechen", 0, len(frame_indices), self)
         progress.setWindowModality(QtCore.Qt.WindowModal)
@@ -298,6 +316,10 @@ class _VideoExportMixin:
         # Rest-Bildstapel im Zielordner liegen.
         written_paths: list[Path] = []
         cancelled = False
+        # Erst ab hier kann die Zieldatei angefangen sein -- scheitert schon
+        # vorher etwas, darf eine vorhandene (bestaetigt zu ueberschreibende)
+        # Datei nicht geloescht werden.
+        writer_opened = False
         error_message: str | None = None
         error_traceback: str | None = None
         # Re-Entranz-Sperre -- siehe export_image.py:_export_single_graph fuer
@@ -335,11 +357,14 @@ class _VideoExportMixin:
             # veraendern die sichtbaren Widgets, sollen dabei aber NIE
             # tatsaechlich auf dem Bildschirm sichtbar werden (siehe
             # _frozen_ui_during_export fuer den vollen Bugreport-Hintergrund).
+            # _temporary_graph_content VOR _maybe_hidden_live_cursor (siehe
+            # _render_export_preview_image): sonst sieht es keinen Hover-Pixel
+            # und blendet die gewaehlte Live-Kurve nie ein.
             with self._frozen_ui_during_export(), \
+                    self._temporary_graph_content(selected_roi_numbers, include_live_curve), \
                     self._maybe_hidden_live_cursor(include_cursor), \
                     self._temporary_scale_visuals(include_scale_ruler, selected_scale_numbers), \
                     self._temporary_export_layers(layer_categories), \
-                    self._temporary_graph_content(selected_roi_numbers, include_live_curve), \
                     self._temporary_crosssection_content(selected_crosssection_numbers), \
                     (self._temporary_axis_override(self.timeseries_plot, axis_overrides)
                      if "zeitverlauf" in selected_keys else contextlib.nullcontext()), \
@@ -377,6 +402,7 @@ class _VideoExportMixin:
                     self._show_frame(first_idx)
                 segments = self._tight_glw_segments()
                 if output_mode == "video":
+                    writer_opened = True
                     with imageio.get_writer(path, **video_writer_kwargs) as writer:
                         for n, idx in enumerate(frame_indices):
                             if progress.wasCanceled():
@@ -463,10 +489,11 @@ class _VideoExportMixin:
 
         if error_message is not None:
             if output_mode == "video":
-                Path(path).unlink(missing_ok=True)
+                if writer_opened:
+                    _unlink_quietly(path)
             else:
                 for p in written_paths:
-                    p.unlink(missing_ok=True)
+                    _unlink_quietly(p)
             what = "Video" if output_mode == "video" else "Bildstapel"
             box = QtWidgets.QMessageBox(self)
             box.setIcon(QtWidgets.QMessageBox.Icon.Critical)
@@ -486,10 +513,11 @@ class _VideoExportMixin:
             return
         if cancelled:
             if output_mode == "video":
-                Path(path).unlink(missing_ok=True)
+                if writer_opened:
+                    _unlink_quietly(path)
             else:
                 for p in written_paths:
-                    p.unlink(missing_ok=True)
+                    _unlink_quietly(p)
             what = "Video-Export" if output_mode == "video" else "Bildstapel-Export"
             self.statusBar().showMessage(f"{what} abgebrochen.")
             return

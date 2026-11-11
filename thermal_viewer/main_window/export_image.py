@@ -13,7 +13,7 @@ from qtpy import QtGui, QtWidgets
 from .constants import (
     COLORMAPS,
 )
-from .export_visuals import _EXPORT_GRAPH_LABELS
+from .export_visuals import _EXPORT_GRAPH_LABELS, _unlink_quietly
 
 if TYPE_CHECKING:
     from ..dialogs import GraphicExportDialog
@@ -200,6 +200,14 @@ class _ImageExportMixin:
             if not path:
                 continue
             self._remember_export_dir(path)
+            typed_path = Path(path)
+            final_path = typed_path if typed_path.suffix else Path(path + filters.get(selected_filter, ".png"))
+            # Der Speichern-Dialog fragt nur fuer den EINGETIPPTEN Namen nach.
+            extra = [final_path.with_suffix(".json")]
+            if final_path != typed_path:
+                extra.append(final_path)
+            if not self._confirm_overwrite(extra):
+                continue
             break
         if not Path(path).suffix:
             path += filters.get(selected_filter, ".png")
@@ -244,6 +252,7 @@ class _ImageExportMixin:
             # den Vordergrund -- ohne die Sperre wuerde der Nutzer diesen
             # Tab-Wechsel als kurzes Aufblitzen sehen.
             with self._frozen_ui_during_export(), \
+                    self._paused_background_timers(), \
                     self._widget_raised_for_export(widget), \
                     self._maybe_hidden_live_cursor(include_cursor), \
                     self._temporary_scale_visuals(include_scale_ruler, selected_scale_numbers), \
@@ -270,8 +279,14 @@ class _ImageExportMixin:
             # selbst einen Fehler werfen und den hier behandelten OSError
             # verdecken (siehe export_csv.py fuer denselben, per Test
             # gefundenen Fall).
-            if path_obj.is_file():
-                path_obj.unlink(missing_ok=True)
+            # Nur bei einem Schreibfehler (OSError) kann das Ziel angefangen sein --
+            # bei jedem anderen Fehler wurde noch nichts geschrieben, eine
+            # vorhandene (bestaetigt zu ueberschreibende) Datei bleibt erhalten.
+            # SVG schreibt zuerst in "<name>.svg.part" (siehe _finish_svg_write).
+            if is_svg:
+                _unlink_quietly(self._svg_temp_path(path_obj))
+            elif isinstance(exc, OSError):
+                _unlink_quietly(path_obj)
             self._show_export_error("Konnte Grafik nicht speichern", exc)
             return
         finally:
@@ -365,10 +380,23 @@ class _ImageExportMixin:
         if not path:
             return True
         self._remember_export_dir(path)
+        typed_path = Path(path)
         if not Path(path).suffix:
             path += filters.get(selected_filter, ".png")
         path_obj = Path(path)
         is_svg = path_obj.suffix.lower() == ".svg"
+        # Der Speichern-Dialog fragt nur fuer den EINGETIPPTEN Namen nach --
+        # Begleit-JSON und die Einzelteile ("getrennt") ebenfalls absichern.
+        extra = [path_obj.with_suffix(".json")]
+        if path_obj != typed_path:
+            extra.append(path_obj)
+        if want_separate:
+            extra.append(path_obj.with_name(f"{path_obj.stem}_Bild{path_obj.suffix}"))
+            extra += [
+                path_obj.with_name(f"{path_obj.stem}_{suffix}{path_obj.suffix}") for _w, _t, suffix in graphs
+            ]
+        if not self._confirm_overwrite(extra):
+            return True
 
         # Thermobild (glw) und Kurven-Graph haben seit dem Nutzerwunsch
         # "Graph immer hell/Thermobild immer dunkel" jeweils eine eigene,
@@ -391,6 +419,10 @@ class _ImageExportMixin:
         # Manager-Aufbaus auftritt, also bevor die bisherige Stelle erreicht
         # wurde.
         saved_paths: list[Path] = []
+        # Datei, die gerade geschrieben wird -- scheitert das Schreiben selbst
+        # (OSError), liegt sonst eine angefangene Datei herum, die nicht in
+        # saved_paths steht.
+        writing_path: Path | None = None
         prev_level_state = self._capture_level_widgets_state() if use_custom_colors else None
         # Re-Entranz-Sperre -- siehe _export_single_graph fuer den vollen Grund.
         if self._export_busy:
@@ -434,14 +466,17 @@ class _ImageExportMixin:
                 # Einzeldateien, statt sich gegenseitig auszuschliessen.
                 if want_separate:
                     image_path = path_obj.with_name(f"{path_obj.stem}_Bild{path_obj.suffix}")
+                    writing_path = image_path
                     sizes_px[image_path.name] = self._save_single_part(self.glw, image_path, scale, image_bg, is_svg)
                     saved_paths.append(image_path)
                     for widget, _title, suffix in graphs:
                         graph_path = path_obj.with_name(f"{path_obj.stem}_{suffix}{path_obj.suffix}")
+                        writing_path = graph_path
                         with (self._rebased_time_axis(widget) if is_svg else contextlib.nullcontext()):
                             sizes_px[graph_path.name] = self._save_single_part(widget, graph_path, scale, bg, is_svg)
                         saved_paths.append(graph_path)
                 if want_combined:
+                    writing_path = path_obj
                     if is_svg:
                         with contextlib.ExitStack() as stack:
                             for widget, _title, _suffix in graphs:
@@ -471,7 +506,14 @@ class _ImageExportMixin:
             # "Getrennt" z.B. das Thermobild, bevor ein spaeterer Graph
             # fehlschlaegt) blieben bisher als halbfertiger Datei-Rest liegen.
             for p in saved_paths:
-                p.unlink(missing_ok=True)
+                _unlink_quietly(p)
+            if is_svg:
+                # QSvgGenerator schreibt zuerst in "<name>.svg.part".
+                for p in (writing_path, path_obj):
+                    if p is not None:
+                        _unlink_quietly(self._svg_temp_path(p))
+            elif isinstance(exc, OSError) and writing_path is not None:
+                _unlink_quietly(writing_path)
             self._show_export_error("Konnte Grafik nicht speichern", exc)
             return False
         finally:

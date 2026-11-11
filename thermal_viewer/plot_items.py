@@ -160,6 +160,17 @@ class TimeAxisItem(pg.DateAxisItem):
         self.update()
 
     def tickValues(self, minVal, maxVal, size):
+        # Beim SVG-Export ist der sichtbare Bereich um export_offset nach unten
+        # verschoben -- Ticks muessen auf den ECHTEN (absoluten) Werten
+        # ausgerichtet werden (runde Uhrzeiten/Laufzeiten), sonst startet die
+        # Achse z.B. bei 00:00:37 statt 00:00:00.
+        offset = self.export_offset
+        if not offset:
+            return self._tick_values_absolute(minVal, maxVal, size)
+        levels = self._tick_values_absolute(minVal + offset, maxVal + offset, size)
+        return [(spacing, [v - offset for v in values]) for spacing, values in levels]
+
+    def _tick_values_absolute(self, minVal, maxVal, size):
         if not self.runtime_mode:
             return super().tickValues(minVal, maxVal, size)
         if self.manual_spacing:

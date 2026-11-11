@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -12,10 +13,18 @@ from ..data import zip_strict
 from ..plot_items import (
     _RUNTIME_UNIT_DIVISORS,
 )
+from .export_visuals import _unlink_quietly
 
 
 class _CsvExportMixin:
     def _export_csv(self) -> None:
+        # Live-Ordner-Ueberwachung/Wiedergabe waehrend der Dialoge anhalten: ein
+        # per Timer ausgetauschtes self.recording wuerde z.B. das Schwindungs-
+        # Ergebnis verwerfen, das unten noch gelesen wird.
+        with self._paused_background_timers():
+            self._export_csv_paused()
+
+    def _export_csv_paused(self) -> None:
         if self.recording is None:
             QtWidgets.QMessageBox.information(self, "Keine Daten", "Bitte zuerst eine Messreihe laden.")
             return
@@ -91,7 +100,8 @@ class _CsvExportMixin:
             is_area = self._shrinkage_metric_is_area()
             shrinkage_is_area = is_area
             key = self._shrinkage_metric_key()
-            ref_value_px = float(self._shrinkage_result[key][0])
+            ref_series = self._shrinkage_result[key]
+            ref_value_px = float(ref_series[self._visible_edge_indices(len(ref_series), ref_series)[0]])
             scale = (self._px_to_mm ** 2 if is_area else self._px_to_mm) if self._px_to_mm is not None else None
             ref_value_mm = ref_value_px * scale if scale is not None else None
             dialog_entries.append({
@@ -118,7 +128,7 @@ class _CsvExportMixin:
         for entry in sample_height_entries:
             idx = len(dialog_entries)
             sample_height_indices[idx] = entry
-            ref_value_px = float(entry.widths_px[0])
+            ref_value_px = float(entry.widths_px[self._visible_edge_indices(len(entry.widths_px), entry.widths_px)[0]])
             ref_value_mm = ref_value_px * self._px_to_mm if self._px_to_mm is not None else None
             dialog_entries.append({
                 "name": entry.name,
@@ -167,6 +177,9 @@ class _CsvExportMixin:
         self._remember_export_dir(path)
         if not Path(path).suffix:
             path += default_ext
+            # Der Speichern-Dialog hat nur den Namen OHNE Endung geprueft.
+            if not self._confirm_overwrite([path]):
+                return
 
         t0 = self.recording.timestamps[0]
         # dialog_entries/names/included sind alle in derselben Reihenfolge
@@ -215,7 +228,7 @@ class _CsvExportMixin:
                 elif shrinkage_value_unit == "px":
                     y = raw
                 else:
-                    first = float(raw[0])
+                    first = float(raw[self._visible_edge_indices(len(raw), raw)[0]])
                     y = (first - raw) / first * 100.0 if first else np.zeros_like(raw)
             elif i in sample_height_indices:
                 header.append(name)
@@ -230,7 +243,7 @@ class _CsvExportMixin:
                 elif sh_unit == "px":
                     y = raw
                 else:
-                    first = float(raw[0])
+                    first = float(raw[self._visible_edge_indices(len(raw), raw)[0]])
                     y = (first - raw) / first * 100.0 if first else np.zeros_like(raw)
             else:
                 header.append(name)
@@ -289,7 +302,13 @@ class _CsvExportMixin:
                 # gingen verloren. CsvColumnDialog._on_accept lehnt doppelte
                 # Spaltennamen bereits vor dem Schliessen des Dialogs ab
                 # (siehe dort), diese Annahme ist also hier bereits erfuellt.
-                records = [dict(zip_strict(header, row)) for row in rows]
+                # NaN/Inf waeren kein gueltiges JSON (-> null).
+                records = [
+                    dict(zip_strict(
+                        header, [None if isinstance(v, float) and not math.isfinite(v) else v for v in row]
+                    ))
+                    for row in rows
+                ]
                 Path(path).write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
             else:
                 # CSV (';') und Text (Tabulator) unterscheiden sich nur im
@@ -313,9 +332,7 @@ class _CsvExportMixin:
             # -- unlink() auf einem Verzeichnis wirft selbst einen Fehler,
             # der hier unabgefangen den gerade behandelten OSError ueberdeckt
             # haette.
-            path_obj = Path(path)
-            if path_obj.is_file():
-                path_obj.unlink(missing_ok=True)
+            _unlink_quietly(path)
             QtWidgets.QMessageBox.critical(self, "Fehler", f"Konnte Werte nicht speichern:\n{exc}")
             return
 

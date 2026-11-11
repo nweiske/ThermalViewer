@@ -9,6 +9,7 @@ wiederherstellen."""
 from __future__ import annotations
 
 import contextlib
+from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
@@ -33,7 +34,52 @@ _EXPORT_GRAPH_ORDER = ["zeitverlauf", "schwindung", "querschnitt"]
 _EXPORT_GRAPH_LABELS = {"zeitverlauf": "Zeitverlauf", "schwindung": "Schwindung", "querschnitt": "Querschnitt"}
 
 
+def _unlink_quietly(path) -> None:
+    """Raeumt eine unvollstaendige Export-Datei auf, ohne selbst zu werfen --
+    ein Verzeichnis als Ziel oder eine gesperrte Datei (PermissionError) darf
+    die eigentliche Fehlermeldung des Exports nicht verdecken."""
+    try:
+        p = Path(path)
+        if p.is_file():
+            p.unlink()
+    except OSError:
+        pass
+
+
 class _ExportVisualsMixin:
+    def _confirm_overwrite(self, paths) -> bool:
+        """Fragt vor dem Schreiben nach, wenn eine der Dateien schon existiert
+        (Nutzerwunsch: nie stillschweigend ueberschreiben). Gibt True zurueck,
+        wenn nichts vorhanden ist oder der Nutzer "Überschreiben" waehlt.
+        Das Speichern-Dialog-Feld fragt nur fuer den eingetippten Hauptnamen
+        -- Nebendateien (Begleit-JSON, _Bild/_Graph-Teile, Bildstapel-Frames)
+        decken nur diese Abfrage ab."""
+        existing = []
+        for p in paths:
+            p = Path(p)
+            try:
+                present = p.exists()
+            except OSError:  # z.B. ungueltiger/zu langer Pfad -- das Schreiben meldet den Fehler selbst
+                present = False
+            if present and p not in existing:
+                existing.append(p)
+        if not existing:
+            return True
+        shown = "\n".join(f"• {p.name}" for p in existing[:8])
+        if len(existing) > 8:
+            shown += f"\n… und {len(existing) - 8} weitere"
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        box.setWindowTitle("Vorhandene Dateien überschreiben?")
+        box.setText(
+            f"{len(existing)} Datei(en) existieren bereits und würden überschrieben:\n\n{shown}"
+        )
+        btn_overwrite = box.addButton("Überschreiben", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        btn_cancel = box.addButton("Abbrechen", QtWidgets.QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(btn_cancel)
+        box.exec()
+        return box.clickedButton() is btn_overwrite
+
     def _export_graph_widget(self, key: str) -> QtWidgets.QWidget:
         return {
             "zeitverlauf": self.timeseries_plot,
@@ -118,11 +164,14 @@ class _ExportVisualsMixin:
             # aufgefallen (derselbe Bugreport wie bei _frozen_ui_during_export
             # selbst, hier nur ueber die Vorschau statt den echten Export
             # ausgeloest).
+            # _temporary_graph_content VOR _maybe_hidden_live_cursor: Letzteres
+            # leert _hover_row/_hover_col, dann wuerde die Live-Kurve nie
+            # eingeblendet (und beim Verlassen mit None-Pixel neu aufgebaut).
             with self._frozen_ui_during_export(), \
+                    self._temporary_graph_content(selected_numbers, include_live), \
                     self._maybe_hidden_live_cursor(include_cursor), \
                     self._temporary_export_layers(layer_categories), \
                     time_axis_ctx, \
-                    self._temporary_graph_content(selected_numbers, include_live), \
                     self._temporary_crosssection_content(selected_crosssection_numbers), \
                     self._temporary_best_legend_placement():
                 for key in selected_keys:
@@ -280,6 +329,8 @@ class _ExportVisualsMixin:
         x_mid, y_mid = (x0 + x1) / 2.0, (y0 + y1) / 2.0
         counts = {"tl": 0, "tr": 0, "bl": 0, "br": 0}
         for curve in plot_item.listDataItems():
+            if not curve.isVisible():
+                continue  # abgewaehlte Kurven tauchen im Export nicht auf
             xs, ys = curve.getData()
             if xs is None or len(xs) == 0:
                 continue
@@ -313,12 +364,12 @@ class _ExportVisualsMixin:
             (self.shrinkage_legend, self.shrinkage_plot),
             (self.crosssection_legend, self.crosssection_plot),
         ]
-        for legend, plot_widget in pairs:
-            if legend is None:
-                continue
-            item_pos, parent_pos, offset = self._best_legend_corner(plot_widget.getPlotItem())
-            legend.anchor(item_pos, parent_pos, offset=offset)
         try:
+            for legend, plot_widget in pairs:
+                if legend is None:
+                    continue
+                item_pos, parent_pos, offset = self._best_legend_corner(plot_widget.getPlotItem())
+                legend.anchor(item_pos, parent_pos, offset=offset)
             yield
         finally:
             for legend, _plot_widget in pairs:
@@ -391,8 +442,8 @@ class _ExportVisualsMixin:
         verschachtelt sind."""
         previous = self._export_layer_categories
         self._export_layer_categories = categories
-        self._apply_roi_and_shrinkage_visibility()
         try:
+            self._apply_roi_and_shrinkage_visibility()
             yield
         finally:
             self._export_layer_categories = previous
@@ -518,13 +569,16 @@ class _ExportVisualsMixin:
         runtime = mode == "runtime"
         old_ts = (self.axis_timeseries_bottom.runtime_mode, self.axis_timeseries_bottom.t0)
         old_live = (self.axis_live_bottom.runtime_mode, self.axis_live_bottom.t0)
+        old_shrinkage = (self.axis_shrinkage_bottom.runtime_mode, self.axis_shrinkage_bottom.t0)
         self.axis_timeseries_bottom.set_runtime_mode(runtime, t0)
         self.axis_live_bottom.set_runtime_mode(runtime, t0)
+        self.axis_shrinkage_bottom.set_runtime_mode(runtime, t0)
         try:
             yield
         finally:
             self.axis_timeseries_bottom.set_runtime_mode(*old_ts)
             self.axis_live_bottom.set_runtime_mode(*old_live)
+            self.axis_shrinkage_bottom.set_runtime_mode(*old_shrinkage)
 
     @contextlib.contextmanager
     def _dual_time_axis_export(self, widget: QtWidgets.QWidget):
@@ -557,7 +611,7 @@ class _ExportVisualsMixin:
         """Ordnet einem Kurven-Widget seine untere/obere Zeitachse, Kurven und
         Frame-Marker zu -- Hilfsfunktion fuer _rebased_time_axis/
         _dual_time_axis_export. Gibt None fuer Widgets ohne eigene Zeitachse
-        zurueck (z.B. das Thermobild self.glw)."""
+        zurueck (z.B. das Thermobild self.glw oder der Querschnitt-Graph)."""
         if widget is self.timeseries_plot:
             curves = [entry.curve for entry in self.roi_entries]
             if self.timeseries_live_curve.isVisible():
@@ -570,6 +624,13 @@ class _ExportVisualsMixin:
             )
         if widget is self.live_plot:
             return self.axis_live_bottom, self.axis_live_top, [self.live_curve], [self.live_frame_marker]
+        if widget is self.shrinkage_plot:
+            # Auch der Schwindungs-Graph hat Unix-Sekunden als x-Werte -- ohne
+            # Rebasing kollabieren seine Kurven im SVG genauso wie beim Zeitverlauf.
+            curves = [self.shrinkage_curve] + [e.curve for e in self._sample_height_entries]
+            return (
+                self.axis_shrinkage_bottom, self.axis_shrinkage_top, curves, [self.shrinkage_frame_marker],
+            )
         return None
 
     @contextlib.contextmanager
@@ -754,35 +815,41 @@ class _ExportVisualsMixin:
         (x0, x1), (y0, y1) = vb.viewRange()
 
         prev_curve_visible = {}
-        for entry in self.roi_entries:
-            if not entry.placed:
-                continue
-            prev_curve_visible[entry.number] = entry.curve.isVisible()
-            entry.curve.setVisible(entry.number in selected_numbers)
-
         prev_live_checked = self.chk_show_live_in_timeseries.isChecked()
         has_live_pixel = self._hover_row is not None and self._hover_col is not None
         want_live = include_live and has_live_pixel
-
-        if want_live and not prev_live_checked:
-            self._show_live_curve_in_timeseries()
-        elif not want_live and prev_live_checked:
-            self._hide_live_curve_in_timeseries()
-        # Erst NACH dem Umschalten von Kurven/Live-Cursor pinnen -- das
-        # pinnt exakt den Bereich, der dem Nutzer gerade angezeigt wurde,
-        # unabhaengig davon, welche Kurven jetzt fuer den Export sichtbar sind.
-        vb.setXRange(x0, x1, padding=0)
-        vb.setYRange(y0, y1, padding=0)
+        # Alles Veraendernde INNERHALB des try -- schlaegt z.B. das Aufbauen
+        # der Live-Kurve fehl, muessen die schon umgeschalteten Kurven trotzdem
+        # wieder sichtbar werden.
+        live_toggled = False
         try:
+            for entry in self.roi_entries:
+                if not entry.placed:
+                    continue
+                prev_curve_visible[entry.number] = entry.curve.isVisible()
+                entry.curve.setVisible(entry.number in selected_numbers)
+
+            if want_live and not prev_live_checked:
+                live_toggled = True
+                self._show_live_curve_in_timeseries()
+            elif not want_live and prev_live_checked:
+                live_toggled = True
+                self._hide_live_curve_in_timeseries()
+            # Erst NACH dem Umschalten von Kurven/Live-Cursor pinnen -- das
+            # pinnt exakt den Bereich, der dem Nutzer gerade angezeigt wurde,
+            # unabhaengig davon, welche Kurven jetzt fuer den Export sichtbar sind.
+            vb.setXRange(x0, x1, padding=0)
+            vb.setYRange(y0, y1, padding=0)
             yield
         finally:
             for entry in self.roi_entries:
                 if entry.number in prev_curve_visible:
                     entry.curve.setVisible(prev_curve_visible[entry.number])
-            if want_live and not prev_live_checked:
-                self._hide_live_curve_in_timeseries()
-            elif not want_live and prev_live_checked:
-                self._show_live_curve_in_timeseries()
+            if live_toggled:
+                if want_live:
+                    self._hide_live_curve_in_timeseries()
+                else:
+                    self._show_live_curve_in_timeseries()
             if x_auto:
                 vb.enableAutoRange(x=True)
             else:
@@ -829,8 +896,12 @@ class _ExportVisualsMixin:
         """Blendet die Live-Cursor-Kurve im Zeitverlauf-Graphen ein -- von
         _temporary_graph_content in beide Richtungen genutzt (an-/wieder
         ausschalten), daher als eigene Methode statt zweifach dupliziert."""
-        values = self._live_cursor_series(self._hover_row, self._hover_col)
-        self.timeseries_live_curve.setData(self.recording.unix_seconds(), values)
+        # Ohne Hover-Pixel (z.B. nach dem Laden einer neuen Aufnahme bei
+        # angehaktem "Live im Zeitverlauf") gibt es keine Daten -- wie in
+        # _on_show_live_in_timeseries_toggled nur Legende/Sichtbarkeit setzen.
+        if self._hover_row is not None and self._hover_col is not None:
+            values = self._live_cursor_series(self._hover_row, self._hover_col)
+            self.timeseries_live_curve.setData(self.recording.unix_seconds(), values)
         self.timeseries_legend.addItem(self.timeseries_live_curve, "Live (Cursor)")
         self.timeseries_live_curve.setVisible(True)
 

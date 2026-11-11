@@ -132,6 +132,14 @@ class _ThemeMixin:
             for _sample, label in shrinkage_legend.items:
                 label.setText(label.text, color=fg)
 
+        # Wie bei den beiden Legenden oben: sonst blieben die Querschnitt-
+        # Beschriftungen nach einem Themawechsel in der alten Farbe stehen.
+        crosssection_legend = self.crosssection_plot.getPlotItem().legend
+        if crosssection_legend is not None:
+            crosssection_legend.setLabelTextColor(fg)
+            for _sample, label in crosssection_legend.items:
+                label.setText(label.text, color=fg)
+
         self._graph_bg = bg
         self._graph_fg = fg
 

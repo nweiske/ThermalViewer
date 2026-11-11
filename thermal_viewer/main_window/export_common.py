@@ -13,6 +13,7 @@ from pathlib import Path
 from qtpy import QtWidgets
 
 from ..data import (
+    has_valid_timestamp,
     render_filename_template,
 )
 from ..dialogs import (
@@ -181,7 +182,10 @@ class _ExportCommonMixin:
         Praefix Zeitstempel-Platzhalter enthaelt."""
         if self.recording is None or not self.recording.paths:
             return False
-        return all(self._active_filename_pattern.search(p.stem) for p in self.recording.paths)
+        return all(
+            has_valid_timestamp(p.stem, self._active_filename_pattern, self._active_filename_strptime_fmt)
+            for p in self.recording.paths
+        )
 
     def _resolve_export_timestamps(self, image_prefix: str) -> list[datetime] | None:
         """Liefert die je Frame fuer render_filename_template() im

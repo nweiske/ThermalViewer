@@ -111,6 +111,9 @@ class _FrameNavMixin:
         # zurueckgesetzt (siehe _reset_state_for_new_recording); hier nur
         # noch der ganz normale Sicherheitsschritt, falls doch noch etwas
         # sichtbar war.
+        # Ein armiertes Maßstab-Werkzeug samt Startpunkt bezieht sich auf die
+        # ALTE Aufnahme.
+        self._cancel_ruler_tool()
         self._hide_ruler_visuals()
         self._cancel_measurement_tool()
         self._hide_measurement_visuals()
@@ -231,6 +234,7 @@ class _FrameNavMixin:
         # (neue) Aufnahme -- Anzeigemodus selbst (Uhrzeit/Laufzeit) bleibt wie
         # vom Nutzer gewaehlt bestehen, nur t0 wird aufgefrischt.
         self._apply_time_display_mode(self._time_display_mode)
+        self._remember_display_state()
 
         message = f"{n} Frame(s) geladen aus {recording.paths[0].parent}"
         if had_previous_recording:
@@ -442,6 +446,7 @@ class _FrameNavMixin:
     def _set_level_spins(self, lo: float, hi: float) -> None:
         self._set_widget_value(self.spin_level_min, lo)
         self._set_widget_value(self.spin_level_max, hi)
+        self._remember_display_state()
 
     def _sync_histogram_levels(self, lo: float, hi: float) -> None:
         # Bugfix: self.image_item.setLevels() allein bewegt die eigene
@@ -660,11 +665,36 @@ class _FrameNavMixin:
             cmap.reverse()
         self.histogram.gradient.setColorMap(cmap)
 
+    def _display_state_now(self) -> dict:
+        return {
+            "colormap_index": self.combo_cmap.currentIndex(),
+            "colormap_invertiert": self.chk_cmap_invert.isChecked(),
+            "level_mode": self._level_mode(),
+            "level_min": self.spin_level_min.value(),
+            "level_max": self.spin_level_max.value(),
+        }
+
+    def _remember_display_state(self) -> None:
+        """Merkt sich Farbverlauf/Pegel-Einstellungen: deren Qt-Signale feuern
+        erst NACH der Aenderung, ein dort gebauter Undo-Snapshot enthielte
+        sonst schon den NEUEN Wert (Strg+Z bliebe wirkungslos)."""
+        self._display_prev = self._display_state_now()
+
+    def _push_display_undo_snapshot(self, *keys: str) -> None:
+        prev = getattr(self, "_display_prev", None) or {}
+        self._push_undo_snapshot({k: prev[k] for k in keys if k in prev})
+
     def _on_colormap_changed(self, _index: int) -> None:
+        # Der Farbverlauf steckt in jedem Undo-Snapshot -- ohne eigenen Schritt
+        # wuerde ein spaeteres Strg+Z einer ANDEREN Aktion ihn mit zuruecksetzen.
+        self._push_display_undo_snapshot("colormap_index")
         self._apply_colormap()
+        self._remember_display_state()
 
     def _on_colormap_invert_toggled(self, _checked: bool) -> None:
+        self._push_display_undo_snapshot("colormap_invertiert")
         self._apply_colormap()
+        self._remember_display_state()
 
     def _on_level_mode_changed(self, _button: QtWidgets.QAbstractButton | None, checked: bool) -> None:
         if not checked:
@@ -677,7 +707,7 @@ class _FrameNavMixin:
         # direkt danach, ein Export-Override soll die History gar nicht erst
         # beruehren).
         if _button is not None:
-            self._push_undo_snapshot()
+            self._push_display_undo_snapshot("level_mode", "level_min", "level_max")
         manual = self.radio_level_manual.isChecked()
         self.spin_level_min.setEnabled(manual)
         self.spin_level_max.setEnabled(manual)
@@ -686,6 +716,7 @@ class _FrameNavMixin:
         self.radio_level_per_frame.setEnabled(not manual)
         self.radio_level_global.setEnabled(not manual)
         self._show_frame(self.current_index)
+        self._remember_display_state()
 
     def _on_manual_level_radio_toggled(self, checked: bool) -> None:
         """Punkt 3 (Nutzerwunsch): eine manuelle, feste Skalierung gilt der
@@ -725,8 +756,10 @@ class _FrameNavMixin:
         # macht. Programmatische Aenderungen (_set_level_spins ueber
         # _set_widget_value) laufen mit blockSignals und loesen dieses
         # valueChanged gar nicht erst aus.
-        self._begin_grouped_undo_edit()
+        prev = getattr(self, "_display_prev", None) or {}
+        self._begin_grouped_undo_edit({k: prev[k] for k in ("level_min", "level_max") if k in prev})
         lo, hi = self.spin_level_min.value(), self.spin_level_max.value()
+        self._remember_display_state()
         if hi <= lo:
             return
         self.histogram.setLevels(lo, hi)

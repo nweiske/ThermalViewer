@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from ..data import (
 from ..dialogs import (
     ImportSettingsDialog,
 )
-from ..measurement import MAX_MEASUREMENT_COUNT
+from ..measurement import MAX_MEASUREMENT_COUNT, DraggableTextItem, line_roi_endpoints
 from ..plot_items import (
     _LoadProgressReporter,
 )
@@ -37,10 +38,38 @@ def _finite_float(value) -> float:
     statt (wie jeder andere fehlerhafte Wert in dieser Datei) ueber die
     bestehende try/except (TypeError, ValueError)-Behandlung der Aufrufer
     abgefangen zu werden."""
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError as exc:  # JSON-Ganzzahl > 1e308
+        raise ValueError(f"Zahlenwert zu gross: {value!r}") from exc
     if not math.isfinite(result):
         raise ValueError(f"nicht endlicher Zahlenwert: {value!r}")
     return result
+
+
+def _finite_number(value) -> float | None:
+    """value als endlicher float, falls es eine echte JSON-Zahl (kein bool,
+    kein str) ist, sonst None -- faengt zusaetzlich NaN/±Infinity und
+    unbegrenzt grosse JSON-Ganzzahlen ab (float(10**400) wirft OverflowError)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        result = float(value)
+    except OverflowError:
+        return None
+    return result if math.isfinite(result) else None
+
+
+# Obergrenze fuer Pixelkoordinaten aus einer Projektdatei: grosse, aber
+# endliche Werte (z.B. 1e300) wuerden sonst bei der Weiterverarbeitung
+# (Quadrieren, Zeichnen) ueberlaufen bzw. die Ansicht zerstoeren.
+_MAX_COORD_PX = 1e7
+
+
+def _in_labels(value, labels) -> bool:
+    """value in labels, aber auch fuer unhashbare JSON-Werte (Liste/dict aus
+    einer handeditierten Datei) ohne TypeError."""
+    return isinstance(value, str) and value in labels
 
 
 def _shrink_box_data(roi) -> dict:
@@ -135,11 +164,21 @@ class _ProjectMixin:
         data = self._build_project_state_dict()
 
         try:
-            Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        except OSError as exc:
+            text = json.dumps(data, indent=2, ensure_ascii=False)
+            # Erst in eine Nachbardatei, dann ersetzen: ein Abbruch/voller
+            # Datentraeger mitten im Schreiben darf ein vorhandenes Projekt
+            # nicht zerstoeren.
+            tmp_path = Path(path + ".tmp")
+            try:
+                tmp_path.write_text(text, encoding="utf-8")
+                os.replace(tmp_path, path)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+        except (OSError, TypeError, ValueError) as exc:
             QtWidgets.QMessageBox.critical(self, "Fehler", f"Projekt konnte nicht gespeichert werden:\n{exc}")
             return False
 
+        self._mark_project_saved()
         self.statusBar().showMessage(f"Projekt gespeichert: {path}")
         return True
 
@@ -209,6 +248,7 @@ class _ProjectMixin:
             "level_max": self.spin_level_max.value(),
             "px_zu_mm": self._px_to_mm,
             "massstab_farbe": self._ruler_color,
+            "massstab_linie": self._ruler_line_state_dict(),
             "auswertungsstart_frame": self._eval_start_index,
             "auswertungsende_frame": self._eval_end_index,
             "rois": rois,
@@ -266,6 +306,22 @@ class _ProjectMixin:
             "querschnitt_y_achse": self._crosssection_axis_state_dict(),
         }
         return data
+
+    def _ruler_line_state_dict(self) -> dict | None:
+        """Endpunkte, reale Laenge und Beschriftungs-Versatz der Maßstab-Linie
+        (None ohne gueltigen Maßstab) -- ohne sie ginge die Linie beim
+        Speichern/Laden und bei Undo/Redo verloren bzw. bliebe stehen,
+        waehrend nur px_zu_mm wiederhergestellt wird."""
+        if self._ruler_line is None or self._ruler_mm_value is None or self._px_to_mm is None:
+            return None
+        p1, p2 = line_roi_endpoints(self._ruler_line)
+        offset = self._ruler_label_offset
+        return {
+            "start": {"x": p1.x(), "y": p1.y()},
+            "ende": {"x": p2.x(), "y": p2.y()},
+            "mm": self._ruler_mm_value,
+            "beschriftung_versatz": {"x": offset.x(), "y": offset.y()} if offset is not None else None,
+        }
 
     def _crosssection_entries_state_list(self) -> list:
         """Baut die "querschnitte"-Liste aus dem AKTUELLEN Live-Zustand --
@@ -353,10 +409,12 @@ class _ProjectMixin:
             return None
         if not isinstance(data, dict):
             raise TypeError("interpolation point must be a dict")
-        x = float(data["x"])
-        y = float(data["y"])
-        w = float(data["breite_px"])
-        h = float(data["hoehe_px"])
+        x = _finite_float(data["x"])
+        y = _finite_float(data["y"])
+        w = _finite_float(data["breite_px"])
+        h = _finite_float(data["hoehe_px"])
+        if max(abs(x), abs(y), abs(w), abs(h)) > _MAX_COORD_PX:
+            raise ValueError("interpolation point out of range")
         frame = data.get("frame")
         frame_idx = int(frame) if isinstance(frame, int) and not isinstance(frame, bool) else None
         return (x, y), (w, h), frame_idx
@@ -367,10 +425,20 @@ class _ProjectMixin:
         )
         if not path:
             return
+        if self._export_busy:
+            self.statusBar().showMessage("Bitte warten, bis der laufende Export abgeschlossen ist.", 5000)
+            return
         try:
             data = json.loads(Path(path).read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError) as exc:
+            # ValueError deckt JSONDecodeError UND UnicodeDecodeError (Binaer-
+            # datei mit .tvproj-Endung) ab.
             QtWidgets.QMessageBox.critical(self, "Fehler", f"Projekt konnte nicht geladen werden:\n{exc}")
+            return
+        if not isinstance(data, dict):
+            QtWidgets.QMessageBox.critical(
+                self, "Fehler", "Projekt konnte nicht geladen werden:\nDie Datei enthält kein Projekt-Objekt."
+            )
             return
 
         # Ab hier auf mehrere kleine, je fuer sich lesbare/testbare Schritte
@@ -380,6 +448,7 @@ class _ProjectMixin:
         if not self._load_project_resolve_recording(data):
             return
         self._load_project_show_mismatch_warnings(data)
+        self._cancel_all_armed_tools()
         self._load_project_display_settings(data)
         self._load_project_eval_range(data)
         failed_indices = self._load_project_rois(data)
@@ -427,6 +496,7 @@ class _ProjectMixin:
         recompute=False: die Schwindungs-Neuberechnung kann laut deren
         Moduldocstring mehrere Sekunden dauern, was bei jedem einzelnen
         Rueckgaengig/Wiederholen voellig unangemessen waere."""
+        self._cancel_all_armed_tools()
         self._load_project_display_settings(data)
         self._load_project_eval_range(data)
         self._load_project_rois(data, full_replace=True)
@@ -526,15 +596,17 @@ class _ProjectMixin:
             # einen TypeError, der _load_project() MITTEN im Laden abbricht
             # und ROIs/Messungen/Bereinigung/Schwindung/Probenhöhen/
             # Querschnitte/Undo-History gar nicht mehr laedt.
-            level_min = data.get("level_min")
-            if isinstance(level_min, (int, float)) and not isinstance(level_min, bool):
+            level_min = _finite_number(data.get("level_min"))
+            if level_min is not None:
                 self.spin_level_min.setValue(level_min)
-            level_max = data.get("level_max")
-            if isinstance(level_max, (int, float)) and not isinstance(level_max, bool):
+            level_max = _finite_number(data.get("level_max"))
+            if level_max is not None:
                 self.spin_level_max.setValue(level_max)
 
-        px_to_mm = data.get("px_zu_mm")
-        self._px_to_mm = float(px_to_mm) if isinstance(px_to_mm, (int, float)) else None
+        # > 0: ein Maßstab von 0/negativ/NaN ist unsinnig und liesse alle
+        # mm-Anzeigen/Exporte nur Muell zeigen.
+        px_to_mm = _finite_number(data.get("px_zu_mm"))
+        self._px_to_mm = px_to_mm if px_to_mm is not None and px_to_mm > 0 else None
 
         ruler_color = data.get("massstab_farbe")
         if isinstance(ruler_color, str) and QtGui.QColor(ruler_color).isValid():
@@ -542,7 +614,60 @@ class _ProjectMixin:
             self._update_ruler_color_swatch()
             self._apply_ruler_color()
 
+        self._load_project_ruler_line(data)
         self._refresh_scale_label()
+        self._remember_display_state()
+
+    def _load_project_ruler_line(self, data: dict) -> None:
+        """Stellt die Maßstab-Linie aus "massstab_linie" wieder her. Fehlt sie
+        (aelteres Projekt) oder ist sie ungueltig, wird eine evtl. noch
+        angezeigte Linie der VORHERIGEN Kalibrierung verworfen -- sie passte
+        sonst nicht mehr zu dem gerade geladenen px_zu_mm."""
+        line = data.get("massstab_linie")
+        parsed = None
+        if self._px_to_mm is not None and isinstance(line, dict):
+            try:
+                start = (_finite_float(line["start"]["x"]), _finite_float(line["start"]["y"]))
+                end = (_finite_float(line["ende"]["x"]), _finite_float(line["ende"]["y"]))
+                mm_value = _finite_float(line["mm"])
+            except (KeyError, TypeError, ValueError):
+                pass
+            else:
+                distance = math.hypot(end[0] - start[0], end[1] - start[1])
+                if mm_value > 0 and distance >= 1e-6 and max(map(abs, (*start, *end))) <= _MAX_COORD_PX:
+                    parsed = (start, end, mm_value)
+        if parsed is None:
+            self._ruler_mm_value = None
+            self._ruler_label_offset = None
+            self._hide_ruler_visuals()
+            return
+        start, end, mm_value = parsed
+        unchanged = False
+        if self._ruler_line is not None:
+            q1, q2 = line_roi_endpoints(self._ruler_line)
+            unchanged = (
+                abs(q1.x() - start[0]) + abs(q1.y() - start[1]) + abs(q2.x() - end[0]) + abs(q2.y() - end[1]) < 1e-9
+            )
+        if not unchanged:
+            self._create_or_move_ruler_line(start, end)
+        if self._ruler_text is None:
+            self._ruler_text = DraggableTextItem(
+                color=self._ruler_color, anchor=(0.5, 0), fill=(0, 0, 0, 160),
+                on_moved=self._on_ruler_label_moved, on_double_clicked=self._edit_ruler_length,
+                on_drag_started=self._push_undo_snapshot, clamp_fn=self._clamp_ruler_label_pos,
+            )
+            self._ruler_text.setZValue(11)
+            self.view_box.addItem(self._ruler_text)
+        self._ruler_mm_value = mm_value
+        self._ruler_label_offset = None
+        offset = line.get("beschriftung_versatz")
+        if isinstance(offset, dict):
+            try:
+                self._ruler_label_offset = QtCore.QPointF(_finite_float(offset["x"]), _finite_float(offset["y"]))
+            except (KeyError, TypeError, ValueError):
+                pass
+        self._apply_ruler_color()
+        self._apply_scale_visuals_visibility()
 
     def _load_project_eval_range(self, data: dict) -> None:
         """Auswertungsstart/-ende aus der Projektdatei uebernehmen."""
@@ -604,7 +729,10 @@ class _ProjectMixin:
            unangetastet stehen, wie schon vor diesem Parameter."""
         touched_entries: list[RoiEntry] = []
         failed_indices: list[int] = []
-        for roi_data in data.get("rois", []):
+        rois_data = data.get("rois")
+        if not isinstance(rois_data, list):
+            rois_data = []
+        for roi_data in rois_data:
             if not isinstance(roi_data, dict):
                 continue
             idx = roi_data.get("index")
@@ -648,7 +776,7 @@ class _ProjectMixin:
             # machen bzw. von der Kurven-Neuberechnung ausschliessen.
             try:
                 name = roi_data.get("name")
-                if name:
+                if isinstance(name, str) and name:
                     entry.list_item.setText(name)
 
                 # Bugfix: ungueltiger Wert (z.B. hand-editiert) liess
@@ -680,6 +808,16 @@ class _ProjectMixin:
                 entry.stat_mode = stat_mode if combo_idx >= 0 else "mean"
 
                 mittelpunkt = roi_data.get("mittelpunkt")
+                if entry.placed and not (roi_data.get("platziert") and isinstance(mittelpunkt, dict)):
+                    # Undo/Redo auf einen Stand VOR dem Platzieren bzw. ein
+                    # Projekt, das dieses ROI ausdruecklich als nicht platziert
+                    # fuehrt: das ROI muss wieder "unplatziert" werden (sonst
+                    # bliebe es nach Strg+Z / "Projekt laden" stehen). Sichtbarkeit setzt
+                    # _apply_layer_tab_visibility (entry.placed) am Ende.
+                    entry.placed = False
+                    entry.roi.setVisible(False)
+                    entry.label.setVisible(False)
+                    entry.curve.setData([], [])
                 if roi_data.get("platziert") and isinstance(mittelpunkt, dict):
                     width = roi_data.get("breite_px")
                     height = roi_data.get("hoehe_px")
@@ -808,7 +946,7 @@ class _ProjectMixin:
             # wird entfernt, mirror von _load_project_measurements.
             referenced_numbers = {
                 roi_data["index"] + 1
-                for roi_data in data.get("rois", [])
+                for roi_data in rois_data
                 if (
                     isinstance(roi_data, dict) and isinstance(roi_data.get("index"), int)
                     and roi_data.get("index") >= 0
@@ -820,6 +958,10 @@ class _ProjectMixin:
 
         if touched_entries:
             self._recompute_curves(entries=touched_entries)
+        # Maßstab kann sich geaendert haben (Undo des Maßstab-Setzens) bzw.
+        # ein ROI wurde entplatziert -- "≈ b × h mm"-Zeilen neu bewerten.
+        for entry in self.roi_entries:
+            self._update_roi_mm_label(entry)
         self._apply_interp_focus_visuals()
         return failed_indices
 
@@ -834,8 +976,11 @@ class _ProjectMixin:
         for entry in list(self.measurements):
             self._remove_measurement(entry)
         measurement_errors = 0
+        measurements_data = data.get("messungen")
+        if not isinstance(measurements_data, list):
+            measurements_data = []
         if self._px_to_mm is not None:
-            for m_data in data.get("messungen", [])[:MAX_MEASUREMENT_COUNT]:
+            for m_data in measurements_data[:MAX_MEASUREMENT_COUNT]:
                 if not isinstance(m_data, dict):
                     measurement_errors += 1
                     continue
@@ -843,6 +988,9 @@ class _ProjectMixin:
                     sx, sy = _finite_float(m_data["start"]["x"]), _finite_float(m_data["start"]["y"])
                     ex, ey = _finite_float(m_data["ende"]["x"]), _finite_float(m_data["ende"]["y"])
                 except (KeyError, TypeError, ValueError):
+                    measurement_errors += 1
+                    continue
+                if max(abs(sx), abs(sy), abs(ex), abs(ey)) > _MAX_COORD_PX:
                     measurement_errors += 1
                     continue
                 pixel_distance = ((ex - sx) ** 2 + (ey - sy) ** 2) ** 0.5
@@ -862,7 +1010,7 @@ class _ProjectMixin:
                 offset = m_data.get("beschriftung_versatz")
                 if isinstance(offset, dict):
                     try:
-                        entry.label_offset = QtCore.QPointF(float(offset["x"]), float(offset["y"]))
+                        entry.label_offset = QtCore.QPointF(_finite_float(offset["x"]), _finite_float(offset["y"]))
                     except (KeyError, TypeError, ValueError):
                         pass
                 entry.update_text_position()
@@ -898,9 +1046,16 @@ class _ProjectMixin:
                     # int(float(...)) statt direktem int(...): akzeptiert
                     # sowohl "10" als auch "10.0"/"10.7" aus (z.B.
                     # handbearbeiteten) Projektdateien gleichermassen.
-                    x, y = int(float(p["x"])), int(float(p["y"]))
-                except (KeyError, TypeError, ValueError):
+                    x, y = int(_finite_float(p["x"])), int(_finite_float(p["y"]))
+                except (KeyError, TypeError, ValueError, OverflowError):
                     continue
+                if self.recording is not None:
+                    # Auf das Bild klemmen (wie Probenhöhen/Querschnitte):
+                    # ein Punkt ausserhalb waere in der Bildvorschau
+                    # unerreichbar/unsichtbar, aber weiter aktiv.
+                    rows, cols = self.recording.shape
+                    x = max(0, min(cols - 1, x))
+                    y = max(0, min(rows - 1, y))
                 logic = p.get("logic")
                 if logic not in ("and", "or"):
                     logic = legacy_default_logic
@@ -910,9 +1065,9 @@ class _ProjectMixin:
                 cleaning_points.append((x, y, logic, enabled))
         self._cleaning_points = cleaning_points
 
-        threshold = data.get("bereinigung_schwellenwert")
-        if isinstance(threshold, (int, float)) and not isinstance(threshold, bool):
-            self._cleaning_threshold = float(threshold)
+        threshold = _finite_number(data.get("bereinigung_schwellenwert"))
+        if threshold is not None:
+            self._cleaning_threshold = threshold
 
         kernel_size = data.get("bereinigung_kernel_groesse")
         if (
@@ -998,12 +1153,12 @@ class _ProjectMixin:
         if display_only_change:
             mode = shrink_data.get("modus")
             # Fehlt "modus" (altes Projekt), gilt wie im allgemeinen Ladepfad "area".
-            self._set_shrinkage_mode(mode if mode in _SHRINKAGE_MODE_LABELS else "area")
+            self._set_shrinkage_mode(mode if _in_labels(mode, _SHRINKAGE_MODE_LABELS) else "area")
             stored_metrics = shrink_data.get("kenngroesse_je_modus")
             if isinstance(stored_metrics, dict):
-                if stored_metrics.get("area") in _SHRINKAGE_METRIC_LABELS:
+                if _in_labels(stored_metrics.get("area"), _SHRINKAGE_METRIC_LABELS):
                     self._shrinkage_metric_by_mode["area"] = stored_metrics["area"]
-                if stored_metrics.get("width") in _SHRINKAGE_WIDTH_METRIC_LABELS:
+                if _in_labels(stored_metrics.get("width"), _SHRINKAGE_WIDTH_METRIC_LABELS):
                     self._shrinkage_metric_by_mode["width"] = stored_metrics["width"]
                 self._shrinkage_metric = self._shrinkage_metric_by_mode[self._shrinkage_mode]
                 self._refresh_shrinkage_mode_ui()
@@ -1014,6 +1169,7 @@ class _ProjectMixin:
             self._discard_shrinkage_results()
             self.lbl_shrinkage_result.setText("Noch nicht berechnet.")
             self.lbl_shrinkage_result.setToolTip("")
+            self._reset_shrinkage_polarity_label()
             self.shrinkage_curve.clear()
             rows, cols = self.recording.shape
 
@@ -1038,7 +1194,7 @@ class _ProjectMixin:
             # stattdessen "geometrie" ("rect"/"round") ohne "kenngroesse" --
             # daraus die naeheste neue Kenngroesse ableiten.
             metric = shrink_data.get("kenngroesse")
-            if metric not in _SHRINKAGE_METRIC_LABELS:
+            if not _in_labels(metric, _SHRINKAGE_METRIC_LABELS):
                 geometrie = shrink_data.get("geometrie")
                 if geometrie == "round":
                     metric = "breite_rund"
@@ -1047,16 +1203,16 @@ class _ProjectMixin:
                 else:
                     metric = "flaeche"
             mode = shrink_data.get("modus")
-            if mode not in _SHRINKAGE_MODE_LABELS:
+            if not _in_labels(mode, _SHRINKAGE_MODE_LABELS):
                 mode = "area"
             metric_by_mode = {"area": "flaeche", "width": "breite_rechteckig"}
             if mode == "area":
                 metric_by_mode["area"] = metric
             stored_metrics = shrink_data.get("kenngroesse_je_modus")
             if isinstance(stored_metrics, dict):
-                if stored_metrics.get("area") in _SHRINKAGE_METRIC_LABELS:
+                if _in_labels(stored_metrics.get("area"), _SHRINKAGE_METRIC_LABELS):
                     metric_by_mode["area"] = stored_metrics["area"]
-                if stored_metrics.get("width") in _SHRINKAGE_WIDTH_METRIC_LABELS:
+                if _in_labels(stored_metrics.get("width"), _SHRINKAGE_WIDTH_METRIC_LABELS):
                     metric_by_mode["width"] = stored_metrics["width"]
             self._shrinkage_mode = mode
             self._shrinkage_metric_by_mode = metric_by_mode
@@ -1129,7 +1285,9 @@ class _ProjectMixin:
                         continue
                     try:
                         number = int(item["nummer"])
-                    except (KeyError, TypeError, ValueError):
+                    except (KeyError, TypeError, ValueError, OverflowError):
+                        continue
+                    if number < 1 or any(e.number == number for e in self._sample_height_entries):
                         continue
                     color = item.get("farbe")
                     if not (isinstance(color, str) and QtGui.QColor(color).isValid()):
@@ -1139,7 +1297,7 @@ class _ProjectMixin:
                     entry.set_name(name if isinstance(name, str) and name.strip() else f"Probenhöhe {number}")
                     try:
                         row_val = int(float(item.get("zeile", 0)))
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, OverflowError):
                         row_val = 0
                     entry.row = max(0, min(rows - 1, row_val))
                     enabled = item.get("aktiv")
@@ -1202,7 +1360,9 @@ class _ProjectMixin:
                     continue
                 try:
                     number = int(item["nummer"])
-                except (KeyError, TypeError, ValueError):
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    continue
+                if number < 1 or any(e.number == number for e in self._crosssection_entries):
                     continue
                 direction = item.get("richtung")
                 if direction not in ("horizontal", "vertical"):
@@ -1221,7 +1381,7 @@ class _ProjectMixin:
                 entry = self._create_crosssection_entry(number, color, direction, name)
                 try:
                     position_val = int(float(item.get("position", 0)))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     position_val = 0
                 limit = rows if direction == "horizontal" else cols
                 entry.position = max(0, min(limit - 1, position_val))
@@ -1267,27 +1427,22 @@ class _ProjectMixin:
         axis_data = data.get("querschnitt_y_achse")
         manual = False
         if isinstance(axis_data, dict):
-            y_min, y_max = axis_data.get("y_min"), axis_data.get("y_max")
+            y_min, y_max = _finite_number(axis_data.get("y_min")), _finite_number(axis_data.get("y_max"))
             # math.isfinite: json.loads() akzeptiert NaN/Infinity klaglos
             # (siehe _finite_float) -- ein hand-editiertes "y_max": Infinity
             # wuerde setYRange() sonst mit einem unendlichen Bereich fuettern.
             if (
                 axis_data.get("manuell") is True
-                and isinstance(y_min, (int, float)) and not isinstance(y_min, bool)
-                and isinstance(y_max, (int, float)) and not isinstance(y_max, bool)
-                and math.isfinite(y_min) and math.isfinite(y_max) and y_max > y_min
+                and y_min is not None and y_max is not None and y_max > y_min
             ):
                 manual = True
                 self._crosssection_y_range = (float(y_min), float(y_max))
-            spacing = axis_data.get("schrittweite")
+            spacing = _finite_number(axis_data.get("schrittweite"))
             # 0.01..1000: derselbe Wertebereich wie spin_y_spacing im
             # AxisSettingsDialog (misc_dialogs.py) -- ein winziger Wert aus
             # einer manipulierten Datei wuerde sonst Millionen Ticks erzeugen.
-            if (
-                isinstance(spacing, (int, float)) and not isinstance(spacing, bool)
-                and math.isfinite(spacing) and 0.01 <= spacing <= 1000.0
-            ):
-                self._crosssection_y_spacing = float(spacing)
+            if spacing is not None and 0.01 <= spacing <= 1000.0:
+                self._crosssection_y_spacing = spacing
             else:
                 self._crosssection_y_spacing = None
         self._crosssection_y_manual = manual
@@ -1311,6 +1466,10 @@ class _ProjectMixin:
         umgeschaltet, waehrend die vorherige Aufnahme weiter angezeigt bleibt."""
         if not paths:
             QtWidgets.QMessageBox.warning(self, "Keine Dateien", "Es wurden keine CSV-Dateien gefunden.")
+            return False
+        if self._export_busy:
+            # Ein laufender Export haelt Frame-Bereich/Zeitstempel eingefroren.
+            self.statusBar().showMessage("Bitte warten, bis der laufende Export abgeschlossen ist.", 5000)
             return False
         if not self._confirm_discard_current_recording():
             return False
@@ -1347,8 +1506,12 @@ class _ProjectMixin:
             except RecordingError as exc:
                 recording = None
                 error = exc
-            progress.close()
-            self._refresh_idle_guidance()
+            finally:
+                # Auch bei unerwarteten Fehlern (z.B. MemoryError beim
+                # Stapeln): sonst bliebe "Lade Frames…" samt Balken dauerhaft
+                # stehen und _activity_busy unterdrueckte jeden Hinweis.
+                progress.close()
+                self._refresh_idle_guidance()
 
             if error is None:
                 break
@@ -1370,6 +1533,12 @@ class _ProjectMixin:
         self._active_filename_pattern = pattern
         self._active_filename_strptime_fmt = strptime_fmt
         self._active_import_settings = import_settings
+        # Die Live-Ueberwachung gehoerte zur ALTEN Aufnahme: _set_recording
+        # zeigt Warn-Dialoge (nested Event-Loop), waehrenddessen wuerde der
+        # noch laufende Timer die Dateien des alten Ordners an die NEUE
+        # Aufnahme anhaengen. _load_folder startet sie danach neu.
+        self._watched_folder = None
+        self._live_watch_timer.stop()
         self._set_recording(recording, defer_display=defer_display)
         return True
 

@@ -151,6 +151,10 @@ def check(label, fn):
         win._set_active_layer_tab("all")
 
 
+MainWindow._confirm_unsaved_on_close = False  # modale Rueckfrage beim Schliessen waere hier blockierend
+# Die Exporttests schreiben wiederholt in dieselben Dateien -- die modale
+# Ueberschreiben-Rueckfrage (getestet in test_audit_followup.py) wuerde blockieren.
+MainWindow._confirm_overwrite = lambda self, paths: True
 win = MainWindow()
 win.resize(1400, 900)
 win.show()
@@ -1458,15 +1462,20 @@ def test_interp_capture_buttons():
     assert entry.interp_start is None
     assert entry.btn_interp_start.text() == INTERP_START_CAPTURE_LABEL
 
-    # Bugfix: bei gleichzeitig armiertem Start- UND Ende-Button muessen sich
-    # deren Beschriftungen unterscheiden (vorher zeigten beide identisch
-    # "Position uebernehmen" an, nicht mehr zuordenbar welcher Klick was tut).
+    # Es kann immer nur EINE Seite erfasst werden: der Klick auf "Ende" springt
+    # zum Ende-Bild und verwirft die offene Start-Erfassung (sonst uebernaehme
+    # deren Knopf spaeter das falsche Bild als Keyframe).
     entry.btn_interp_end.click()
-    assert entry.btn_interp_start.text() == INTERP_START_CAPTURE_LABEL
+    assert not entry.interp_arm_start
+    assert entry.interp_arm_end
+    assert entry.btn_interp_start.text() == INTERP_START_LABEL
     assert entry.btn_interp_end.text() == INTERP_END_CAPTURE_LABEL
     assert entry.btn_interp_start.text() != entry.btn_interp_end.text()
     entry.interp_arm_end = False
     entry.btn_interp_end.setText(INTERP_END_LABEL)
+    # Start erneut armieren (die Erfassung wurde oben durch "Ende" verworfen).
+    entry.btn_interp_start.click()
+    assert entry.interp_arm_start
     win.frame_spin.setValue(1)
 
     entry.place(1, 1, 6, 6)

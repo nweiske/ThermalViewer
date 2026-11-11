@@ -1,6 +1,7 @@
 """Ordner-/Dateien-Import, Namensschema, Datenimport-Einstellungen, Live-Ordner-Überwachung."""
 from __future__ import annotations
 
+import codecs
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -41,8 +42,12 @@ class _ImportMixin:
         # oeffnet sich DAVOR, _finish_loading_recording() zeigt das erste
         # Bild erst NACHDEM der Dialog geschlossen wurde.
         if self._load_folder(Path(folder), defer_display=True):
-            self._open_data_cleaning_dialog()
-            self._finish_loading_recording()
+            try:
+                self._open_data_cleaning_dialog()
+            finally:
+                # Auch bei einem Fehler im Dialog muss das erste Bild erscheinen,
+                # sonst bleibt das Hauptfenster trotz geladener Aufnahme leer.
+                self._finish_loading_recording()
 
     def _import_tiff_images(self) -> None:
         """Wandelt einzelne Graustufen-TIFF-Bilder (siehe TiffImportDialog
@@ -228,7 +233,7 @@ class _ImportMixin:
         aktuellen Standard abweichen (siehe oben)."""
         pattern, strptime_fmt = self._filename_pattern, self._filename_strptime_fmt
         while True:
-            matches = self._safe_folder_scan(folder, lambda: files_matching_template(folder, pattern))
+            matches = self._safe_folder_scan(folder, lambda: files_matching_template(folder, pattern, strptime_fmt))
             if matches is None:
                 return None
             if matches:
@@ -302,22 +307,31 @@ class _ImportMixin:
         # einem stumm falschen Ergebnis statt auf den Fallback zurueckzufallen
         # (Bugfix) -- "Anzahl zu ueberspringender Zeilen/Spalten" ist ohnehin
         # nur als nicht-negativ sinnvoll.
+
+        def count(key: str, default: int) -> int:
+            try:
+                return max(0, min(100000, int(s.value(key, default, type=int))))
+            except (TypeError, ValueError):
+                return default
+
+        def char(key: str, default: str) -> str:
+            # Trenn-/Dezimalzeichen: hoechstens EIN Zeichen ("" = beliebig viel Leerraum).
+            value = str(s.value(key, default))
+            return value if len(value) <= 1 else default
+
+        encoding = str(s.value("import/encoding", defaults.encoding))
+        try:
+            codecs.lookup(encoding)
+        except LookupError:
+            encoding = defaults.encoding
         return ImportSettings(
-            delimiter=str(s.value("import/delimiter", defaults.delimiter)),
-            decimal_separator=str(s.value("import/decimal_separator", defaults.decimal_separator)),
-            encoding=str(s.value("import/encoding", defaults.encoding)),
-            skip_header_lines=max(
-                0, int(s.value("import/skip_header_lines", defaults.skip_header_lines, type=int))
-            ),
-            skip_footer_lines=max(
-                0, int(s.value("import/skip_footer_lines", defaults.skip_footer_lines, type=int))
-            ),
-            skip_leading_columns=max(
-                0, int(s.value("import/skip_leading_columns", defaults.skip_leading_columns, type=int))
-            ),
-            skip_trailing_columns=max(
-                0, int(s.value("import/skip_trailing_columns", defaults.skip_trailing_columns, type=int))
-            ),
+            delimiter=char("import/delimiter", defaults.delimiter),
+            decimal_separator=char("import/decimal_separator", defaults.decimal_separator),
+            encoding=encoding,
+            skip_header_lines=count("import/skip_header_lines", defaults.skip_header_lines),
+            skip_footer_lines=count("import/skip_footer_lines", defaults.skip_footer_lines),
+            skip_leading_columns=count("import/skip_leading_columns", defaults.skip_leading_columns),
+            skip_trailing_columns=count("import/skip_trailing_columns", defaults.skip_trailing_columns),
         )
 
     def _set_import_settings(self, settings: ImportSettings, persist: bool) -> None:
@@ -393,6 +407,11 @@ class _ImportMixin:
         fester 10s-Intervall statt eines Dateisystem-Watchers)."""
         if self.recording is None or self._watched_folder is None:
             return
+        # Waehrend der Bereinigungsdialog offen ist, bezieht er sich auf die
+        # aktuelle Bildzahl -- das Nachladen wartet bis zum naechsten Poll.
+        cleaning_dialog = getattr(self, "_cleaning_dialog", None)
+        if cleaning_dialog is not None and cleaning_dialog.isVisible():
+            return
         try:
             candidate_paths = sorted(self._watched_folder.glob("*.csv"))
         except OSError:
@@ -432,6 +451,10 @@ class _ImportMixin:
         # Ohne jeden Hinweis blieb unklar, warum ein erwartetes Bild nie
         # auftauchte. Reiner Laengen-Vergleich (nicht welche Pfade konkret
         # neu sind) reicht fuer eine kurze, nicht-blockierende Meldung.
+        # Eine inzwischen vollstaendig geschriebene und geladene Datei ist nicht
+        # mehr "uebersprungen".
+        loaded_paths = set(updated.paths)
+        updated.skipped_files = [(p, m) for p, m in updated.skipped_files if p not in loaded_paths]
         newly_skipped = len(updated.skipped_files) - len(self.recording.skipped_files)
         if newly_skipped > 0:
             self.statusBar().showMessage(
@@ -440,6 +463,10 @@ class _ImportMixin:
             )
         if updated.n_frames != self.recording.n_frames:
             self._apply_appended_recording(updated)
+        else:
+            # Sonst wuerde dieselbe fehlerhafte Datei bei JEDEM Poll (alle 10 s)
+            # erneut als "neu uebersprungen" gemeldet.
+            self.recording.skipped_files = updated.skipped_files
 
     def _apply_appended_recording(self, updated: Recording) -> None:
         """Uebernimmt eine per Live-Ordner-Ueberwachung erweiterte Recording,
@@ -474,6 +501,7 @@ class _ImportMixin:
             old_paths[self._eval_end_index]
             if self._eval_end_index is not None and 0 <= self._eval_end_index < old_n else None
         )
+        old_first_timestamp = self.recording.timestamps[0] if old_n else None
         self.recording = updated
         n = updated.n_frames
         new_index_by_path = {p: i for i, p in enumerate(updated.paths)}
@@ -489,6 +517,42 @@ class _ImportMixin:
             self._eval_end_index = new_index_by_path[eval_end_path]
         elif self._eval_end_index is not None:
             self._eval_end_index = max(0, min(n - 1, self._eval_end_index))
+
+        # Alles Frame-Index-basierte (ausgeblendete Bilder der Rohdaten-
+        # Bereinigung, Interpolations-Keyframes) ebenfalls ueber den Pfad
+        # umsetzen, sonst zeigt es nach einer Neusortierung auf andere Bilder.
+        def _remapped(index: int) -> int:
+            if 0 <= index < old_n:
+                return new_index_by_path.get(old_paths[index], index)
+            return index
+
+        self._excluded_frame_indices = {_remapped(i) for i in self._excluded_frame_indices}
+        for entry in self.roi_entries:
+            if entry.interp_start_frame is not None:
+                entry.interp_start_frame = _remapped(entry.interp_start_frame)
+            if entry.interp_end_frame is not None:
+                entry.interp_end_frame = _remapped(entry.interp_end_frame)
+
+        # Auch die Undo/Redo-Snapshots tragen Frame-Indizes der ALTEN Reihenfolge:
+        # ohne Umsetzung wuerde ein Strg+Z nach dem Nachladen das (mitgewachsene)
+        # Auswertungsende auf den alten Stand zurueckschneiden bzw. Bilder
+        # falsch ausblenden.
+        for snap in (*self._undo_stack, *self._redo_stack):
+            for key in ("auswertungsstart_frame", "auswertungsende_frame"):
+                value = snap.get(key)
+                if isinstance(value, int):
+                    follows = key == "auswertungsende_frame" and eval_end_was_at_latest and value >= old_n - 1
+                    snap[key] = n - 1 if follows else _remapped(value)
+            excluded = snap.get("bereinigung_ausgeblendete_frames")
+            if isinstance(excluded, list):
+                snap["bereinigung_ausgeblendete_frames"] = sorted(
+                    _remapped(i) for i in excluded if isinstance(i, int)
+                )
+            for roi_data in snap.get("rois") or []:
+                for key in ("interpolation_start", "interpolation_ende"):
+                    keyframe = roi_data.get(key)
+                    if isinstance(keyframe, dict) and isinstance(keyframe.get("frame"), int):
+                        keyframe["frame"] = _remapped(keyframe["frame"])
 
         self._global_level_range = (
             (float(updated.frames.min()), float(updated.frames.max())) if n else None
@@ -517,6 +581,12 @@ class _ImportMixin:
         self.spin_eval_end.blockSignals(False)
         self._update_timeline_markers()
 
+        # Kommt eine Datei ausser der Reihe VOR dem bisherigen ersten Bild an,
+        # aendert sich t0 der Laufzeit-Zeitachse -- sonst zeigten die Achsen,
+        # Cursor-Anzeige und Exporte falsche Laufzeiten.
+        if n and old_first_timestamp is not None and updated.timestamps[0] != old_first_timestamp:
+            self._apply_time_display_mode(self._time_display_mode)
+
         symbol = "o" if n <= MAX_FRAMES_WITH_SYMBOLS else None
         for entry in self.roi_entries:
             # Nur die Obergrenze mitwachsen lassen -- ein bereits vom Nutzer
@@ -542,11 +612,13 @@ class _ImportMixin:
         # muss bewusst erneut auf "Berechnen" klicken. Probenhöhen-Breiten
         # sind dagegen günstig genug (kein "Berechnen"-Knopf vorhanden,
         # siehe sample_height_ops.py), um sie automatisch neu zu berechnen.
-        if self._shrinkage_result is not None or self._shrinkage_results_by_mode:
+        if self._shrinkage_result is not None or any(v is not None for v in self._shrinkage_results_by_mode.values()):
             self._discard_shrinkage_results()
             self.lbl_shrinkage_result.setText(
                 "Neue Bilder hinzugekommen -- bitte erneut auf „Berechnen“ klicken."
             )
+            self.lbl_shrinkage_result.setToolTip("")
+            self._reset_shrinkage_polarity_label()
             self.shrinkage_curve.clear()
             self.shrinkage_curve.setVisible(False)
         if self._sample_height_entries:

@@ -217,6 +217,9 @@ def main_window(qapp):
     ueberschneidet."""
     from thermal_viewer.main_window import MainWindow
 
+    # Die Rueckfrage "Ungespeicherte Aenderungen" beim Schliessen waere ein
+    # modaler Dialog und wuerde die Test-Teardowns blockieren.
+    MainWindow._confirm_unsaved_on_close = False
     mw = MainWindow()
     yield mw
     mw.close()

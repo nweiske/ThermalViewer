@@ -28,7 +28,36 @@ permissions:
   contents: write
 
 jobs:
+  # Wandelt die Bedien-Checkliste (Word) bei JEDEM Release-Build automatisch in
+  # eine PDF um; die drei Build-Jobs unten legen diese PDF zu den uebrigen
+  # Dokumentationsdateien ins Archiv. Quelle: documentation/Checkliste_*.docx
+  # (nur diese Datei pflegen, die PDF wird nie eingecheckt).
+  docs-pdf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v7
+
+      - name: LibreOffice installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-writer fonts-liberation fonts-crosextra-carlito fonts-dejavu-core
+
+      - name: Checkliste in PDF umwandeln
+        run: |
+          mkdir -p pdf
+          soffice --headless --convert-to pdf --outdir pdf documentation/Checkliste_ThermalViewer_Bedienung.docx
+          test -s pdf/Checkliste_ThermalViewer_Bedienung.pdf
+
+      - name: PDF hochladen
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-pdf
+          path: pdf/Checkliste_ThermalViewer_Bedienung.pdf
+          retention-days: 7
+
   build-windows:
+    needs: docs-pdf
     runs-on: windows-latest
     steps:
       - name: Code auschecken
@@ -84,11 +113,17 @@ jobs:
           --add-data "thermal_viewer/resources/icon.ico;resources"
           --collect-all imageio_ffmpeg --collect-all imageio run.py
 
+      - name: Checkliste (PDF) holen
+        uses: actions/download-artifact@v8
+        with:
+          name: docs-pdf
+          path: documentation
+
       - name: Release-Archiv schnüren
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}"
-          Compress-Archive -Path dist/ThermalViewer.exe, README.md, documentation/Kurzanleitung.txt, documentation/Bedienungsanleitung.txt, documentation/Tastatur-Shortcuts.txt `
+          Compress-Archive -Path dist/ThermalViewer.exe, README.md, documentation/Kurzanleitung.txt, documentation/Bedienungsanleitung.txt, documentation/Tastatur-Shortcuts.txt, documentation/Checkliste_ThermalViewer_Bedienung.pdf `
             -DestinationPath "ThermalViewer-$version-windows10-11.zip"
 
       - name: Archiv hochladen
@@ -99,6 +134,7 @@ jobs:
           retention-days: 7
 
   build-windows7-legacy:
+    needs: docs-pdf
     runs-on: windows-latest
     steps:
       - name: Code auschecken
@@ -136,11 +172,17 @@ jobs:
           --add-data "thermal_viewer/resources/icon.ico;resources"
           --collect-all imageio_ffmpeg --collect-all imageio run.py
 
+      - name: Checkliste (PDF) holen
+        uses: actions/download-artifact@v8
+        with:
+          name: docs-pdf
+          path: documentation
+
       - name: Release-Archiv schnüren
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}"
-          Compress-Archive -Path dist/ThermalViewer.exe, README.md, documentation/Kurzanleitung.txt, documentation/Bedienungsanleitung.txt, documentation/Tastatur-Shortcuts.txt, requirements-win7.txt `
+          Compress-Archive -Path dist/ThermalViewer.exe, README.md, documentation/Kurzanleitung.txt, documentation/Bedienungsanleitung.txt, documentation/Tastatur-Shortcuts.txt, documentation/Checkliste_ThermalViewer_Bedienung.pdf, requirements-win7.txt `
             -DestinationPath "ThermalViewer-$version-windows7-legacy.zip"
 
       - name: Archiv hochladen
@@ -151,6 +193,7 @@ jobs:
           retention-days: 7
 
   build-linux:
+    needs: docs-pdf
     runs-on: ubuntu-latest
     steps:
       - name: Code auschecken
@@ -195,12 +238,18 @@ jobs:
           --add-data "thermal_viewer/resources/icon.ico:resources"
           --collect-all imageio_ffmpeg --collect-all imageio run.py
 
+      - name: Checkliste (PDF) holen
+        uses: actions/download-artifact@v8
+        with:
+          name: docs-pdf
+          path: documentation
+
       - name: Release-Archiv schnüren
         run: |
           version="${GITHUB_REF_NAME}"
           chmod +x dist/ThermalViewer
           mkdir -p stage
-          cp dist/ThermalViewer README.md documentation/Kurzanleitung.txt documentation/Bedienungsanleitung.txt documentation/Tastatur-Shortcuts.txt stage/
+          cp dist/ThermalViewer README.md documentation/Kurzanleitung.txt documentation/Bedienungsanleitung.txt documentation/Tastatur-Shortcuts.txt documentation/Checkliste_ThermalViewer_Bedienung.pdf stage/
           tar -czf "ThermalViewer-$version-linux.tar.gz" -C stage .
 
       - name: Archiv hochladen

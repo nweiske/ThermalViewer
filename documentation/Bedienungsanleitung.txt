@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - BEDIENUNGSANLEITUNG
 ================================================================
 
-Stand: 2026-11-07
+Stand: 2026-11-11
 
 Neueste Version und Downloads: https://github.com/nweiske/ThermalViewer
 Einen schnellen Einstieg bietet die Kurzanleitung.txt, alle
@@ -62,7 +62,9 @@ Linux: ThermalViewer-<version>-linux.tar.gz entpacken, einmalig
 "chmod +x ThermalViewer" ausführen, dann per Doppelklick oder
 "./ThermalViewer" starten. Nötig sind die üblichen Qt-Bibliotheken,
 unter Debian/Ubuntu z.B.:
-  sudo apt install libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1
+  sudo apt install libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 \
+    libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+    libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0
 
 Aus dem Quellcode: mit installiertem "uv" im Projektordner
   uv run python run.py
@@ -166,7 +168,8 @@ Die Zeitleiste unter dem Thermobild enthält:
   - Zahlenfeld        -> Frame-Nummer anzeigen/setzen
   - FPS-Feld          -> Abspielgeschwindigkeit
 Rechts daneben steht der Zeitstempel des Frames. Die Wiedergabe stoppt
-am letzten Frame; ein erneuter Klick auf Play startet wieder bei Frame 1.
+am Auswertungsende (Standard: letzter Frame); ein erneuter Klick auf Play
+startet wieder am Auswertungsstart (Standard: Frame 1).
 
 Die Statuszeile unten zeigt "Frame X/Y | Zeitstempel | Laufzeit",
 bei aktivem Live-Cursor zusätzlich dessen Zeile, Spalte und Wert.
@@ -530,6 +533,9 @@ prüfen (z.B. bei abweichender Bildauflösung).
 
 Das Laden eines Projekts leert den Rückgängig-Verlauf.
 
+Beim Beenden der App mit ungespeicherten Änderungen erscheint eine
+Rückfrage ("Speichern", "Verwerfen" oder "Abbrechen").
+
 
 ================================================================
 13. FENSTER UND PANELS ANORDNEN
@@ -606,7 +612,7 @@ Abweichende Formate lassen sich über den Datenimport-Manager lesen
 (Abschnitt 3).
 
 Der Zeitstempel wird aus dem Dateinamen gelesen, Standardmuster
-  Record_JJJJ-MM-TT_HH-MM-SS.csv
+  Record_YYYY-MM-DD_hh-mm-ss.csv
 z.B. Record_2026-07-23_07-43-17.csv = 23. Juli 2026, 07:43:17 Uhr.
 Passt der Dateiname nicht, wird ersatzweise das Änderungsdatum der
 Datei verwendet.
@@ -734,6 +740,8 @@ KENNGRÖSSE (Dropdown, wirkt sofort ohne neues "Berechnen"):
   - "Breite (quaderförmig, Median)": für Proben mit geraden, parallelen
     Kanten.
   - "Breite (rund, Äquator)": die breiteste Zeile, für runde Proben.
+In der Messart "Breite" gibt es keine Fläche; das Dropdown bietet dort
+"Breite (Probenfenster, Median)" und "Breite (Probenfenster, Maximum)".
 Bei gleichmäßiger Schrumpfung gilt näherungsweise: Flächen-Schwindung ≈
 2 × Breiten-Schwindung.
 

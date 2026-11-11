@@ -42,8 +42,12 @@ uv run python run.py
 - [Bedienungsanleitung](documentation/Bedienungsanleitung.txt) – alle
   Funktionen im Detail
 - [Tastatur-Shortcuts](documentation/Tastatur-Shortcuts.txt)
+- [Bedien-Checkliste](documentation/Checkliste_ThermalViewer_Bedienung.docx)
+  (Word; im Release-Zip als PDF)
 
-Alle drei sind reine Textdateien und werden im Release-Zip mitgeliefert.
+Die drei Textdateien werden im Release-Zip mitgeliefert, die Checkliste als
+PDF: der Release-Workflow wandelt die `.docx` bei jedem Build automatisch um
+(nur die `.docx` pflegen, die PDF wird nicht eingecheckt).
 
 ## Technik
 
@@ -104,7 +108,9 @@ nur bei grünen Tests):
   auf Ubuntu. Benötigt auf dem Zielsystem die üblichen Qt-Laufzeit-
   bibliotheken (u.a. `libgl1`, `libegl1`, `libxkbcommon0`, die `libxcb-*`-
   Pakete, `libdbus-1-3`, `libfontconfig1` – unter Debian/Ubuntu z.B. per
-  `sudo apt install libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1`
+  `sudo apt install libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1
+  libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0
+  libxcb-render-util0 libxcb-shape0 libxcb-xinerama0`
   nachinstallierbar). Vor dem Ausführen `chmod +x ThermalViewer` setzen.
 
 Jede Variante enthält neben der Anwendung die README und die drei Dokumentationsdateien.
@@ -117,7 +123,7 @@ git push origin v1.0.0
 Manueller Build (Windows, ohne Test-Lauf; entspricht `scripts/build_local.ps1`):
 
 ```
-uv run pyinstaller --noconfirm --clean --windowed --onefile --name ThermalViewer --icon thermal_viewer/resources/icon.ico --add-data "thermal_viewer/resources/icon.ico;resources" --collect-all imageio_ffmpeg --collect-all imageio run.py
+uv run pyinstaller --noconfirm --clean --windowed --onefile --noupx --name ThermalViewer --icon thermal_viewer/resources/icon.ico --add-data "thermal_viewer/resources/icon.ico;resources" --collect-all imageio_ffmpeg --collect-all imageio run.py
 ```
 
 Linux: ohne `--windowed`/`--icon`, `;` wird zu `:`. Die `--collect-all`-Flags

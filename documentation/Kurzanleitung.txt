@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - KURZANLEITUNG
 ================================================================
 
-Stand: 2026-11-07
+Stand: 2026-11-11
 
 Der typische Ablauf in fünf Schritten. Details zu jeder Funktion
 (Abschnittsnummern in Klammern) stehen in der Bedienungsanleitung.txt,

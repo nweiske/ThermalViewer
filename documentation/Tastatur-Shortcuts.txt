@@ -2,7 +2,7 @@
   THERMO-SEQUENZ-VIEWER - TASTATUR-SHORTCUTS
 ================================================================
 
-Stand: 2026-11-07
+Stand: 2026-11-11
 
 Details zu allen Funktionen: Bedienungsanleitung.txt.
 Neueste Version: https://github.com/nweiske/ThermalViewer
@@ -12,7 +12,8 @@ FRAME-NAVIGATION
 ----------------
   Pfeil rechts / links    -> einen Frame vor / zurück
   Bild-Auf / Bild-Ab      -> 10 Frames vor / zurück
-  Pos1 / Ende             -> erster / letzter Frame
+  Pos1 / Ende             -> Auswertungsstart / -ende (Standard: erster /
+                             letzter Frame)
   Leertaste               -> Wiedergabe starten/pausieren
 
 
@@ -31,9 +32,13 @@ HINWEISE
 - Alle Tasten wirken nicht, solange in ein Text- oder Zahlenfeld getippt
   wird. Erst nach Verlassen des Feldes (Klick woanders hin oder Tab) sind
   sie wieder aktiv.
-- Ist ein Knopf oder eine Checkbox fokussiert, schaltet die Leertaste
-  stattdessen genau dieses Element um.
+- Ist eine Checkbox oder ein umschaltbarer Knopf (z.B. "Messbereich
+  setzen") fokussiert, schaltet die Leertaste stattdessen genau dieses
+  Element um. Bei einem normalen Knopf (z.B. "Berechnen") startet sie
+  weiterhin die Wiedergabe.
 - Rückgängig / Wiederholen: Strg+Z / Strg+Y.
+- Esc bricht ein gerade scharf gestelltes Werkzeug ab (Messbereich setzen,
+  Maßstab, Messung, Probenhöhe, Querschnitt).
 
 
 MAUS IM BILD
